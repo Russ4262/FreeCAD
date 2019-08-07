@@ -1065,7 +1065,7 @@ class ObjectTagDressup:
         return self.pathData.pointIsOnPath(point)
 
     def pointAtBottom(self, obj, point):
-        if not self.pathData:
+        if not hasattr(self, 'pathData'):
             self.setup(obj)
         return self.pathData.pointAtBottom(point)
 
