@@ -36,6 +36,7 @@ import json
 
 from PathScripts.PathPostProcessor import PostProcessor
 from PySide import QtCore
+from math import degrees
 
 LOGLEVEL = False
 
@@ -110,6 +111,7 @@ class ObjectJob:
         obj.addProperty("App::PropertyBool", "SplitOutput", "Output", QtCore.QT_TRANSLATE_NOOP("PathJob","Split output into multiple gcode files"))
         obj.addProperty("App::PropertyEnumeration", "OrderOutputBy", "WCS", QtCore.QT_TRANSLATE_NOOP("PathJob", "If multiple WCS, order the output this way"))
         obj.addProperty("App::PropertyStringList", "Fixtures", "WCS", QtCore.QT_TRANSLATE_NOOP("PathJob", "The Work Coordinate Systems for the Job"))
+
         obj.OrderOutputBy = ['Fixture', 'Tool', 'Operation']
         obj.Fixtures = ['G54']
 
@@ -168,7 +170,17 @@ class ObjectJob:
             if model.ViewObject:
                 model.ViewObject.Visibility = False
             if models:
-                model.addObjects([createModelResourceClone(obj, base) for base in models])
+                for base in models:
+                    model.addObject(createModelResourceClone(obj, base))
+                    clone = FreeCAD.ActiveDocument.ActiveObject
+                    if not hasattr(clone, 'InitBase'):
+                        clone.addProperty('App::PropertyVectorDistance', 'InitBase',  'InitialPlacement', translate('PathSetupSheet', 'Initial base.Placement.Base values for model.'))
+                    if not hasattr(clone, 'InitAxis'):
+                        clone.addProperty('App::PropertyVectorDistance', 'InitAxis',  'InitialPlacement', translate('PathSetupSheet', 'Initial base.Placement.Rotation.Axis values for model.'))
+                    if not hasattr(clone, 'InitAngle'):
+                        clone.addProperty('App::PropertyFloat', 'InitAngle',  'InitialPlacement', translate('PathSetupSheet', 'Initial base.Placement.Rotation.Angle value for model.'))
+                    self.setupInitialClonePlacement(clone)
+                # model.addObjects([createModelResourceClone(obj, base) for base in models])
             obj.Model = model
 
         if hasattr(obj, 'Base'):
@@ -246,11 +258,10 @@ class ObjectJob:
                 FreeCAD.ActiveDocument.removeObject(name)
                 ops.Label = label
 
-
     def onDocumentRestored(self, obj):
+        self.setupSetupSheet(obj)
         self.setupBaseModel(obj)
         self.fixupOperations(obj)
-        self.setupSetupSheet(obj)
         obj.setEditorMode('Operations', 2) # hide
         obj.setEditorMode('Placement', 2)
 
@@ -259,6 +270,11 @@ class ObjectJob:
             processor = PostProcessor.load(obj.PostProcessor)
             self.tooltip = processor.tooltip
             self.tooltipArgs = processor.tooltipArgs
+        if obj.Model:
+            if len(obj.Model.Group) > 0:
+                for m in obj.Model.Group:
+                    self.setupInitialClonePlacement(m)
+                    m.purgeTouched()
 
     def baseObject(self, obj, base):
         '''Return the base object, not its clone.'''
@@ -393,6 +409,22 @@ class ObjectJob:
             for op in self.allOperations():
                 op.Path.Center = center
 
+    def setupInitialClonePlacement(self, clone):
+        clone.setEditorMode('InitBase', 0)  # visible, read & write permission
+        clone.setEditorMode('InitAxis', 0)
+        clone.setEditorMode('InitAngle', 0)
+        clone.InitBase.x = clone.Placement.Base.x
+        clone.InitBase.y = clone.Placement.Base.y
+        clone.InitBase.z = clone.Placement.Base.z
+        clone.InitAxis.x = clone.Placement.Rotation.Axis.x
+        clone.InitAxis.y = clone.Placement.Rotation.Axis.y
+        clone.InitAxis.z = clone.Placement.Rotation.Axis.z
+        clone.InitAngle = degrees(clone.Placement.Rotation.Angle)
+        clone.setEditorMode('InitBase', 1)  # visible, read-only permission
+        clone.setEditorMode('InitAxis', 1)
+        clone.setEditorMode('InitAngle', 1)
+
+
     @classmethod
     def baseCandidates(cls):
         '''Answer all objects in the current document which could serve as a Base for a job.'''
@@ -402,6 +434,7 @@ class ObjectJob:
     def isBaseCandidate(cls, obj):
         '''Answer true if the given object can be used as a Base for a job.'''
         return PathUtil.isValidBaseObject(obj) or isArchPanelSheet(obj)
+
 
 def Instances():
     '''Instances() ... Return all Jobs in the current active document.'''

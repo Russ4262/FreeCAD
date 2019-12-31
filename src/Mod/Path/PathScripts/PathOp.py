@@ -171,6 +171,7 @@ class ObjectOp(object):
         self.commandlist = None
         self.horizFeed = None
         self.horizRapid = None
+        self.axialRapid = None
         self.job = None
         self.model = None
         self.radius = None
@@ -459,7 +460,9 @@ class ObjectOp(object):
             self.vertFeed     ... vertical feed rate of assigned tool
             self.vertRapid    ... vertical rapid rate of assigned tool
             self.horizFeed    ... horizontal feed rate of assigned tool
-            self.horizRapid   ... norizontal rapid rate of assigned tool
+            self.horizRapid   ... horizontal rapid rate of assigned tool
+            self.axialFeed    ... axial feed rate of assigned tool
+            self.axialRapid   ... axial rapid rate of assigned tool
             self.tool         ... the actual tool being used
             self.radius       ... the main radius of the tool being used
             self.commandlist  ... a list for collecting all commands produced by the operation
@@ -495,8 +498,10 @@ class ObjectOp(object):
             else:
                 self.vertFeed = tc.VertFeed.Value
                 self.horizFeed = tc.HorizFeed.Value
+                self.axialFeed = 0.0
                 self.vertRapid = tc.VertRapid.Value
                 self.horizRapid = tc.HorizRapid.Value
+                self.axialRapid = 0.0
                 tool = tc.Proxy.getTool(tc)
                 if not tool or float(tool.Diameter) == 0:
                     FreeCAD.Console.PrintError("No Tool found or diameter is zero. We need a tool to build a Path.")

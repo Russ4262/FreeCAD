@@ -43,11 +43,13 @@ __url__ = "http://www.freecadweb.org"
 __doc__ = "Base class and properties for Path.Area based operations."
 __contributors__ = "russ4262 (Russell Johnson)"
 __createdDate__ = "2017"
-__scriptVersion__ = "2m testing"
-__lastModified__ = "2019-07-20 13:29 CST"
+__scriptVersion__ = "2j testing"
+__lastModified__ = "2019-07-12 00:11 CST"
 
 LOGLEVEL = PathLog.Level.INFO
 PathLog.setLevel(LOGLEVEL, PathLog.thisModule())
+# PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
+
 
 if LOGLEVEL is PathLog.Level.DEBUG:
     PathLog.trackModule()
@@ -108,6 +110,16 @@ class ObjectOp(PathOp.ObjectOp):
         if not hasattr(obj, 'EnableRotation'):
             obj.addProperty("App::PropertyEnumeration", "EnableRotation", "Rotation", QtCore.QT_TRANSLATE_NOOP("App::Property", "Enable rotation to gain access to pockets/areas not normal to Z axis."))
             obj.EnableRotation = ['Off', 'A(x)', 'B(y)', 'A & B']
+        if not hasattr(obj, 'WorkBase'):
+            obj.addProperty('App::PropertyVectorDistance', 'WorkBase',  'WorkPlane', translate('PathSetupSheet', 'Initial base.Placement.Base values for model.'))
+        if not hasattr(obj, 'WorkRotAxis'):
+            obj.addProperty('App::PropertyVectorDistance', 'WorkRotAxis',  'WorkPlane', translate('PathSetupSheet', 'Initial base.Placement.Rotation.Axis values for model.'))
+        if not hasattr(obj, 'WorkRotAngle'):
+            obj.addProperty('App::PropertyFloat', 'WorkRotAngle',  'WorkPlane', translate('PathSetupSheet', 'Initial base.Placement.Rotation.Angle value for model.'))
+        if not hasattr(obj, 'InvertWorkRotAngle'):
+            obj.addProperty('App::PropertyBool', 'InvertWorkRotAngle',  'WorkPlane', translate('PathSetupSheet', 'Initial base.Placement.Rotation.Angle value for model.'))
+        if not hasattr(obj, 'WorkPlaneFace'):
+            obj.addProperty('App::PropertyInteger', 'WorkPlaneFace',  'WorkPlane', translate('PathSetupSheet', 'Select the base face number to reference for the work plane.'))
 
     def initAreaOp(self, obj):
         '''initAreaOp(obj) ... overwrite if the receiver class needs initialisation.
@@ -244,6 +256,12 @@ class ObjectOp(PathOp.ObjectOp):
             PathLog.debug("Default OpDepths are Start: {}, and Final: {}".format(obj.OpStartDepth.Value, obj.OpFinalDepth.Value))
             PathLog.debug("Default Depths are Start: {}, and Final: {}".format(startDepth, finalDepth))
 
+        obj.WorkBase = FreeCAD.Vector(0, 0, 0)
+        obj.WorkRotAxis = FreeCAD.Vector(0, 0, 0)
+        obj.WorkRotAngle = 0.0
+        obj.InvertWorkRotAngle = False
+        obj.WorkPlaneFace = 0
+
         self.areaOpSetDefaultValues(obj, job)
 
     def areaOpSetDefaultValues(self, obj, job):
@@ -326,9 +344,12 @@ class ObjectOp(PathOp.ObjectOp):
         self.leadIn = 2.0  # pylint: disable=attribute-defined-outside-init
         self.cloneNames = [] # pylint: disable=attribute-defined-outside-init
         self.guiMsgs = []  # pylint: disable=attribute-defined-outside-init
-        self.tempObjectNames = []  # pylint: disable=attribute-defined-outside-init
         self.stockBB = PathUtils.findParentJob(obj).Stock.Shape.BoundBox # pylint: disable=attribute-defined-outside-init
         self.useTempJobClones('Delete')  # Clear temporary group and recreate for temp job clones
+
+        # Set working plane value
+        rotCmds = self.orientModelToWorkPlane(obj)
+        self.commandlist.extend(rotCmds)
 
         # Import OpFinalDepth from pre-existing operation for recompute() scenarios
         if self.defValsSet is True:
@@ -404,7 +425,7 @@ class ObjectOp(PathOp.ObjectOp):
         for shp in aOS:
             if len(shp) == 2:
                 (fc, iH) = shp
-                #     fc, iH,   sub,   angle, axis,      strtDep,             finDep
+                #    fc, iH,   sub,     angle, axis
                 tup = fc, iH, 'otherOp', 0.0, 'S', obj.StartDepth.Value, obj.FinalDepth.Value
                 shapes.append(tup)
             else:
@@ -488,8 +509,7 @@ class ObjectOp(PathOp.ObjectOp):
 
         self.useTempJobClones('Delete')  # Delete temp job clone group and contents
         self.guiMessage('title', None, show=True)  # Process GUI messages to user
-        for ton in self.tempObjectNames:  # remove temporary objects by name
-            FreeCAD.ActiveDocument.removeObject(ton)
+        self.resetModelToInitPlacement(obj)
         PathLog.debug("obj.Name: " + str(obj.Name) + "\n\n")
         return sims
 
@@ -956,3 +976,87 @@ class ObjectOp(PathOp.ObjectOp):
             return True
         else:
             return False
+
+    # Working plane methods
+    def orientModelToWorkPlane(self, obj):
+        # https://forum.freecadweb.org/viewtopic.php?t=8187#p67122
+        surf = None
+        norm = None
+        gcode = []
+        returnGcode = False
+        factor = 1
+        wpfMag = abs(obj.WorkPlaneFace)
+        Job = PathUtils.findParentJob(obj)
+        base = Job.Model.Group[0]
+
+        if obj.WorkPlaneFace < 0:
+            factor = -1
+        if obj.InvertWorkRotAngle is True:
+            factor = factor * -1
+
+        if wpfMag == 0 or wpfMag > len(base.Shape.Faces):
+            self.resetModelToInitPlacement(obj)
+        else:
+            base.Placement.Base = base.InitBase
+            base.Placement.Rotation = FreeCAD.Rotation(base.InitAxis, base.InitAngle)
+            sub = base.Shape.getElement('Face' + str(obj.WorkPlaneFace))
+            if hasattr(sub.Surface, 'Axis'):
+                # obj.WorkRotAxis = sub.Surface.Axis
+                PathLog.info("sub.Surface.Axis: {}".format(sub.Surface.Axis))
+                surf = sub.Surface.Axis
+            elif hasattr(sub.Surface, 'normal'):
+                # obj.WorkRotAxis = sub.Surface.Axis
+                PathLog.info("sub.Surface.normal(0,0): {}".format(sub.Surface.normal(0,0)))
+                surf = sub.Surface.normal(0,0)
+
+            if hasattr(sub, 'normalAt'):
+                # obj.WorkRotAxis = sub.normalAt(0,0)
+                PathLog.info("sub.normalAt: {}".format(sub.normalAt(0,0)))
+                norm = sub.normalAt(0,0)
+
+            # diff = FreeCAD.Vector(0, 0, 1).sub(sub.Surface.Axis)
+            # PathLog.info("diff with (0, 0, 1): {}".format(diff))
+        if surf is not None and norm is not None:
+            import Draft
+            rotVect = FreeCAD.Vector(norm.x * factor, norm.y * factor, norm.z * factor)
+            rotAng = 0.0
+            rotAxis = FreeCAD.Vector(0, 0, 0)
+            (rotAng, rotAxis) = self.workFaceAnalysis(Job, norm)
+            if rotAng is not False:
+                if obj.InvertWorkRotAngle is True:
+                    rotAng -= 180.0
+                axisVect = FreeCAD.Vector(1, 0, 0)
+                if rotAxis == 'B':
+                    axisVect = FreeCAD.Vector(0, 1, 0)
+                Draft.rotate([base], rotAng, center=FreeCAD.Vector(0, 0, 0), axis=axisVect, copy=False)
+                returnGcode = True
+            base.purgeTouched()
+        if returnGcode is True:
+            obj.WorkRotAngle = rotAng
+            obj.WorkRotAxis = axisVect
+            gcode.append(Path.Command('G0', {'Z': obj.SafeHeight.Value, 'F': self.vertRapid}))
+            gcode.append(Path.Command('G1', {rotAxis: rotAng, 'F': self.axialFeed}))
+        return gcode
+        
+
+
+    def workFaceAnalysis(self, Job, norm):
+        import math
+        if PathGeom.isRoughly(norm.x, 0.0, Job.GeometryTolerance) is True:
+            rotAxis = 'A'
+            rotAng = 90.0 - math.degrees(math.atan(norm.z/norm.y))
+            return (rotAng, rotAxis)
+        elif PathGeom.isRoughly(norm.y, 0.0, Job.GeometryTolerance) is True:
+            rotAxis = 'B'
+            rotAng = 90.0 - math.degrees(math.atan(norm.z/norm.x))
+            return (rotAng, rotAxis)
+        else:
+            return (False, False)
+
+    def resetModelToInitPlacement(self, obj):
+        PathLog.info("Reseting model placement.")
+        Job = PathUtils.findParentJob(obj)
+        base = Job.Model.Group[0]
+        base.Placement.Base = base.InitBase
+        base.Placement.Rotation = FreeCAD.Rotation(base.InitAxis, base.InitAngle)
+        base.purgeTouched()

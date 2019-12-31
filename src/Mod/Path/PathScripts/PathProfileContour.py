@@ -110,8 +110,15 @@ class ObjectContour(PathProfileBase.ObjectProfile):
         obj.OpStartDepth = obj.OpStockZMax
         obj.OpFinalDepth = obj.OpStockZMin
 
+
 def SetupProperties():
-    return [p for p in PathProfileBase.SetupProperties() if p != 'Side']
+    setup = [p for p in PathProfileBase.SetupProperties() if p != 'Side']
+    setup.append('WorkBase')
+    setup.append('WorkRotAxis')
+    setup.append('WorkRotAngle')
+    setup.append('InvertWorkRotAngle')
+    setup.append('WorkPlaneFace')
+    return setup
 
 def Create(name, obj = None):
     '''Create(name) ... Creates and returns a Contour operation.'''

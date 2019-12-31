@@ -52,6 +52,7 @@ class Template:
 
     HorizRapid = 'HorizRapid'
     VertRapid = 'VertRapid'
+    AxialRapid = 'AxialRapid'
     CoolantMode = 'CoolantMode'
     SafeHeightOffset = 'SafeHeightOffset'
     SafeHeightExpression = 'SafeHeightExpression'
@@ -61,7 +62,9 @@ class Template:
     FinalDepthExpression = 'FinalDepthExpression'
     StepDownExpression = 'StepDownExpression'
 
-    All = [HorizRapid, VertRapid, CoolantMode, SafeHeightOffset, SafeHeightExpression, ClearanceHeightOffset, ClearanceHeightExpression, StartDepthExpression, FinalDepthExpression, StepDownExpression]
+    All = [HorizRapid, VertRapid, AxialRapid, CoolantMode, SafeHeightOffset, SafeHeightExpression,
+           ClearanceHeightOffset, ClearanceHeightExpression, StartDepthExpression,
+           FinalDepthExpression, StepDownExpression]
 
 
 def _traverseTemplateAttributes(attrs, codec):
@@ -101,6 +104,7 @@ class SetupSheet:
         self.obj = obj
         obj.addProperty('App::PropertySpeed', 'VertRapid',  'ToolController', translate('PathSetupSheet', 'Default speed for horizontal rapid moves.'))
         obj.addProperty('App::PropertySpeed', 'HorizRapid', 'ToolController', translate('PathSetupSheet', 'Default speed for vertical rapid moves.'))
+        obj.addProperty('App::PropertySpeed', 'AxialRapid',  'ToolController', translate('PathSetupSheet', 'Default speed for axial rapid moves.'))
 
         obj.addProperty('App::PropertyStringList', 'CoolantModes', 'CoolantMode', translate('PathSetupSheet', 'Coolant Modes'))
         obj.addProperty('App::PropertyEnumeration', 'CoolantMode', 'CoolantMode', translate('PathSetupSheet', 'Default coolant mode.'))
@@ -139,7 +143,7 @@ class SetupSheet:
         return None
 
     def hasDefaultToolRapids(self):
-        return PathGeom.isRoughly(self.obj.VertRapid.Value, 0) and PathGeom.isRoughly(self.obj.HorizRapid.Value, 0)
+        return PathGeom.isRoughly(self.obj.VertRapid.Value, 0) and PathGeom.isRoughly(self.obj.HorizRapid.Value, 0) and PathGeom.isRoughly(self.obj.AxialRapid.Value, 0)
 
     def hasDefaultOperationHeights(self):
         if self.obj.SafeHeightOffset.UserString != FreeCAD.Units.Quantity(self.DefaultSafeHeightOffset).UserString:
@@ -187,6 +191,7 @@ class SetupSheet:
         if includeRapids:
             attrs[Template.VertRapid]  = self.obj.VertRapid.UserString
             attrs[Template.HorizRapid] = self.obj.HorizRapid.UserString
+            attrs[Template.AxialRapid] = self.obj.AxialRapid.UserString
 
         if includeCoolantMode:
             attrs[Template.CoolantMode] = self.obj.CoolantMode

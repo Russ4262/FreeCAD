@@ -24,6 +24,7 @@
 
 import PathScripts.PathAreaOp as PathAreaOp
 import PathScripts.PathLog as PathLog
+import FreeCAD
 
 from PySide import QtCore
 
@@ -78,6 +79,34 @@ class ObjectProfile(PathAreaOp.ObjectOp):
                 obj.setEditorMode('MiterLimit', 0)
             else:
                 obj.setEditorMode('MiterLimit', 2)
+
+        if prop == 'WorkPlaneFace':
+            if obj.WorkPlaneFace != 0:
+                # self.setWorkPlaneValues(obj)
+                pass
+
+        if False:
+            # Check GUI selection for work plane reference
+            if FreeCAD.GuiUp:
+                import FreeCADGui
+                workPlaneSub = None
+                workPlaneBase = None
+
+                Sel = FreeCADGui.Selection.getSelectionEx(FreeCAD.ActiveDocument.Name)
+                if len(Sel) == 1:
+                    if len(Sel[0].SubElementNames) > 0:
+                        for sub in Sel[0].SubElementNames:
+                            if sub[:5] == 'Face':
+                                workPlaneSub = sub
+                                workPlaneBase = FreeCADGui.Selection.getSelection()[0].Name
+                                PathLog.info("Using {} for work plane reference.".format(sub))
+                                break
+                    else:
+                        PathLog.warning("No specific sub-element found in selection for work plane reference.")
+                else:
+                    PathLog.warning("No face selected to set working plane reference.")
+                if workPlaneSub is not None:
+                    self.setWorkPlaneValues(obj, workPlaneBase, workPlaneSub)
 
     def areaOpOnDocumentRestored(self, obj):
         for prop in ['UseComp', 'JoinType']:
