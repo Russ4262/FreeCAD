@@ -50,8 +50,8 @@ __url__ = "http://www.freecadweb.org"
 __doc__ = "Class and implementation of Mill Facing operation."
 __contributors__ = "roivai[FreeCAD], russ4262 (Russell Johnson)"
 __created__ = "2016"
-__scriptVersion__ = "4g Usable"
-__lastModified__ = "2020-01-10 00:26 CST"
+__scriptVersion__ = "4h Usable"
+__lastModified__ = "2020-01-10 17:24 CST"
 
 PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 #PathLog.trackModule(PathLog.thisModule())
@@ -628,19 +628,13 @@ class ObjectSurface(PathOp.ObjectOp):
                     lMax = lyrDep + 2.0
 
                 # Convert current layer data to gcode
-                (pnt, endpnt, cmds) = self._planarScanToGcode(obj, lyr, prevDepth, lyrDep, LN, lnCnt, lMax)
+                cmds = self._planarScanToGcode(obj, lyr, prevDepth, lyrDep, LN, lnCnt, lMax)
 
                 # append layer commands to operation command list
                 if len(cmds) > 0:
                     cmdFlag = True
                     self.gcodeCmds.append(Path.Command('N (Line ' + str(lnCnt) + ')', {}))
-
-                    # Generate beginning of, line, and end of line commands
-                    bLC = self.beginLineCommands(obj, pnt, lyr, lnCnt)
-                    eLC = self.endLineCommands(obj, pnt, endpnt, lMax, lyr, lnCnt)
-                    self.gcodeCmds.extend(bLC)
                     self.gcodeCmds.extend(cmds)
-                    self.gcodeCmds.extend(eLC)
                 # Eif
 
                 lnCnt += 1
@@ -673,13 +667,9 @@ class ObjectSurface(PathOp.ObjectOp):
         optimize = obj.Optimize
         lenCLP = len(CLP)
         lastCLP = len(CLP) - 1
-        zMin = prvDep
-        zMax = prvDep
-        prcs = False
-        prcsCnt = 0
-
+        prcs = True
+        HOLDPNTS = []
         onHold = False
-        holdPoint = ocl.Point(float("inf"), float("inf"), float("inf"))
 
         # if obj.HandleMultipleFeatures == 'Individually':
         #    self.faceZMax = fc.BoundBox.ZMax
@@ -689,6 +679,7 @@ class ObjectSurface(PathOp.ObjectOp):
         nxt = ocl.Point(float("inf"), float("inf"), float("inf"))
         pnt = ocl.Point(float("inf"), float("inf"), float("inf"))
         travVect = ocl.Point(float("inf"), float("inf"), float("inf"))
+        frstPnt = ocl.Point(float("inf"), float("inf"), float("inf"))
         begPnt = ocl.Point(float("inf"), float("inf"), float("inf"))
 
         # Set values for first gcode point in layer
@@ -699,6 +690,9 @@ class ObjectSurface(PathOp.ObjectOp):
             pnt.z = layDep
         
         # Save beginning point
+        frstPnt.x = pnt.x
+        frstPnt.y = pnt.y
+        frstPnt.z = pnt.z
         begPnt.x = pnt.x
         begPnt.y = pnt.y
         begPnt.z = pnt.z
@@ -708,16 +702,17 @@ class ObjectSurface(PathOp.ObjectOp):
         prev.y = pnt.y + 25.2
         prev.z = pnt.z
 
+        if obj.LayerMode == 'Multi-pass':
+            if obj.OptimizeMore is True:
+                if pnt.z >= prvDep:
+                    prcs = False
+                    # if onHold is False:  # GIVEN!
+                    onHold = True
+                    output.append('BH')
+                    HOLDPNTS.append(pnt)
+
         # Begin processing ocl points list into gcode
         for i in range(0, lenCLP):
-            prcs = True
-
-            # Update zMin and zMax values for the current line
-            #if pnt.z < zMin:
-            #    zMin = pnt.z
-            #if pnt.z > zMax:
-            #    zMax = pnt.z
-
             # Calculate next point for consideration with current point
             if i < lastCLP:
                 nxt.x = CLP[i + 1].x
@@ -731,27 +726,27 @@ class ObjectSurface(PathOp.ObjectOp):
 
             if obj.LayerMode == 'Multi-pass':
                 if obj.OptimizeMore is True:
-                    if pnt.z > prvDep:
-                        prcs = False
+                    if pnt.z >= prvDep:
+                        # prcs = False
                         if onHold is False:
                             onHold = True
-                            holdPoint = pnt
-                            output.append(Path.Command('N (Hold start)', {}))
-                            output.append(Path.Command('G0', {'Z': lMax + 2.0, 'F': self.horizRapid}))
+                            output.append('BH')
+                            HOLDPNTS.append(pnt)
                         else:
                             prcs = False
                     else:
                         if onHold is True:
                             onHold = False
-                            output.append(Path.Command('N (Hold end)', {}))
-                            output.append(Path.Command('G0', {'X': pnt.x, 'Y': pnt.y}))
-                            output.append(Path.Command('G0', {'Z': prvDep}))
-                            output.append(Path.Command('G1', {'Z': pnt.z, 'F': self.vertFeed}))
+                            output.append('EH')
+                            HOLDPNTS.append(pnt)  # try (prev)
 
             # Process point
             if prcs is True:
-                iPOL = self.isPointOnLine(FreeCAD.Vector(prev.x, prev.y, prev.z), FreeCAD.Vector(nxt.x, nxt.y, nxt.z), FreeCAD.Vector(pnt.x, pnt.y, pnt.z))
-                if optimize is False or iPOL is False:
+                if optimize is True:
+                    iPOL = self.isPointOnLine(FreeCAD.Vector(prev.x, prev.y, prev.z), FreeCAD.Vector(nxt.x, nxt.y, nxt.z), FreeCAD.Vector(pnt.x, pnt.y, pnt.z))
+                    if iPOL is False:
+                        output.append(Path.Command('G1', {'X': pnt.x, 'Y': pnt.y, 'Z': pnt.z, 'F': self.horizFeed}))
+                else:
                     output.append(Path.Command('G1', {'X': pnt.x, 'Y': pnt.y, 'Z': pnt.z, 'F': self.horizFeed}))
 
                 # Rotate point data
@@ -763,6 +758,9 @@ class ObjectSurface(PathOp.ObjectOp):
             pnt.x = nxt.x
             pnt.y = nxt.y
             pnt.z = nxt.z
+
+            # Reset process flag
+            prcs = True
         # Efor
 
         # save last point for insertion into next layer CLP as start point
@@ -770,7 +768,55 @@ class ObjectSurface(PathOp.ObjectOp):
         # endPnt.z = obj.OpStockZMax.Value + obj.DepthOffset.Value
         # self.layerEndPnt = endPnt
 
-        return (begPnt, pnt, output)
+        for O in output:
+            PathLog.info(f'OUT cmd: {O}')
+
+        # Address first point in line being a beginning hold point (useless point)
+        if len(output) == 1:
+            if output[0] == 'BH':
+                output = list()  # Delete solitary begin hold marker
+            elif output[0] == 'BH' and output[1] == 'EH':
+                bh0 = output.pop(0)  # Remove initial begin hold marker
+                eh0 = output.pop(0)  # Remove initial end hold marker
+                bhpt = HOLDPNTS.pop(0)  # Remove initial hold
+                begPnt = HOLDPNTS.pop(0)  # Move begPnt to end of first hold
+                # ehpt = HOLDPNTS.pop(0)  # Move begPnt to end of first hold
+                # output.insert(0, ehpt)
+
+        # Process holds
+        OUT = list()
+        mrkrs = 0
+        for o in output:
+            if o == 'BH':
+                mrkrs += 1
+                hpt = HOLDPNTS.pop(0)  # Load hold point
+                if hpt.z > prvDep:
+                    OUT.append(Path.Command('N0 (Skip high Hold start)', { }))
+                else:
+                    OUT.append(Path.Command('N1 (Hold start)', { }))
+                    OUT.append(Path.Command('G0', {'Z': lMax + 2.0, 'F': self.vertRapid}))
+                    OUT.append(Path.Command('N1 (hs)', {}))
+            elif o == 'EH':
+                mrkrs += 1
+                hpt = HOLDPNTS.pop(0)  # Load hold point
+                OUT.append(Path.Command('N2 (Hold end)', { }))
+                OUT.append(Path.Command('G0', {'X': hpt.x, 'Y': hpt.y, 'F': self.horizRapid}))
+                OUT.append(Path.Command('G0', {'Z': prvDep, 'F': self.vertRapid}))
+                # OUT.append(Path.Command('G1', {'Z': hpt.z, 'F': self.vertFeed}))
+                OUT.append(Path.Command('N2 (he)', { }))
+            else:
+                OUT.append(o)
+        
+        # Generate beginning of, line, and end of line commands
+        bLC = self.beginLineCommands(obj, begPnt, lyr, lnCnt)
+        eLC = self.endLineCommands(obj, frstPnt, pnt, lMax, lyr, lnCnt)
+        if len(OUT) > 0:
+            bLC.extend(OUT)
+        else:
+            bLC.extend(output)
+        bLC.extend(eLC)
+
+        return bLC
 
     def _processPlanarHolds(self, obj, scanCLP):
         # Process all HOLDs in gcode command list
