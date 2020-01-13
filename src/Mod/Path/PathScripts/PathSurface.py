@@ -1339,6 +1339,120 @@ class ObjectSurface(PathOp.ObjectOp):
             PNTS.append(FreeCAD.Vector(p.x, p.y, p.z))
         return PNTS  # pdc.getCLPoints()
 
+    # Methods sourced from PathAreaOp and PathProfileBase modules
+    # These methods used for creating boundary shape for faces
+    # The boundary shape should be created prior to makeCompound()...
+    # ... and prior to creation of lineset for union with envelope.
+    def _buildPathArea(self, obj, baseobject, isHole, start, getsim):
+        '''_buildPathArea(obj, baseobject, isHole, start, getsim) ... internal function.
+            Original version copied from PathAreaOp.py module.  This version is modified.'''
+        PathLog.track()
+        area = Path.Area()
+        area.setPlane(PathUtils.makeWorkplane(baseobject))
+        area.add(baseobject)
+
+        areaParams = self.areaOpAreaParams(obj, isHole) # pylint: disable=assignment-from-no-return
+
+        heights = [i for i in self.depthparams]
+        PathLog.debug('depths: {}'.format(heights))
+        area.setParams(**areaParams)
+        obj.AreaParams = str(area.getParams())
+
+        PathLog.debug("Area with params: {}".format(area.getParams()))
+
+        sections = area.makeSections(mode=0, project=self.areaOpUseProjection(obj), heights=heights)
+        PathLog.debug("sections = %s" % sections)
+        shapelist = [sec.getShape() for sec in sections]
+        PathLog.debug("shapelist = %s" % shapelist)
+
+        pathParams = self.areaOpPathParams(obj, isHole) # pylint: disable=assignment-from-no-return
+        pathParams['shapes'] = shapelist
+        pathParams['feedrate'] = self.horizFeed
+        pathParams['feedrate_v'] = self.vertFeed
+        pathParams['verbose'] = True
+        pathParams['resume_height'] = obj.SafeHeight.Value
+        pathParams['retraction'] = obj.ClearanceHeight.Value
+        pathParams['return_end'] = True
+        # Note that emitting preambles between moves breaks some dressups and prevents path optimization on some controllers
+        pathParams['preamble'] = False
+
+        if not self.areaOpRetractTool(obj):
+            pathParams['threshold'] = 2.001 * self.radius
+
+        if self.endVector is not None:
+            pathParams['start'] = self.endVector
+        elif PathOp.FeatureStartPoint & self.opFeatures(obj) and obj.UseStartPoint:
+            pathParams['start'] = obj.StartPoint
+
+        obj.PathParams = str({key: value for key, value in pathParams.items() if key != 'shapes'})
+        PathLog.debug("Path with params: {}".format(obj.PathParams))
+
+        (pp, end_vector) = Path.fromShapes(**pathParams)
+        PathLog.debug('pp: {}, end vector: {}'.format(pp, end_vector))
+        self.endVector = end_vector # pylint: disable=attribute-defined-outside-init
+
+        simobj = None
+        if getsim:
+            areaParams['Thicken'] = True
+            areaParams['ToolRadius'] = self.radius - self.radius * .005
+            area.setParams(**areaParams)
+            sec = area.makeSections(mode=0, project=False, heights=heights)[-1].getShape()
+            simobj = sec.extrude(FreeCAD.Vector(0, 0, baseobject.BoundBox.ZMax))
+
+        return pp, simobj
+
+    def areaOpAreaParams(self, obj, isHole):
+        '''areaOpAreaParams(obj, isHole) ... returns dictionary with area parameters.
+        Do not overwrite.'''
+        params = {}
+        params['Fill'] = 0
+        params['Coplanar'] = 0
+        params['SectionCount'] = -1
+
+        offset = 0.0
+        if obj.UseComp:
+            offset = self.radius + obj.OffsetExtra.Value
+        if obj.Side == 'Inside':
+            offset = 0 - offset
+        if isHole:
+            offset = 0 - offset
+        params['Offset'] = offset
+
+        jointype = ['Round', 'Square', 'Miter']
+        params['JoinType'] = jointype.index(obj.JoinType)
+
+        if obj.JoinType == 'Miter':
+            params['MiterLimit'] = obj.MiterLimit
+
+        return params
+
+    def areaOpPathParams(self, obj, isHole):
+        '''areaOpPathParams(obj, isHole) ... returns dictionary with path parameters.
+        Do not overwrite.'''
+        params = {}
+
+        # Reverse the direction for holes
+        if isHole:
+            direction = "CW" if obj.Direction == "CCW" else "CCW"
+        else:
+            direction = obj.Direction
+
+        if direction == 'CCW':
+            params['orientation'] = 0
+        else:
+            params['orientation'] = 1
+        if not obj.UseComp:
+            if direction == 'CCW':
+                params['orientation'] = 1
+            else:
+                params['orientation'] = 0
+
+        return params
+
+    def areaOpUseProjection(self, obj):
+        '''areaOpUseProjection(obj) ... returns True'''
+        return True
+
     # Main rotational scan functions
     def _rotationalDropCutterOp(self, obj, stl, bb):
         self.resetTolerance = 0.0000001  # degrees
