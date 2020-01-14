@@ -1365,31 +1365,6 @@ class ObjectSurface(PathOp.ObjectOp):
         shapelist = [sec.getShape() for sec in sections]
         PathLog.debug("shapelist = %s" % shapelist)
 
-        pathParams = self.areaOpPathParams(obj, isHole) # pylint: disable=assignment-from-no-return
-        pathParams['shapes'] = shapelist
-        pathParams['feedrate'] = self.horizFeed
-        pathParams['feedrate_v'] = self.vertFeed
-        pathParams['verbose'] = True
-        pathParams['resume_height'] = obj.SafeHeight.Value
-        pathParams['retraction'] = obj.ClearanceHeight.Value
-        pathParams['return_end'] = True
-        # Note that emitting preambles between moves breaks some dressups and prevents path optimization on some controllers
-        pathParams['preamble'] = False
-
-        if not self.areaOpRetractTool(obj):
-            pathParams['threshold'] = 2.001 * self.radius
-
-        if self.endVector is not None:
-            pathParams['start'] = self.endVector
-        elif PathOp.FeatureStartPoint & self.opFeatures(obj) and obj.UseStartPoint:
-            pathParams['start'] = obj.StartPoint
-
-        obj.PathParams = str({key: value for key, value in pathParams.items() if key != 'shapes'})
-        PathLog.debug("Path with params: {}".format(obj.PathParams))
-
-        (pp, end_vector) = Path.fromShapes(**pathParams)
-        PathLog.debug('pp: {}, end vector: {}'.format(pp, end_vector))
-        self.endVector = end_vector # pylint: disable=attribute-defined-outside-init
 
         simobj = None
         if getsim:
