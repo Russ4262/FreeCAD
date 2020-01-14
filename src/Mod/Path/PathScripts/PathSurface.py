@@ -50,8 +50,8 @@ __url__ = "http://www.freecadweb.org"
 __doc__ = "Class and implementation of Mill Facing operation."
 __contributors__ = "roivai[FreeCAD], russ4262 (Russell Johnson)"
 __created__ = "2016"
-__scriptVersion__ = "4i Usable"
-__lastModified__ = "2020-01-12 12:12 CST"
+__scriptVersion__ = "4j Testing"
+__lastModified__ = "2020-01-14 15:37 CST"
 
 PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 #PathLog.trackModule(PathLog.thisModule())
@@ -99,25 +99,33 @@ class ObjectSurface(PathOp.ObjectOp):
         obj.addProperty('App::PropertyVectorDistance', 'DropCutterExtraOffset', 'Algorithm', QtCore.QT_TRANSLATE_NOOP('App::Property', 'Additional offset to the selected bounding box'))
         obj.addProperty('App::PropertyEnumeration', 'ScanType', 'Algorithm', QtCore.QT_TRANSLATE_NOOP('App::Property', 'Planar: Flat, 3D surface scan.  Rotational: 4th-axis rotational scan.'))
         obj.addProperty('App::PropertyEnumeration', 'LayerMode', 'Algorithm', QtCore.QT_TRANSLATE_NOOP('App::Property', 'The completion mode for the operation: single or multi-pass'))
+
         obj.addProperty('App::PropertyEnumeration', 'CutMode', 'Path', QtCore.QT_TRANSLATE_NOOP('App::Property', 'The direction that the toolpath should go around the part: Climb(ClockWise) or Conventional(CounterClockWise)'))
         obj.addProperty('App::PropertyEnumeration', 'CutPattern', 'Path', QtCore.QT_TRANSLATE_NOOP('App::Property', 'Clearing pattern to use'))
         obj.addProperty('App::PropertyFloat', 'CutPatternAngle', 'Path', QtCore.QT_TRANSLATE_NOOP('App::Property', 'Yaw angle for certain clearing patterns'))
+        obj.addProperty('App::PropertyEnumeration', 'HandleMultipleFeatures', 'Path', QtCore.QT_TRANSLATE_NOOP('App::Property', 'Choose how to process multiple Base Geometry features.'))
         obj.addProperty('App::PropertyBool', 'IgnoreInternalFeatures', 'Path', QtCore.QT_TRANSLATE_NOOP('App::Property', 'Ignore internal feature areas within a larger selected face.'))
         obj.addProperty('App::PropertyDistance', 'PathLineAdjustment', 'Path', QtCore.QT_TRANSLATE_NOOP('App::Property', 'Adjust the length of the path scan-line ends, trimming or extending.'))
+
         obj.addProperty('App::PropertyEnumeration', 'RotationAxis', 'Rotational', QtCore.QT_TRANSLATE_NOOP('App::Property', 'The model will be rotated around this axis.'))
         obj.addProperty('App::PropertyFloat', 'StartIndex', 'Rotational', QtCore.QT_TRANSLATE_NOOP('App::Property', 'Start index(angle) for rotational scan'))
         obj.addProperty('App::PropertyFloat', 'StopIndex', 'Rotational', QtCore.QT_TRANSLATE_NOOP('App::Property', 'Stop index(angle) for rotational scan'))
         obj.addProperty('App::PropertyFloat', 'CutterTilt', 'Rotational', QtCore.QT_TRANSLATE_NOOP('App::Property', 'Stop index(angle) for rotational scan'))
+
         obj.addProperty('App::PropertyDistance', 'DepthOffset', 'Surface', QtCore.QT_TRANSLATE_NOOP('App::Property', 'Z-axis offset from the surface of the object'))
-        obj.addProperty('App::PropertyEnumeration', 'HandleMultipleFeatures', 'Path', QtCore.QT_TRANSLATE_NOOP('App::Property', 'Choose how to process multiple Base Geometry features.'))
         obj.addProperty('App::PropertyBool', 'OptimizeLinearPaths', 'Surface', QtCore.QT_TRANSLATE_NOOP('App::Property', 'Enable optimization of linear paths (co-linear points). Removes unnecessary co-linear points from G-Code output.'))
         obj.addProperty('App::PropertyDistance', 'SampleInterval', 'Surface', QtCore.QT_TRANSLATE_NOOP('App::Property', 'The Sample Interval. Small values cause long wait times'))
         obj.addProperty('App::PropertyBool', 'FinishPassOnly', 'Surface', QtCore.QT_TRANSLATE_NOOP('App::Property', 'Only perform the finish pass: profile and final depth areas.'))
         obj.addProperty('App::PropertyPercent', 'StepOver', 'Surface', QtCore.QT_TRANSLATE_NOOP('App::Property', 'Step over percentage of the drop cutter path'))
         obj.addProperty('App::PropertyBool', 'OptimizeLinearTransitions', 'Surface', QtCore.QT_TRANSLATE_NOOP('App::Property', 'Enable separate, more complex optimization of paths'))
+
         obj.addProperty('App::PropertyBool', 'IgnoreWaste', 'Waste', QtCore.QT_TRANSLATE_NOOP('App::Property', 'Ignore areas that proceed below specified depth.'))
         obj.addProperty('App::PropertyFloat', 'IgnoreWasteDepth', 'Waste', QtCore.QT_TRANSLATE_NOOP('App::Property', 'Depth used to identify waste areas to ignore.'))
         obj.addProperty('App::PropertyBool', 'ReleaseFromWaste', 'Waste', QtCore.QT_TRANSLATE_NOOP('App::Property', 'Cut through waste to depth at model edge, releasing the model.'))
+
+        # For debugging
+        obj.addProperty('App::PropertyString', 'AreaParams', 'Surface')
+        obj.setEditorMode('AreaParams', 1)  # hide
 
         obj.CutMode = ['Conventional', 'Climb']
         obj.BoundBox = ['BaseBoundBox', 'Stock']
@@ -173,6 +181,8 @@ class ObjectSurface(PathOp.ObjectOp):
     def opExecute(self, obj):
         '''opExecute(obj) ... process surface operation'''
         PathLog.track()
+        processOp = False
+        self.UseComp = True
 
         # Instantiate additional class operation variables
         self.resetOpVariables()
@@ -245,6 +255,7 @@ class ObjectSurface(PathOp.ObjectOp):
                 if obj.HandleMultipleFeatures == 'Collectively':
                     allEnvs = list()
                     for fc in FACES:
+                        self._extractFaceOffset(obj, baseobject, isHole)
                         faceEnv = PathUtils.getEnvelope(fc, depthparams=depthparams)
                         if obj.IgnoreInternalFeatures is True:
                             # Identify all internal holes in each face
@@ -261,7 +272,7 @@ class ObjectSurface(PathOp.ObjectOp):
                                         faceEnv = faceEnv.cut(wireFaceEnv)
                         allEnvs.append(faceEnv)
                     ENVS = Part.makeCompound(allEnvs)
-                    final = self.opProcessBase(obj, base, ENVS)
+                    final = self.opProcessBase(obj, base, ENVS) if processOp else []
                     self.commandlist.extend(final)
                 elif obj.HandleMultipleFeatures == 'Individually':
                     for fc in FACES:
@@ -288,12 +299,12 @@ class ObjectSurface(PathOp.ObjectOp):
                             else:
                                 allEnvs.append(faceEnv)
                             ENVS = Part.makeCompound(allEnvs)
-                            final = self.opProcessBase(obj, base, ENVS)
+                            final = self.opProcessBase(obj, base, ENVS) if processOp else []
                             allEnvs = None
                         else:
                             faceEnv = PathUtils.getEnvelope(fc, depthparams=depthparams)
                             ENVS = Part.makeCompound([faceEnv])
-                            final = self.opProcessBase(obj, base, faceEnv)
+                            final = self.opProcessBase(obj, base, faceEnv) if processOp else []
                         self.commandlist.extend(final)
                         ENVS = None
                     final = None
@@ -548,6 +559,7 @@ class ObjectSurface(PathOp.ObjectOp):
             if obj.StepOver < 1:
                 obj.StepOver = 1
             self.cutOut = (self.cutter.getDiameter() * (float(obj.StepOver) / 100.0))
+            self.radius = self.cutter.getDiameter() / 2
 
     # Main planar scan functions
     def _planarDropCutSingle(self, obj, stl, bb, base, compoundFaces=None):
@@ -1343,25 +1355,32 @@ class ObjectSurface(PathOp.ObjectOp):
     # These methods used for creating boundary shape for faces
     # The boundary shape should be created prior to makeCompound()...
     # ... and prior to creation of lineset for union with envelope.
-    def _buildPathArea(self, obj, baseobject, isHole, start, getsim):
-        '''_buildPathArea(obj, baseobject, isHole, start, getsim) ... internal function.
-            Original version copied from PathAreaOp.py module.  This version is modified.'''
+    def _extractFaceOffset(self, obj, baseobject, isHole, getsim=False):
+        '''_buildPathArea(obj, baseobject, isHole, getsim) ... internal function.
+            Original _buildPathArea() version copied from PathAreaOp.py module.  This version is modified.'''
         PathLog.track()
-        area = Path.Area()
-        area.setPlane(PathUtils.makeWorkplane(baseobject))
-        area.add(baseobject)
+        area = Path.Area()  # Create instance of Area() class object
+        area.setPlane(PathUtils.makeWorkplane(baseobject))  # Set working plane
+        area.add(baseobject)  # obj.Shape to use for extracting offset
 
         areaParams = self.areaOpAreaParams(obj, isHole) # pylint: disable=assignment-from-no-return
+        area.setParams(**areaParams)  # set parameters
 
-        heights = [i for i in self.depthparams]
-        PathLog.debug('depths: {}'.format(heights))
-        area.setParams(**areaParams)
+        # Save parameters in obj.AreaParams for debugging
         obj.AreaParams = str(area.getParams())
-
         PathLog.debug("Area with params: {}".format(area.getParams()))
 
-        sections = area.makeSections(mode=0, project=self.areaOpUseProjection(obj), heights=heights)
+        offsetShape = area.getShape()
+        return offsetShape
+
+        # set heights from depthparams for multiple/full sections
+        heights = [i for i in self.depthparams]
+        PathLog.debug('depths: {}'.format(heights))
+
+        # Make sections
+        sections = area.makeSections(mode=0, project=True, heights=heights)
         PathLog.debug("sections = %s" % sections)
+        # Retreive shape from area object
         shapelist = [sec.getShape() for sec in sections]
         PathLog.debug("shapelist = %s" % shapelist)
 
@@ -1369,7 +1388,7 @@ class ObjectSurface(PathOp.ObjectOp):
         simobj = None
         if getsim:
             areaParams['Thicken'] = True
-            areaParams['ToolRadius'] = self.radius - self.radius * .005
+            areaParams['ToolRadius'] = self.radius  # * .995
             area.setParams(**areaParams)
             sec = area.makeSections(mode=0, project=False, heights=heights)[-1].getShape()
             simobj = sec.extrude(FreeCAD.Vector(0, 0, baseobject.BoundBox.ZMax))
@@ -1382,51 +1401,25 @@ class ObjectSurface(PathOp.ObjectOp):
         params = {}
         params['Fill'] = 0
         params['Coplanar'] = 0
-        params['SectionCount'] = -1
+        params['SectionCount'] = 1  # -1 = full(all per depthparams??) sections
 
         offset = 0.0
-        if obj.UseComp:
-            offset = self.radius + obj.OffsetExtra.Value
-        if obj.Side == 'Inside':
+        if self.UseComp is True:
+            offset = self.radius + obj.PathLineAdjustment # obj.OffsetExtra.Value
+        if cutSide == 'In':
             offset = 0 - offset
         if isHole:
             offset = 0 - offset
         params['Offset'] = offset
 
+        '''
         jointype = ['Round', 'Square', 'Miter']
-        params['JoinType'] = jointype.index(obj.JoinType)
+        params['JoinType'] = jointype.index(obj.JoinType)  # define obj.JoinType
 
         if obj.JoinType == 'Miter':
-            params['MiterLimit'] = obj.MiterLimit
-
+            params['MiterLimit'] = obj.MiterLimit  # define obj.MiterLimit
+        '''
         return params
-
-    def areaOpPathParams(self, obj, isHole):
-        '''areaOpPathParams(obj, isHole) ... returns dictionary with path parameters.
-        Do not overwrite.'''
-        params = {}
-
-        # Reverse the direction for holes
-        if isHole:
-            direction = "CW" if obj.Direction == "CCW" else "CCW"
-        else:
-            direction = obj.Direction
-
-        if direction == 'CCW':
-            params['orientation'] = 0
-        else:
-            params['orientation'] = 1
-        if not obj.UseComp:
-            if direction == 'CCW':
-                params['orientation'] = 1
-            else:
-                params['orientation'] = 0
-
-        return params
-
-    def areaOpUseProjection(self, obj):
-        '''areaOpUseProjection(obj) ... returns True'''
-        return True
 
     # Main rotational scan functions
     def _rotationalDropCutterOp(self, obj, stl, bb):
@@ -2359,6 +2352,7 @@ class ObjectSurface(PathOp.ObjectOp):
             self.startTime = 0.0
             self.endTime = 0.0
             self.cutOut = 0.0
+            self.radius = 0.0
             self.deleteList = []
         return True
 
@@ -2399,6 +2393,7 @@ class ObjectSurface(PathOp.ObjectOp):
             del self.startTime
             del self.endTime
             del self.cutOut
+            del self.radius
             del self.deleteList
         return True
 
@@ -2549,7 +2544,6 @@ class ObjectSurface(PathOp.ObjectOp):
         p.y = pnt.y
         p.z = pnt.z
         return p
-
 
 
 def SetupProperties():
