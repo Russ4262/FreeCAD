@@ -50,8 +50,8 @@ __url__ = "http://www.freecadweb.org"
 __doc__ = "Class and implementation of Mill Facing operation."
 __contributors__ = "roivai[FreeCAD], russ4262 (Russell Johnson)"
 __created__ = "2016"
-__scriptVersion__ = "6a"
-__lastModified__ = "2020-01-22 23:43 CST"
+__scriptVersion__ = "6b"
+__lastModified__ = "2020-01-23 16:07 CST"
 
 PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 # PathLog.trackModule(PathLog.thisModule())
@@ -173,16 +173,20 @@ class ObjectSurface(PathOp.ObjectOp):
             obj.setEditorMode('OptimizeLinearTransitions', 2)  # hide
             obj.setEditorMode('FinishPassOnly', 2)
 
+        if obj.FinishPassOnly is True:
+            obj.setEditorMode('CutPattern', 2)
+            obj.setEditorMode('CutPatternAngle', 2)
+
         # Disable IgnoreWaste feature
         obj.setEditorMode('IgnoreWaste', 2)
         obj.setEditorMode('IgnoreWasteDepth', 2)
         obj.setEditorMode('ReleaseFromWaste', 2)
 
-        # Disable feature under development
-        obj.setEditorMode('FinishPassOnly', 2)
-
     def onChanged(self, obj, prop):
-        if prop == "Algorithm":
+        if prop == "FinishPassOnly":
+            if obj.FinishPassOnly is True:
+                obj.CutPattern = 'Line'
+        if prop in ['Algorithm', 'FinishPassOnly', 'LayerMode', 'ScanType']:
             self.setEditorProperties(obj)
 
     def opOnDocumentRestored(self, obj):
@@ -227,6 +231,9 @@ class ObjectSurface(PathOp.ObjectOp):
         # Save cutout value and tool radius
         self.cutOut = (self.cutter.getDiameter() * (float(obj.StepOver) / 100.0))
         self.radius = self.cutter.getDiameter() / 2
+
+        if obj.FinishPassOnly is True:
+            obj.CutPattern = 'Line'
 
         output = ''
         if obj.Comment != '':
@@ -385,7 +392,7 @@ class ObjectSurface(PathOp.ObjectOp):
         self.deleteOpVariables()
 
         execTime = time.time() - startTime
-        PathLog.info(f'Operation time: {execTime} sec.')
+        PathLog.info('Operation time: {} sec.'.format(execTime))
 
     def opSetDefaultValues(self, obj, job):
         '''opSetDefaultValues(obj, job) ... initialize defaults'''
@@ -527,7 +534,10 @@ class ObjectSurface(PathOp.ObjectOp):
                 if obj.LayerMode == 'Single-pass':
                     final = self._planarDropCutSingle(obj, self.stl, bb, base, compoundFaces)
                 elif obj.LayerMode == 'Multi-pass':
-                    final = self._planarDropCutMulti(obj, self.stl, bb, base, compoundFaces)
+                    if obj.FinishPassOnly is True:
+                        final = self._planarDropCutMultiFinishPass(obj, self.stl, bb, base, compoundFaces)
+                    else:
+                        final = self._planarDropCutMulti(obj, self.stl, bb, base, compoundFaces)
             elif obj.ScanType == 'Rotational':
                 # Avoid division by zero in rotational scan calculations
                 if obj.FinalDepth.Value <= 0.0:
@@ -595,10 +605,10 @@ class ObjectSurface(PathOp.ObjectOp):
         # Limit cut pattern angle
         if obj.CutPatternAngle < 0.0:
             obj.CutPatternAngle = 0.0
-            PathLog.error(translate('PathSurface', 'Cut pattern angle limits are 0 to 90 degrees.'))
-        if obj.CutPatternAngle >= 90.0:
-            obj.CutPatternAngle = 90.0
-            PathLog.error(translate('PathSurface', 'Cut pattern angle limits are 0 to 90 degrees.'))
+            PathLog.error(translate('PathSurface', 'Cut pattern angle limits are 0 to 360 degrees.'))
+        if obj.CutPatternAngle >= 360.0:
+            obj.CutPatternAngle = 360.0
+            PathLog.error(translate('PathSurface', 'Cut pattern angle limits are 0 to 360 degrees.'))
 
         # Limit StepOver to natural number percentage
         if obj.StepOver > 100:
@@ -610,6 +620,9 @@ class ObjectSurface(PathOp.ObjectOp):
         if obj.AvoidLastXFaces < 0:
             obj.AvoidLastXFaces = 0
             PathLog.error(translate('PathSurface', 'AvoidLastXFaces: Only zero or positive values permitted.'))
+        if obj.AvoidLastXFaces > 100:
+            obj.AvoidLastXFaces = 100
+            PathLog.error(translate('PathSurface', 'AvoidLastXFaces: Avoid last X faces count limited to 100.'))
 
     # Main planar scan functions
     def _planarDropCutSingle(self, obj, stl, bb, base, compoundFaces=None):
@@ -687,7 +700,7 @@ class ObjectSurface(PathOp.ObjectOp):
             (LN, first, last) = LINES[ln]
             brkFlg = False
             cmds = []
-            cmds.append(Path.Command(f'N (Begin line {str(ln)}.)', {}))
+            cmds.append(Path.Command('N (Begin line {}.)'.format(str(ln)), {}))
             if obj.CutPattern == 'Line':
                 if obj.HandleMultipleFeatures == 'Collectively':
                     # Go to clearance height between collective faces/regions
@@ -710,10 +723,10 @@ class ObjectSurface(PathOp.ObjectOp):
                     pass
 
             # Convert line data to gcode
-            cmds.append(Path.Command(f'N (Line {str(ln)} commands.)', {}))
+            cmds.append(Path.Command('N (Line {} commands.)'.format(str(ln)), {}))
             cmds.extend(self._planarSinglepassProcess(obj, LN))
 
-            cmds.append(Path.Command(f'N (Line {str(ln)} closing.)', {}))
+            cmds.append(Path.Command('N (Line {} closing.)'.format(str(ln)), {}))
             if obj.CutPattern == 'Line':
                 if obj.HandleMultipleFeatures == 'Collectively':
                     # Go to clearance height between collective faces/regions
@@ -727,7 +740,7 @@ class ObjectSurface(PathOp.ObjectOp):
                 elif obj.HandleMultipleFeatures == 'Individually':
                     pass
 
-            cmds.append(Path.Command(f'N (End of line {str(ln)}.)', {}))
+            cmds.append(Path.Command('N (End of line {}.)'.format(str(ln)), {}))
             # save line commands
             GCODE.extend(cmds)
         # Efor
@@ -752,6 +765,7 @@ class ObjectSurface(PathOp.ObjectOp):
         lenScans = len(SCANS)
         lastScanIdx = lenScans - 1
 
+        # Pre-process SCAN data, identifying collinear lines, suggesting gap or avoided feature.
         COLIN = list()  # List of collinear-with-previous-line flags
         if obj.CutPattern == 'Line':
             prvFirst = FreeCAD.Vector(SCANS[0][0].x + 5, SCANS[0][0].y - 9, 3.0)
@@ -828,6 +842,8 @@ class ObjectSurface(PathOp.ObjectOp):
                 lenPNTS = len(PNTS)
 
                 if lenPNTS > 0:
+                    # Temporarily remove break marker from line data
+                    # The marker will be returned to the line data later
                     if PNTS[0] == 'BRK':
                         brk = PNTS.pop(0)
                         brkFlg = True
@@ -842,13 +858,14 @@ class ObjectSurface(PathOp.ObjectOp):
                     else:
                         if lMax > lyrMax:
                             lyrMax = lMax
+                    # Return break marker to beginning of line data
                     if brkFlg is True:
                         PNTS.insert(0, 'BRK')
                     cnt += 1
                     LINES.append((PNTS, first, last, lMax))
             # Efor
 
-            # Cycle through each pre-processed lines
+            # Cycle through each pre-processed line of scan data
             lenLINES = len(LINES)
             for ln in range(0, lenLINES):
                 (PNTS, first, last, lMax) = LINES[ln]
@@ -861,17 +878,17 @@ class ObjectSurface(PathOp.ObjectOp):
                     prevFirst = first
                     prevLast = last
 
+                # Pre-line conversion Gcode commands
                 if obj.CutPattern == 'Line':
                     cmds.append(Path.Command('G0', {'X': first.x, 'Y': first.y, 'F': self.horizRapid}))
                 elif obj.CutPattern == 'ZigZag':
                     if PNTS[0] == 'BRK':
-                        # brk = PNTS.pop(0)
                         brkFlg = True
                     if ln == 0:
                         cmds.append(Path.Command('G0', {'X': first.x, 'Y': first.y, 'F': self.horizRapid}))
                     else:
                         # if prevLast to first > stepover, raise to safeheight?
-                        prevLastToFirst = first.sub(prevLast).Length
+                        prevLastToFirst = first.sub(prevLast).Length  # get length of vector difference
                         if prevLastToFirst > self.cutOut:  # obj.StepDown.Value:
                             cmds.append(Path.Command('G0', {'Z': obj.SafeHeight.Value, 'F': self.vertRapid}))
                             cmds.append(Path.Command('G0', {'X': first.x, 'Y': first.y, 'F': self.horizRapid}))
@@ -897,6 +914,7 @@ class ObjectSurface(PathOp.ObjectOp):
                 if lMax > clrLine:
                     clrLine = lMax + 2.0
 
+                # Post-line conversion Gcode commands
                 if obj.CutPattern == 'Line':
                     if obj.OptimizeLinearTransitions is False:
                         clrLine = obj.SafeHeight.Value
@@ -929,6 +947,132 @@ class ObjectSurface(PathOp.ObjectOp):
                 LYR.append(Path.Command('N (End of layer ' + str(lyr) + ')', {}))
                 GCODE.extend(LYR)
         # Efor
+        return GCODE
+
+    def _planarDropCutMultiFinishPass(self, obj, stl, bb, base, compoundFaces=None):
+        # Source base is self._planarDropCutSingle()
+        GCODE = [Path.Command('G0', {'Z': obj.ClearanceHeight.Value, 'F': self.vertRapid})]
+        GCODE.append(Path.Command('N (Beginning of Single-pass layer.)', {}))
+
+        # Compute number and size of stepdowns, and final depth
+        depthparams = [obj.FinalDepth.Value]
+        lenDP = len(depthparams)
+
+        # Scan the piece to depth
+        pdc = self._planarGetPDC(stl, depthparams[lenDP - 1], obj.SampleInterval.Value)
+        SCANS = self._planarGetLineScans(obj, pdc, base, compoundFaces)
+        lenScans = len(SCANS)
+
+        if obj.CutPattern == 'ZigZag':
+            NEWSCANS = list()
+            COLIN = list()  # List of collinear-with-previous-line flags
+            InLine = list()
+            prvFirst = FreeCAD.Vector(SCANS[0][0].x + 5, SCANS[0][0].y - 9, 3.0)
+            odd = False  # odd/even line flag
+            for ln in range(0, lenScans):
+                LN = SCANS[ln]
+                lenLN = len(LN)
+                first = LN[0]
+                last = LN[lenLN - 1]
+                # Test if current LN is collinear with previous line (jumped over internal feature)
+                endPnt = FreeCAD.Vector(last.x, last.y, 0.0)
+                pointP = FreeCAD.Vector(first.x, first.y, 0.0)
+                if self.isCollinear(prvFirst, endPnt, pointP):
+                    COLIN.append('Y')
+                    if odd is True:
+                        SCANS[ln].insert(0, 'BRK')  # add BREAK marker to beginning of scan line data
+                        InLine.append(SCANS[ln])
+                    else:
+                        if InLine[0][0] != 'BRK':
+                            InLine[0].insert(0, 'BRK')
+                        InLine.insert(0, SCANS[ln])
+                else:
+                    if len(InLine) > 0:  # add previous collinear set to NEWSCANS
+                        NEWSCANS.extend(InLine)
+                    InLine = [SCANS[ln]]  # reset InLine, adding current LN as first entry
+                    if odd is True:  # toggle odd/even line flag
+                        odd = False
+                    else:
+                        odd = True
+                    COLIN.append('N')
+                    prvFirst = pointP
+            NEWSCANS.extend(InLine)  # add previous collinear set to N
+            SCANS = NEWSCANS
+
+        # Apply depth offset
+        if obj.DepthOffset.Value != 0.0:
+            self._planarApplyDepthOffset(SCANS, obj.DepthOffset.Value)
+
+        # Pre-process each scan line in layer: Single-pass has only one layer
+        LINES = list()
+        for ln in range(0, lenScans):
+            LN = SCANS[ln]
+            numPts = len(LN)
+            if LN[0] == 'BRK':
+                first = LN[1]
+            else:
+                first = LN[0]
+            last = LN[numPts - 1]
+            LINES.append((LN, first, last))
+
+        # Send cutter to x,y position of first point on first line
+        (LN, first, last) = LINES[0]
+        GCODE.append(Path.Command('G0', {'X': first.x, 'Y': first.y, 'F': self.horizRapid}))
+
+        # Cycle through each line in the scan
+        lenLINES = len(LINES)
+        for ln in range(0, lenLINES):
+            (LN, first, last) = LINES[ln]
+            brkFlg = False
+            cmds = []
+            cmds.append(Path.Command('N (Begin line {}.)'.format(str(ln)), {}))
+            if obj.CutPattern == 'Line':
+                if obj.HandleMultipleFeatures == 'Collectively':
+                    # Go to clearance height between collective faces/regions
+                    cmds.append(Path.Command('G0', {'Z': obj.SafeHeight.Value, 'F': self.vertRapid}))
+                    cmds.append(Path.Command('G0', {'X': first.x, 'Y': first.y, 'F': self.horizRapid}))
+                elif obj.HandleMultipleFeatures == 'Individually':
+                    cmds.append(Path.Command('G0', {'Z': obj.SafeHeight.Value, 'F': self.vertRapid}))
+                    cmds.append(Path.Command('G0', {'X': first.x, 'Y': first.y, 'F': self.horizRapid}))
+            elif obj.CutPattern == 'ZigZag':
+                if LN[0] == 'BRK':
+                    brk = LN.pop(0)
+                    brkFlg = True
+                if brkFlg is True:
+                    cmds.append(Path.Command('G0', {'Z': obj.SafeHeight.Value, 'F': self.vertRapid}))
+                    cmds.append(Path.Command('G0', {'X': first.x, 'Y': first.y, 'F': self.horizRapid}))
+
+                if obj.HandleMultipleFeatures == 'Collectively':
+                    pass
+                elif obj.HandleMultipleFeatures == 'Individually':
+                    pass
+
+            # Convert line data to gcode
+            cmds.append(Path.Command('N (Line {} commands.)'.format(str(ln)), {}))
+            cmds.extend(self._planarSinglepassProcess(obj, LN))
+
+            cmds.append(Path.Command('N (Line {} closing.)'.format(str(ln)), {}))
+            if obj.CutPattern == 'Line':
+                if obj.HandleMultipleFeatures == 'Collectively':
+                    # Go to clearance height between collective faces/regions
+                    cmds.append(Path.Command('N (Go to safe height)', {}))
+                    cmds.append(Path.Command('G0', {'Z': obj.SafeHeight.Value, 'F': self.vertRapid}))
+                elif obj.HandleMultipleFeatures == 'Individually':
+                    pass
+            elif obj.CutPattern == 'ZigZag':
+                if obj.HandleMultipleFeatures == 'Collectively':
+                    pass
+                elif obj.HandleMultipleFeatures == 'Individually':
+                    pass
+
+            cmds.append(Path.Command('N (End of line {}.)'.format(str(ln)), {}))
+            # save line commands
+            GCODE.extend(cmds)
+        # Efor
+
+        # Set previous depth
+        GCODE.append(Path.Command('N (End of layer.)', {}))
+
         return GCODE
 
     def _planarSinglepassProcess(self, obj, PNTS):
@@ -1359,7 +1503,7 @@ class ObjectSurface(PathOp.ObjectOp):
         zHghtTrgt = 0.0
 
         if isPlanar(fc) and isVertical(fc):
-            PathLog.info(f'Face{faceIdx + 1} is planar and vertical.')
+            PathLog.info('Face{} is planar and vertical.'.format(faceIdx + 1))
             LengthFwd = 2.0
         else:
             LengthFwd = (fc.BoundBox.ZMax - fc.BoundBox.ZMin + 1.0) * 2
@@ -1372,7 +1516,7 @@ class ObjectSurface(PathOp.ObjectOp):
             rWire = Part.Wire(Part.__sortEdges__(fc.Wires[w].Edges))
             if rWire.isClosed() is False:
                 makeEnvFlag = True
-                PathLog.warning(f'Face{faceIdx} requires use of envelope for extrusion. Internal features might be ignored.')
+                PathLog.warning('Face{} requires use of envelope for extrusion. Internal features might be ignored.'.format(faceIdx))
                 break
 
         # Loop through each wire in face, extracting offset shape
@@ -2447,7 +2591,7 @@ class ObjectSurface(PathOp.ObjectOp):
         CEH = obj.ToolController.Tool.CuttingEdgeHeight if hasattr(obj.ToolController.Tool, 'CuttingEdgeHeight') else 0
         CEA = obj.ToolController.Tool.CuttingEdgeAngle if hasattr(obj.ToolController.Tool, 'CuttingEdgeAngle') else 0
 
-        PathLog.debug(f'ToolType: {obj.ToolController.Tool.ToolType}')
+        PathLog.debug('ToolType: {}'.format(obj.ToolController.Tool.ToolType))
         if obj.ToolController.Tool.ToolType == 'EndMill':
             # Standard End Mill
             return ocl.CylCutter(diam_1, (CEH + lenOfst))
