@@ -50,8 +50,8 @@ __url__ = "http://www.freecadweb.org"
 __doc__ = "Class and implementation of Mill Facing operation."
 __contributors__ = "roivai[FreeCAD], russ4262 (Russell Johnson)"
 __created__ = "2016"
-__scriptVersion__ = "5f Testing"
-__lastModified__ = "2020-01-22 16:08 CST"
+__scriptVersion__ = "6a"
+__lastModified__ = "2020-01-22 23:43 CST"
 
 PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 # PathLog.trackModule(PathLog.thisModule())
@@ -120,6 +120,7 @@ class ObjectSurface(PathOp.ObjectOp):
         obj.addProperty("App::PropertyEnumeration", "HandleMultipleFeatures", "Surface", QtCore.QT_TRANSLATE_NOOP("App::Property", "Choose how to process multiple Base Geometry features."))
         obj.addProperty("App::PropertyDistance", "SampleInterval", "Surface", QtCore.QT_TRANSLATE_NOOP("App::Property", "The Sample Interval. Small values cause long wait times"))
         obj.addProperty("App::PropertyPercent", "StepOver", "Surface", QtCore.QT_TRANSLATE_NOOP("App::Property", "Step over percentage of the drop cutter path"))
+        obj.addProperty("App::PropertyInteger", "AvoidLastXFaces", "Surface", QtCore.QT_TRANSLATE_NOOP("App::Property", "Avoid cutting the last 'X' faces in the Base Geometry list of selected faces."))
 
         obj.addProperty("App::PropertyBool", "IgnoreWaste", "Waste", QtCore.QT_TRANSLATE_NOOP("App::Property", "Ignore areas that proceed below specified depth."))
         obj.addProperty("App::PropertyFloat", "IgnoreWasteDepth", "Waste", QtCore.QT_TRANSLATE_NOOP("App::Property", "Depth used to identify waste areas to ignore."))
@@ -196,13 +197,16 @@ class ObjectSurface(PathOp.ObjectOp):
     def opExecute(self, obj):
         '''opExecute(obj) ... process surface operation'''
         PathLog.track()
+        deleteTempsFlag = True  # Set to False for debugging
 
         # mark beginning of operation
         startTime = time.time()
 
         # Create temporary group for temporary objects
-        deleteTempsFlag = True  # Set to False for debugging
         self.tempGroupName = 'tmpGrp_' + str(startTime)
+        if PathLog.getLevel(PathLog.thisModule()) == 4:
+            deleteTempsFlag = False
+            self.tempGroupName = 'debugTempGrp_' + str(startTime)
         FreeCAD.ActiveDocument.addObject('App::DocumentObjectGroup', self.tempGroupName)
         self.tempGroupName = FreeCAD.ActiveDocument.ActiveObject.Name
         # Add temp object to temp group folder with following code:
@@ -248,66 +252,100 @@ class ObjectSurface(PathOp.ObjectOp):
 
         depthparams = PathUtils.depth_params(obj.ClearanceHeight.Value, obj.SafeHeight.Value, obj.StartDepth.Value*2, obj.StepDown.Value, 0.0, obj.FinalDepth.Value)
 
+        addFlag = False
+        voidFlag = False
         if obj.Base:  # The user has selected subobjects from the base.  Pre-Process each.
             PathLog.debug('obj.Base exists. Pre-processing for selected faces.')
+            baseSubTuples = list()
             FACES = list()
+            VOIDS = list()
             oneBase = [obj.Base[0][0], True]
             sub0 = getattr(obj.Base[0][0].Shape, obj.Base[0][1][0])
             minHeight = sub0.BoundBox.ZMax
             maxHeight = sub0.BoundBox.ZMin
-            for (base, subsList) in obj.Base:
-                for sub in subsList:
-                    shape = getattr(base.Shape, sub)
-                    if isinstance(shape, Part.Face):
-                        faceIdx = int(sub[4:]) - 1
-                        if oneBase[0] is not base:
-                            # Cancel op: Only one model base allowed in the operation
-                            oneBase[1] = False
-                            PathLog.error(translate('PathSurface', '3D Surface cancelled. Only one base model permitted in the operation.'))
-                            return False
+            # Separate selected faces into (base, face) tuples
+            for (bs, SBS) in obj.Base:
+                for sb in SBS:
+                    if oneBase[0] is not bs:
+                        # Cancel op: Only one model base allowed in the operation
+                        oneBase[1] = False
+                        PathLog.error(translate('PathSurface', '3D Surface cancelled. Only one base model permitted in the operation.'))
+                        return False
+                    baseSubTuples.append((bs, sb))  # (base, sub)
+
+            faceCnt = len(baseSubTuples)
+            add = faceCnt - obj.AvoidLastXFaces
+            for bst in range(0, faceCnt):
+                (base, sub) = baseSubTuples[bst]
+                shape = getattr(base.Shape, sub)
+                if isinstance(shape, Part.Face):
+                    faceIdx = int(sub[4:]) - 1
+                    if bst < add:
                         FACES.append((shape, faceIdx))
+                        PathLog.info(translate('PathSurface', 'Adding Face') + f'{faceIdx + 1}')
+                        # Record min/max zHeights of added faces
                         if shape.BoundBox.ZMax > maxHeight:
                             maxHeight = shape.BoundBox.ZMax
                         if shape.BoundBox.ZMin < minHeight:
                             minHeight = shape.BoundBox.ZMin
-
-        if obj.Base:  # The user has selected subobjects from the base.  Process each.
+                    else:
+                        VOIDS.append((shape, faceIdx))
+                        PathLog.info(translate('PathSurface', 'Avoiding Face') + f'{faceIdx + 1}')
             if len(FACES) > 0:
-                PathLog.debug('obj.Base exists. Processing selected faces.')
-                # if minHeight > obj.FinalDepth.Value:
-                #    obj.FinalDepth.Value = minHeight
-                if obj.OptimizeLinearTransitions is True and len(FACES) > 1:
-                    PathLog.warning(translate('PathSurface', "Multiple faces selected. \nWARNING: The `OptimizeLinearTransitions` algorithm might produce incorrect transitional paths between face regions. \nSeparate out faces to fix problem."))
+                addFlag = True
+            if len(VOIDS) > 0:
+                voidFlag = True
 
-                faceCutAreaShapes = list()
-                for (fcshp, faceIdx) in FACES:
-                    # faceCutArea = self._createFacialCutArea(obj, oneBase[0], fcshp, faceIdx)
-                    faceCutAreaShp = self._createFacialCutArea(obj, oneBase[0], fcshp, faceIdx)
-                    if faceCutAreaShp is not False:
-                        # faceCutAreaShapes.append(faceCutArea.Shape)
-                        faceCutAreaShapes.append(faceCutAreaShp)
+        # Convert avoid faces to avoid areas
+        if voidFlag is True:
+            faceAvoidAreaShapes = list()
+            for (fcshp, faceIdx) in VOIDS:
+                faceAvoidAreaShp = self._createFacialCutArea(obj, oneBase[0], fcshp, faceIdx, avoid=True)
+                if faceAvoidAreaShp is not False:
+                    faceAvoidAreaShapes.append(faceAvoidAreaShp)
+            DEL = Part.makeCompound(faceAvoidAreaShapes)
 
-                # Process faces Collectively or Individually
-                if obj.HandleMultipleFeatures == 'Collectively':
+        if addFlag is True:  # The user has selected subobjects from the base.  Process each.
+            PathLog.debug('obj.Base exists. Processing selected faces.')
+            # if minHeight > obj.FinalDepth.Value:
+            #    obj.FinalDepth.Value = minHeight
+            if obj.OptimizeLinearTransitions is True and addFlag is True:
+                PathLog.warning(translate('PathSurface', "Multiple faces selected. \nWARNING: The `OptimizeLinearTransitions` algorithm might produce incorrect transitional paths between face regions. \nSeparate out faces to fix problem."))
+
+            # Convert faces to cut areas
+            faceCutAreaShapes = list()
+            for (fcshp, faceIdx) in FACES:
+                faceCutAreaShp = self._createFacialCutArea(obj, oneBase[0], fcshp, faceIdx)
+                if faceCutAreaShp is not False:
+                    faceCutAreaShapes.append(faceCutAreaShp)
+
+            # Process faces Collectively or Individually
+            if obj.HandleMultipleFeatures == 'Collectively':
+                if voidFlag is True:
+                    ADD = Part.makeCompound(faceCutAreaShapes)
+                    COMP = ADD.cut(DEL)
+                else:
                     COMP = Part.makeCompound(faceCutAreaShapes)
+                final = self.opProcessBase(obj, base, COMP)
+                self.commandlist.extend(final)
+            elif obj.HandleMultipleFeatures == 'Individually':
+                for cas in faceCutAreaShapes:
+                    self.deleteOpVariables(all=False)
+                    self.resetOpVariables(all=False)
+                    if voidFlag is True:
+                        ADD = Part.makeCompound([cas])
+                        COMP = ADD.cut(DEL)
+                    else:
+                        COMP = Part.makeCompound([cas])
                     final = self.opProcessBase(obj, base, COMP)
                     self.commandlist.extend(final)
-                elif obj.HandleMultipleFeatures == 'Individually':
-                    for cas in faceCutAreaShapes:
-                        self.deleteOpVariables(all=False)
-                        self.resetOpVariables(all=False)
-                        COMP = Part.makeCompound([cas])
-                        final = self.opProcessBase(obj, base, COMP)
-                        self.commandlist.extend(final)
-                        COMP = None
-                        final = None
-            else:
-                PathLog.error(translate('PathSurface', 'No selected faces to surface.'))
+                    COMP = None
+                    final = None
         else:
             PathLog.debug('No obj.Base. Processing self.model.')
             # Cycle through parts of model
             for base in self.model:
-                PathLog.info("BASE object: " + str(base.Name))
+                PathLog.debug("BASE object: " + str(base.Name))
 
                 if obj.BoundBox == 'Stock':
                     BS = PathUtils.findParentJob(obj).Stock
@@ -315,16 +353,21 @@ class ObjectSurface(PathOp.ObjectOp):
                 elif obj.BoundBox == 'BaseBoundBox':
                     baseEnv = PathUtils.getEnvelope(base.Shape, depthparams=depthparams)
 
-
                 # Make cross-section and convert to planar face
                 midHeight = (baseEnv.BoundBox.ZMax - baseEnv.BoundBox.ZMin) / 2
-                csFaceShape = self._makeCrossSectionToFaceshape(baseEnv, midHeight, zHghtTrgt=None)
+                csFaceShape = self._makeCrossSectionToFaceshape(baseEnv, midHeight, zHghtTrgt=0.0)
 
                 # Create offset shape
                 faceOffsetShape = self._extractFaceOffset(obj, csFaceShape, isHole=False)
 
+                if voidFlag is True:
+                    cutShape = faceOffsetShape.cut(DEL)
+                    # for fa in faceAvoidAreaShapes:
+                else:
+                    cutShape = faceOffsetShape
+
                 # Process faces Collectively or Individually
-                final = self.opProcessBase(obj, base, faceOffsetShape)
+                final = self.opProcessBase(obj, base, cutShape)
 
                 # Send final list of commands to operation object
                 self.commandlist.extend(final)
@@ -367,6 +410,7 @@ class ObjectSurface(PathOp.ObjectOp):
         obj.StopIndex = 360.0
         obj.SampleInterval.Value = 1.0
         obj.BoundaryAdjustment.Value = 0.0
+        obj.AvoidLastXFaces = 0
 
         # need to overwrite the default depth calculations for facing
         job = PathUtils.findParentJob(obj)
@@ -561,6 +605,11 @@ class ObjectSurface(PathOp.ObjectOp):
             obj.StepOver = 100
         if obj.StepOver < 1:
             obj.StepOver = 1
+
+        # Limit AvoidLastXFaces to zero and positive values
+        if obj.AvoidLastXFaces < 0:
+            obj.AvoidLastXFaces = 0
+            PathLog.error(translate('PathSurface', 'AvoidLastXFaces: Only zero or positive values permitted.'))
 
     # Main planar scan functions
     def _planarDropCutSingle(self, obj, stl, bb, base, compoundFaces=None):
@@ -1291,11 +1340,13 @@ class ObjectSurface(PathOp.ObjectOp):
         return PNTS  # pdc.getCLPoints()
 
     # Methods for creating offset face using Path.Area()
-    def _createFacialCutArea(self, obj, oneBase, fc, faceIdx):
+    def _createFacialCutArea(self, obj, oneBase, fc, faceIdx, avoid=False):
         '''_createFacialCutArea(obj, oneBase, fc, faceIdx) ... 
         Recieves the base object, face object and face index for same face on base.
         Returns face object reflecting offset cut area to be processed with OCL.'''
         PathLog.debug('_createFacialCutArea()')
+        # isHole = False
+        isHole = avoid  # True for avoid areas, false for add faces
         depthparams = PathUtils.depth_params(obj.ClearanceHeight.Value, obj.SafeHeight.Value, obj.StartDepth.Value*2, obj.StepDown.Value, 0.0, obj.FinalDepth.Value)
         finDep = max(obj.FinalDepth.Value, fc.BoundBox.ZMin)
 
@@ -1326,7 +1377,6 @@ class ObjectSurface(PathOp.ObjectOp):
 
         # Loop through each wire in face, extracting offset shape
         if makeEnvFlag is False:
-            isHole = False
             outerFaceName = None
             for w in range(0, len(fc.Wires)):
                 wire = fc.Wires[w]
@@ -2320,7 +2370,7 @@ class ObjectSurface(PathOp.ObjectOp):
         '''
         dx = (p2.x - p1.x)
         if dx == 0.0:
-            dx = 0.00001
+            dx = 0.00001  # Need to employ a global tolerance here
         m = (p2.y - p1.y) / dx
         b = p1.y - (m * p1.x)
 
@@ -2329,7 +2379,7 @@ class ObjectSurface(PathOp.ObjectOp):
         lenCLP = len(CLP)
         for i in range(0, lenCLP):
             mSqrd = m**2
-            if mSqrd < 0.0000001:
+            if mSqrd < 0.0000001:  # Need to employ a global tolerance here
                 mSqrd = 0.0000001
             perpDist = math.sqrt((CLP[i].y - (m * CLP[i].x) - b)**2 / (1 + 1 / (mSqrd)))
             if perpDist < avoidTool:  # if point within cutter reach on line of travel, test z height and update as needed
@@ -2610,6 +2660,7 @@ def SetupProperties():
     setup.append('OptimizeLinearTransitions')
     setup.append('FinishPassOnly')
     setup.append('AreaParams')
+    setup.append('AvoidLastXFaces')
     # Targeted for possible removal
     setup.append('IgnoreWasteDepth')
     setup.append('IgnoreWaste')
