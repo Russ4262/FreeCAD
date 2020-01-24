@@ -51,7 +51,7 @@ __doc__ = "Class and implementation of Mill Facing operation."
 __contributors__ = "roivai[FreeCAD], russ4262 (Russell Johnson)"
 __created__ = "2016"
 __scriptVersion__ = "6b"
-__lastModified__ = "2020-01-23 16:07 CST"
+__lastModified__ = "2020-01-23 22:52 CST"
 
 PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 # PathLog.trackModule(PathLog.thisModule())
@@ -92,6 +92,7 @@ class ObjectSurface(PathOp.ObjectOp):
         return PathOp.FeatureTool | PathOp.FeatureDepths | PathOp.FeatureHeights | PathOp.FeatureStepDown | PathOp.FeatureCoolant | PathOp.FeatureBaseFaces
 
     def initOperation(self, obj):
+        self.addedAllProperties = False
         '''initPocketOp(obj) ... create facing specific properties'''
         obj.addProperty("App::PropertyEnumeration", "Algorithm", "Algorithm", QtCore.QT_TRANSLATE_NOOP("App::Property", "The library to use to generate the path"))
         obj.addProperty("App::PropertyEnumeration", "BoundBox", "Algorithm", QtCore.QT_TRANSLATE_NOOP("App::Property", "Should the operation be limited by the stock object or by the bounding box of the base object"))
@@ -142,6 +143,7 @@ class ObjectSurface(PathOp.ObjectOp):
 
         if not hasattr(obj, 'DoNotSetDefaultValues'):
             self.setEditorProperties(obj)
+        self.addedAllProperties = True
 
     def setEditorProperties(self, obj):
         # Used to hide inputs in properties list
@@ -183,11 +185,12 @@ class ObjectSurface(PathOp.ObjectOp):
         obj.setEditorMode('ReleaseFromWaste', 2)
 
     def onChanged(self, obj, prop):
-        if prop == "FinishPassOnly":
-            if obj.FinishPassOnly is True:
-                obj.CutPattern = 'Line'
-        if prop in ['Algorithm', 'FinishPassOnly', 'LayerMode', 'ScanType']:
-            self.setEditorProperties(obj)
+        if self.addedAllProperties is True:
+            if prop == "FinishPassOnly":
+                if obj.FinishPassOnly is True:
+                    obj.CutPattern = 'Line'
+            if prop in ['Algorithm', 'FinishPassOnly', 'LayerMode', 'ScanType']:
+                self.setEditorProperties(obj)
 
     def opOnDocumentRestored(self, obj):
         self.setEditorProperties(obj)
@@ -206,6 +209,12 @@ class ObjectSurface(PathOp.ObjectOp):
         # mark beginning of operation
         startTime = time.time()
 
+        # Instantiate additional class operation variables
+        self.resetOpVariables()
+
+        # Impose property limits
+        self.opApplyPropertyLimits(obj)
+
         # Create temporary group for temporary objects
         self.tempGroupName = 'tmpGrp_' + str(startTime)
         if PathLog.getLevel(PathLog.thisModule()) == 4:
@@ -216,24 +225,16 @@ class ObjectSurface(PathOp.ObjectOp):
         # Add temp object to temp group folder with following code:
         # ... FreeCAD.ActiveDocument.getObject(self.tempGroupName).addObject(OBJ)
 
-        # Instantiate additional class operation variables
-        self.resetOpVariables()
-
         # Disable(ignore) ReleaseFromWaste option(input)
         obj.ReleaseFromWaste = False
 
-        # Impose property limits
-        self.opApplyPropertyLimits(obj)
-
-        # Set cutter for OCL based on tool controller properties
+        # Setup cutter for OCL and cutout value for operation - based on tool controller properties
         self.cutter = self.setOclCutter(obj)
-
-        # Save cutout value and tool radius
         self.cutOut = (self.cutter.getDiameter() * (float(obj.StepOver) / 100.0))
         self.radius = self.cutter.getDiameter() / 2
 
-        if obj.FinishPassOnly is True:
-            obj.CutPattern = 'Line'
+        #if obj.FinishPassOnly is True:
+        #    obj.CutPattern = 'Line'
 
         output = ''
         if obj.Comment != '':
@@ -1346,66 +1347,96 @@ class ObjectSurface(PathOp.ObjectOp):
         deltaY = abs(ymax-ymin)
         deltaZ = abs(zmax-zmin)
         deltaC = math.sqrt(deltaX**2 + deltaY**2)
-        corX = xmin + (deltaX / 2)  # CenterOfRotation X
-        corY = ymin + (deltaY / 2)  # CenterOfRotation Y
-        centRot = FreeCAD.Vector(corX, corY, zmax)
-        cAng = math.atan(deltaX / deltaY)  # BoundaryBox angle
-        zmax = 0.0
-
+        zHeight = 0.0
         lineLen = deltaC + (2 * self.cutter.getDiameter())  # Line length to span boundbox diag with 2x cutter diameter extra on each end
         lineCnt = math.ceil(lineLen / self.cutOut) + 1  # Number of lines(passes) required to cover lineLen
-        startPoint = FreeCAD.Vector(xmin, ymin, zmax)  # Center of face/selection/model
-        centRot = startPoint  # center of rotation is (xmin,ymin)
 
-        # Determine end points and create top lines
-        x1 = startPoint.x - lineLen
-        x2 = startPoint.x + lineLen
-        diag = None
-        if obj.CutPatternAngle == 0 or obj.CutPatternAngle == 180:
-            MaxLC = math.floor(deltaY / self.cutOut)
-            diag = deltaY
-        elif obj.CutPatternAngle == 90 or obj.CutPatternAngle == 270:
-            MaxLC = math.floor(deltaX / self.cutOut)
-            diag = deltaX
-        else:
-            perpDist = math.cos(cAng - math.radians(obj.CutPatternAngle)) * deltaC
-            MaxLC = math.floor(perpDist / self.cutOut)
-            diag = perpDist
-        y1 = startPoint.y + diag
-        p1 = FreeCAD.Vector(x1, y1, zmax)
-        p2 = FreeCAD.Vector(x2, y1, zmax)
-        topLineTuple = (p1, p2)
-        ny1 = startPoint.y - diag
-        n1 = FreeCAD.Vector(x1, ny1, zmax)
-        n2 = FreeCAD.Vector(x2, ny1, zmax)
-        negTopLineTuple = (n1, n2)
+        if obj.CutPattern in ['ZigZag', 'Line']:
+            corX = xmin + (deltaX / 2)  # CenterOfRotation X
+            corY = ymin + (deltaY / 2)  # CenterOfRotation Y
+            centRot = FreeCAD.Vector(corX, corY, zHeight)
+            cAng = math.atan(deltaX / deltaY)  # BoundaryBox angle
 
-        # Create end points for set of lines to intersect with cross-section face
-        pntTuples = list()
-        # for lc in range(0, lineCnt):
-        negStart = (-1 * lineCnt)
-        for lc in range((-1 * (lineCnt - 1)), lineCnt + 1):
+            startPoint = FreeCAD.Vector(xmin, ymin, zHeight)  # Center of face/selection/model
+            centRot = startPoint  # center of rotation is (xmin,ymin)
+            corX = xmin + (deltaX / 2)  # CenterOfRotation X
+            corY = ymin + (deltaY / 2)  # CenterOfRotation Y
+            centRot = FreeCAD.Vector(corX, corY, zHeight)
+            cAng = math.atan(deltaX / deltaY)  # BoundaryBox angle
+            zHeight = 0.0
+
+            lineLen = deltaC + (2 * self.cutter.getDiameter())  # Line length to span boundbox diag with 2x cutter diameter extra on each end
+            lineCnt = math.ceil(lineLen / self.cutOut) + 1  # Number of lines(passes) required to cover lineLen
+            startPoint = FreeCAD.Vector(xmin, ymin, zHeight)  # Center of face/selection/model
+            centRot = startPoint  # center of rotation is (xmin,ymin)
+
+            # Determine end points and create top lines
             x1 = startPoint.x - lineLen
             x2 = startPoint.x + lineLen
-            y1 = startPoint.y + (lc * self.cutOut)
-            # y2 = y1
-            p1 = FreeCAD.Vector(x1, y1, zmax)
-            p2 = FreeCAD.Vector(x2, y1, zmax)
-            pntTuples.append( (p1, p2) )
-        pntTuples.insert(MaxLC + 1, topLineTuple)
-        pntTuples.insert((lineCnt - MaxLC), negTopLineTuple)
+            diag = None
+            if obj.CutPatternAngle == 0 or obj.CutPatternAngle == 180:
+                MaxLC = math.floor(deltaY / self.cutOut)
+                diag = deltaY
+            elif obj.CutPatternAngle == 90 or obj.CutPatternAngle == 270:
+                MaxLC = math.floor(deltaX / self.cutOut)
+                diag = deltaX
+            else:
+                perpDist = math.cos(cAng - math.radians(obj.CutPatternAngle)) * deltaC
+                MaxLC = math.floor(perpDist / self.cutOut)
+                diag = perpDist
+            y1 = startPoint.y + diag
+            p1 = FreeCAD.Vector(x1, y1, zHeight)
+            p2 = FreeCAD.Vector(x2, y1, zHeight)
+            topLineTuple = (p1, p2)
+            ny1 = startPoint.y - diag
+            n1 = FreeCAD.Vector(x1, ny1, zHeight)
+            n2 = FreeCAD.Vector(x2, ny1, zHeight)
+            negTopLineTuple = (n1, n2)
 
-        # Convert end points to lines
-        LineSet = []
-        Names = list()
-        for (p1, p2) in pntTuples:
-            line = Draft.makeWire([p1, p2], placement=pl, closed=False, face=False, support=None)
-            Draft.autogroup(line)
-            lineName = FreeCAD.ActiveDocument.ActiveObject.Name
-            Names.append(lineName)
-            line.recompute()
-            line.purgeTouched()
-            LineSet.append(line)
+            # Create end points for set of lines to intersect with cross-section face
+            pntTuples = list()
+            # for lc in range(0, lineCnt):
+            negStart = (-1 * lineCnt)
+            for lc in range((-1 * (lineCnt - 1)), lineCnt + 1):
+                x1 = startPoint.x - lineLen
+                x2 = startPoint.x + lineLen
+                y1 = startPoint.y + (lc * self.cutOut)
+                # y2 = y1
+                p1 = FreeCAD.Vector(x1, y1, zHeight)
+                p2 = FreeCAD.Vector(x2, y1, zHeight)
+                pntTuples.append( (p1, p2) )
+            pntTuples.insert(MaxLC + 1, topLineTuple)
+            pntTuples.insert((lineCnt - MaxLC), negTopLineTuple)
+
+            # Convert end points to lines
+            LineSet = []
+            Names = list()
+            for (p1, p2) in pntTuples:
+                line = Draft.makeWire([p1, p2], placement=pl, closed=False, face=False, support=None)
+                Draft.autogroup(line)
+                lineName = FreeCAD.ActiveDocument.ActiveObject.Name
+                Names.append(lineName)
+                line.recompute()
+                line.purgeTouched()
+                LineSet.append(line)
+        elif obj.CutPattern == 'Circular':
+            corX = xmin + (deltaX / 2)  # CenterOfRotation X
+            corY = ymin + (deltaY / 2)  # CenterOfRotation Y
+            centRot = FreeCAD.Vector(corX, corY, zHeight)
+
+            cntr = FreeCAD.Placement()
+            cntr.Rotation = FreeCAD.Rotation(axisRot, 0.0)
+            cntr.Base = FreeCAD.Vector(0, 0, 0)
+
+            for lc in range(1, lineCnt + 1):
+                rad = (lc * self.cutOut)
+                circle = Draft.makeCircle(radius=rad, placement=cntr, face=False, support=None)
+                Draft.autogroup(circle)
+                cirName = FreeCAD.ActiveDocument.ActiveObject.Name
+                Names.append(cirName)
+                circle.recompute()
+                circle.purgeTouched()
+                LineSet.append(circle)
 
         for nm in Names:
             FreeCAD.ActiveDocument.getObject(self.tempGroupName).addObject(FreeCAD.ActiveDocument.getObject(nm))
@@ -1465,7 +1496,16 @@ class ObjectSurface(PathOp.ObjectOp):
                 if obj.CutMode == 'Climb':
                     tup = (p2, p1)
                 LINES.append(tup)
-        
+        elif obj.CutPattern == 'Circular':
+            for ei in range(0, ec):
+                edg = LSET.Shape.Edges[ei]
+                p1 = (edg.Vertexes[0].X, edg.Vertexes[0].Y)
+                p2 = (edg.Vertexes[1].X, edg.Vertexes[1].Y)
+                tup = (p1, p2)
+                if obj.CutMode == 'Climb':
+                    tup = (p2, p1)
+                LINES.append(tup)
+                
         return LINES
 
     def _planarDropCutScan(self, pdc, p1p2Tup):
