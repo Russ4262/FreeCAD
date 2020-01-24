@@ -50,10 +50,10 @@ __url__ = "http://www.freecadweb.org"
 __doc__ = "Class and implementation of Mill Facing operation."
 __contributors__ = "roivai[FreeCAD], russ4262 (Russell Johnson)"
 __created__ = "2016"
-__scriptVersion__ = "6b"
-__lastModified__ = "2020-01-23 22:52 CST"
+__scriptVersion__ = "6c"
+__lastModified__ = "2020-01-24 17:53 CST"
 
-PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
+PathLog.setLevel(PathLog.Level.DEBUG, PathLog.thisModule())
 # PathLog.trackModule(PathLog.thisModule())
 
 
@@ -134,7 +134,7 @@ class ObjectSurface(PathOp.ObjectOp):
         obj.Algorithm = ['OCL Dropcutter', 'OCL Waterline']
         obj.BoundBox = ['BaseBoundBox', 'Stock']
         obj.CutMode = ['Conventional', 'Climb']
-        obj.CutPattern = ['Line', 'ZigZag']  # Additional goals ['Offset', 'Spiral', 'ZigZagOffset', 'Grid', 'Triangle']
+        obj.CutPattern = ['Line', 'ZigZag', 'Circular']  # Additional goals ['Offset', 'Spiral', 'ZigZagOffset', 'Grid', 'Triangle']
         obj.DropCutterDir = ['X', 'Y']
         obj.HandleMultipleFeatures = ['Collectively', 'Individually']
         obj.LayerMode = ['Single-pass', 'Multi-pass']
@@ -193,6 +193,7 @@ class ObjectSurface(PathOp.ObjectOp):
                 self.setEditorProperties(obj)
 
     def opOnDocumentRestored(self, obj):
+        self.addedAllProperties = True
         self.setEditorProperties(obj)
         # Import FinalDepth from existing operation for use in recompute() operations
         self.initFinalDepth = obj.FinalDepth.Value
@@ -232,9 +233,6 @@ class ObjectSurface(PathOp.ObjectOp):
         self.cutter = self.setOclCutter(obj)
         self.cutOut = (self.cutter.getDiameter() * (float(obj.StepOver) / 100.0))
         self.radius = self.cutter.getDiameter() / 2
-
-        #if obj.FinishPassOnly is True:
-        #    obj.CutPattern = 'Line'
 
         output = ''
         if obj.Comment != '':
@@ -638,6 +636,9 @@ class ObjectSurface(PathOp.ObjectOp):
         pdc = self._planarGetPDC(stl, depthparams[lenDP - 1], obj.SampleInterval.Value)
         SCANS = self._planarGetLineScans(obj, pdc, base, compoundFaces)
         lenScans = len(SCANS)
+        if lenScans == 0:
+            PathLog.error('No SCANS data.')
+            return list()
 
         if obj.CutPattern == 'ZigZag':
             NEWSCANS = list()
@@ -1276,8 +1277,13 @@ class ObjectSurface(PathOp.ObjectOp):
         SCANS = list()
         # Get LINESET and perform OCL scan on each line within
         LINESET = self._planarGetLineSet(obj, base, compoundFaces)
-        for p1p2Tup in LINESET:
-            SCANS.append(self._planarDropCutScan(pdc, p1p2Tup))
+        if obj.CutPattern in ['Line', 'ZigZag']:
+            for p1p2Tup in LINESET:
+                SCANS.append(self._planarDropCutScan(pdc, p1p2Tup))
+        elif obj.CutPattern == 'Circular':
+            #for ARC in LINESET:
+            #    SCANS.append(self._planarCircularDropCutScan(pdc, ARC))
+            pass  # debugging _planarGetLineSet() for 'Circular' cut pattern
         return SCANS
 
     def _planarGetLineSet(self, obj, base, subShp=None):
@@ -1341,6 +1347,7 @@ class ObjectSurface(PathOp.ObjectOp):
         ENV.purgeTouched()
         envName = ENV.Name
         FreeCAD.ActiveDocument.getObject(self.tempGroupName).addObject(ENV)
+        COM = ENV.Shape.Face1.CenterOfMass
 
         # get X, Y, Z spans; Compute center of rotation
         deltaX = abs(xmax-xmin)
@@ -1349,7 +1356,7 @@ class ObjectSurface(PathOp.ObjectOp):
         deltaC = math.sqrt(deltaX**2 + deltaY**2)
         zHeight = 0.0
         lineLen = deltaC + (2 * self.cutter.getDiameter())  # Line length to span boundbox diag with 2x cutter diameter extra on each end
-        lineCnt = math.ceil(lineLen / self.cutOut) + 1  # Number of lines(passes) required to cover lineLen
+        cutPasses = math.ceil(lineLen / self.cutOut) + 1  # Number of lines(passes) required to cover lineLen
 
         if obj.CutPattern in ['ZigZag', 'Line']:
             corX = xmin + (deltaX / 2)  # CenterOfRotation X
@@ -1366,7 +1373,7 @@ class ObjectSurface(PathOp.ObjectOp):
             zHeight = 0.0
 
             lineLen = deltaC + (2 * self.cutter.getDiameter())  # Line length to span boundbox diag with 2x cutter diameter extra on each end
-            lineCnt = math.ceil(lineLen / self.cutOut) + 1  # Number of lines(passes) required to cover lineLen
+            cutPasses = math.ceil(lineLen / self.cutOut) + 1  # Number of lines(passes) required to cover lineLen
             startPoint = FreeCAD.Vector(xmin, ymin, zHeight)  # Center of face/selection/model
             centRot = startPoint  # center of rotation is (xmin,ymin)
 
@@ -1395,9 +1402,9 @@ class ObjectSurface(PathOp.ObjectOp):
 
             # Create end points for set of lines to intersect with cross-section face
             pntTuples = list()
-            # for lc in range(0, lineCnt):
-            negStart = (-1 * lineCnt)
-            for lc in range((-1 * (lineCnt - 1)), lineCnt + 1):
+            # for lc in range(0, cutPasses):
+            negStart = (-1 * cutPasses)
+            for lc in range((-1 * (cutPasses - 1)), cutPasses + 1):
                 x1 = startPoint.x - lineLen
                 x2 = startPoint.x + lineLen
                 y1 = startPoint.y + (lc * self.cutOut)
@@ -1406,7 +1413,7 @@ class ObjectSurface(PathOp.ObjectOp):
                 p2 = FreeCAD.Vector(x2, y1, zHeight)
                 pntTuples.append( (p1, p2) )
             pntTuples.insert(MaxLC + 1, topLineTuple)
-            pntTuples.insert((lineCnt - MaxLC), negTopLineTuple)
+            pntTuples.insert((cutPasses - MaxLC), negTopLineTuple)
 
             # Convert end points to lines
             LineSet = []
@@ -1420,15 +1427,13 @@ class ObjectSurface(PathOp.ObjectOp):
                 line.purgeTouched()
                 LineSet.append(line)
         elif obj.CutPattern == 'Circular':
-            corX = xmin + (deltaX / 2)  # CenterOfRotation X
-            corY = ymin + (deltaY / 2)  # CenterOfRotation Y
-            centRot = FreeCAD.Vector(corX, corY, zHeight)
-
+            LineSet = []
+            Names = list()
             cntr = FreeCAD.Placement()
             cntr.Rotation = FreeCAD.Rotation(axisRot, 0.0)
-            cntr.Base = FreeCAD.Vector(0, 0, 0)
+            cntr.Base = COM  # Use center of Mass;  # FreeCAD.Vector(0, 0, 0)
 
-            for lc in range(1, lineCnt + 1):
+            for lc in range(1, cutPasses + 1):
                 rad = (lc * self.cutOut)
                 circle = Draft.makeCircle(radius=rad, placement=cntr, face=False, support=None)
                 Draft.autogroup(circle)
@@ -1438,6 +1443,87 @@ class ObjectSurface(PathOp.ObjectOp):
                 circle.purgeTouched()
                 LineSet.append(circle)
 
+            '''
+            pntTuples = list()
+            for lc in range(1, cutPasses + 1):
+                RING = list()
+                R = (lc * self.cutOut)
+                segLen = obj.SampleInterval.Value
+                C4 = math.pi * R / 2  # R=radius, C4=1/4 circumfrence
+                numSegs = math.ceil(C4 / segLen)
+                segAng = (math.pi / 2) / numSegs
+
+                # Create segmented arcs for each quadrant
+                # First quadrant
+                curAng = 0.0
+                p1 = FreeCAD.Vector(COM.x + R, COM.y, 0)
+                for s in range(1, math.floor(numSegs)):
+                    curAng += segAng
+                    X = R * math.cos(curAng)
+                    Y = R * math.sin(curAng)
+                    p2 = FreeCAD.Vector(COM.x + X, COM.y + Y, 0)
+                    RING.append((p1, p2))
+                    p1 = p2
+                p2 = FreeCAD.Vector(COM.x, COM.y + R, 0)
+                RING.append((p1, p2))
+                # Second quadrant
+                curAng = 0.0
+                p1 = FreeCAD.Vector(COM.x, COM.y + R, 0)
+                for s in range(1, math.floor(numSegs)):
+                    curAng += segAng
+                    X = -1 * R * math.cos(curAng)
+                    Y = R * math.sin(curAng)
+                    p2 = FreeCAD.Vector(COM.x + X, COM.y + Y, 0)
+                    RING.append((p1, p2))
+                    p1 = p2
+                p2 = FreeCAD.Vector(COM.x - R, COM.y, 0)
+                RING.append((p1, p2))
+                # Third quadrant
+                curAng = 0.0
+                p1 = FreeCAD.Vector(COM.x - R, COM.y, 0)
+                for s in range(1, math.floor(numSegs)):
+                    curAng += segAng
+                    X = -1 * R * math.cos(curAng)
+                    Y = -1 * R * math.sin(curAng)
+                    p2 = FreeCAD.Vector(COM.x + X, COM.y + Y, 0)
+                    RING.append((p1, p2))
+                    p1 = p2
+                p2 = FreeCAD.Vector(COM.x, COM.y - R, 0)
+                RING.append((p1, p2))
+                # Fourth quadrant
+                curAng = 0.0
+                p1 = FreeCAD.Vector(COM.x, COM.y - R, 0)
+                for s in range(1, math.floor(numSegs)):
+                    curAng += segAng
+                    X = R * math.cos(curAng)
+                    Y = -1 * R * math.sin(curAng)
+                    p2 = FreeCAD.Vector(COM.x + X, COM.y + Y, 0)
+                    RING.append((p1, p2))
+                    p1 = p2
+                p2 = FreeCAD.Vector(COM.x + R, COM.y, 0)
+                RING.append((p1, p2))
+
+                if obj.CutMode == 'Climb':
+                    RING.reverse()
+                pntTuples.extend(RING)
+            # Efor
+
+            LineSet = []
+            for (p1, p2) in pntTuples:
+                if obj.CutMode == 'Climb':
+                    line = Draft.makeWire([p2, p1], placement=pl, closed=False, face=False, support=None)
+                else:
+                    line = Draft.makeWire([p1, p2], placement=pl, closed=False, face=False, support=None)
+                Draft.autogroup(line)
+                lineName = FreeCAD.ActiveDocument.ActiveObject.Name
+                Names.append(lineName)
+                line.recompute()
+                line.purgeTouched()
+                LineSet.append(line)
+            '''
+        # Eif
+
+        # Add all new line objects to temporary group for deletion
         for nm in Names:
             FreeCAD.ActiveDocument.getObject(self.tempGroupName).addObject(FreeCAD.ActiveDocument.getObject(nm))
 
@@ -1497,14 +1583,19 @@ class ObjectSurface(PathOp.ObjectOp):
                     tup = (p2, p1)
                 LINES.append(tup)
         elif obj.CutPattern == 'Circular':
+            # OBJ.Shape.Edge[e].Length = arc length
+            # OBJ.Shape.Edge[e].Vertexes = end points;  1=loop, >1=arc
+            # OBJ.Shape.Edge[e].Closed = True=loop, False=arc
+            # OBJ.Shape.Edge[e].Placement.Base = center of loop/arc
+
             for ei in range(0, ec):
                 edg = LSET.Shape.Edges[ei]
-                p1 = (edg.Vertexes[0].X, edg.Vertexes[0].Y)
-                p2 = (edg.Vertexes[1].X, edg.Vertexes[1].Y)
-                tup = (p1, p2)
-                if obj.CutMode == 'Climb':
-                    tup = (p2, p1)
-                LINES.append(tup)
+                if edg.Closed is True:
+                    Loop = self._loopToLineSegments(obj, edg.Placement.Base, edg)
+                    LINES.append(Loop)
+                else:
+                    PathLog.info('Edge {}: Need self._arcToLineSegments(obj, edg.Placement.Base, edg) method.'.format(ei))
+        # Eif
                 
         return LINES
 
@@ -1522,6 +1613,113 @@ class ObjectSurface(PathOp.ObjectOp):
         for p in CLP:
             PNTS.append(FreeCAD.Vector(p.x, p.y, p.z))
         return PNTS  # pdc.getCLPoints()
+
+    def _planarCircularDropCutScan(self, pdc, ARC):
+        PNTS = list()
+        ((x1, y1), (x2, y2)) = p1p2Tup
+        path = ocl.Path()                   # create an empty path object
+        p1 = ocl.Point(x1, y1, 0)   # start-point of line
+        p2 = ocl.Point(x2, y2, 0)   # end-point of line
+        lo = ocl.Line(p1, p2)     # line-object
+        path.append(lo)        # add the line to the path
+        pdc.setPath(path)
+        pdc.run()  # run dropcutter algorithm on path
+        CLP = pdc.getCLPoints()
+        for p in CLP:
+            PNTS.append(FreeCAD.Vector(p.x, p.y, p.z))
+        return PNTS  # pdc.getCLPoints()
+
+    def _loopToLineSegments(self, obj, COM, edge):
+        LOOPSEGS = list()
+        Names = list()
+
+        # set initial placement - used for each line
+        pl = FreeCAD.Placement()
+        pl.Rotation = FreeCAD.Rotation(FreeCAD.Vector(0, 0, 1), 0.0)
+        pl.Base = FreeCAD.Vector(0, 0, 0)
+
+        RING = list()
+        radPnt = FreeCAD.Vector(edge.Vertexes[0].X, edge.Vertexes[0].Y, 0.0)
+        R = abs(radPnt.sub(COM).Length)
+        segLen = obj.SampleInterval.Value
+        C4 = math.pi * R / 2  # R=radius, C4=1/4 circumfrence
+        numSegs = math.ceil(C4 / segLen)
+        segAng = (math.pi / 2) / numSegs
+
+        # Create segmented arcs for each quadrant
+        # REMEMBER to swap SIN and COS on quads 2 and 4, due to 90 degree rotation at each quad
+        # First quadrant
+        curAng = 0.0
+        p1 = FreeCAD.Vector(COM.x + R, COM.y, 0)
+        for s in range(1, math.floor(numSegs)):
+            curAng += segAng
+            X = R * math.cos(curAng)
+            Y = R * math.sin(curAng)
+            p2 = FreeCAD.Vector(COM.x + X, COM.y + Y, 0)
+            RING.append((p1, p2))
+            p1 = p2
+        p2 = FreeCAD.Vector(COM.x, COM.y + R, 0)
+        RING.append((p1, p2))
+
+        # Second quadrant
+        curAng = 0.0
+        p1 = FreeCAD.Vector(COM.x, COM.y + R, 0)
+        for s in range(1, math.floor(numSegs)):
+            curAng += segAng
+            X = -1 * R * math.sin(curAng)
+            Y = R * math.cos(curAng)
+            p2 = FreeCAD.Vector(COM.x + X, COM.y + Y, 0)
+            RING.append((p1, p2))
+            p1 = p2
+        p2 = FreeCAD.Vector(COM.x - R, COM.y, 0)
+        RING.append((p1, p2))
+
+        # Third quadrant
+        curAng = 0.0
+        p1 = FreeCAD.Vector(COM.x - R, COM.y, 0)
+        for s in range(1, math.floor(numSegs)):
+            curAng += segAng
+            X = -1 * R * math.cos(curAng)
+            Y = -1 * R * math.sin(curAng)
+            p2 = FreeCAD.Vector(COM.x + X, COM.y + Y, 0)
+            RING.append((p1, p2))
+            p1 = p2
+        p2 = FreeCAD.Vector(COM.x, COM.y - R, 0)
+        RING.append((p1, p2))
+
+        # Fourth quadrant
+        curAng = 0.0
+        p1 = FreeCAD.Vector(COM.x, COM.y - R, 0)
+        for s in range(1, math.floor(numSegs)):
+            curAng += segAng
+            X = R * math.sin(curAng)
+            Y = -1 * R * math.cos(curAng)
+            p2 = FreeCAD.Vector(COM.x + X, COM.y + Y, 0)
+            RING.append((p1, p2))
+            p1 = p2
+        p2 = FreeCAD.Vector(COM.x + R, COM.y, 0)
+        RING.append((p1, p2))
+
+        if obj.CutMode == 'Climb':
+            RING.reverse()
+
+        for (p1, p2) in RING:
+            if obj.CutMode == 'Climb':
+                line = Draft.makeWire([p2, p1], placement=pl, closed=False, face=False, support=None)
+            else:
+                line = Draft.makeWire([p1, p2], placement=pl, closed=False, face=False, support=None)
+            Draft.autogroup(line)
+            lineName = FreeCAD.ActiveDocument.ActiveObject.Name
+            Names.append(lineName)
+            line.recompute()
+            line.purgeTouched()
+            LOOPSEGS.append(line)
+
+        # Add all new line objects to temporary group for deletion
+        for nm in Names:
+            FreeCAD.ActiveDocument.getObject(self.tempGroupName).addObject(FreeCAD.ActiveDocument.getObject(nm))
+
+        return LOOPSEGS
 
     # Methods for creating offset face using Path.Area()
     def _createFacialCutArea(self, obj, oneBase, fc, faceIdx, avoid=False):
