@@ -50,8 +50,8 @@ __url__ = "http://www.freecadweb.org"
 __doc__ = "Class and implementation of Mill Facing operation."
 __contributors__ = "russ4262 (Russell Johnson), roivai[FreeCAD]"
 __created__ = "2016"
-__scriptVersion__ = "7d"
-__lastModified__ = "2020-01-28 00:20 CST"
+__scriptVersion__ = "7e"
+__lastModified__ = "2020-01-28 16:08 CST"
 
 PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 # PathLog.trackModule(PathLog.thisModule())
@@ -125,6 +125,9 @@ class ObjectSurface(PathOp.ObjectOp):
         obj.addProperty("App::PropertyBool", "IgnoreWaste", "Waste", QtCore.QT_TRANSLATE_NOOP("App::Property", "Ignore areas that proceed below specified depth."))
         obj.addProperty("App::PropertyFloat", "IgnoreWasteDepth", "Waste", QtCore.QT_TRANSLATE_NOOP("App::Property", "Depth used to identify waste areas to ignore."))
         obj.addProperty("App::PropertyBool", "ReleaseFromWaste", "Waste", QtCore.QT_TRANSLATE_NOOP("App::Property", "Cut through waste to depth at model edge, releasing the model."))
+
+        obj.addProperty("App::PropertyVectorDistance", "StartPoint", "Start Point", QtCore.QT_TRANSLATE_NOOP("PathOp", "The start point of this path"))
+        obj.addProperty("App::PropertyBool", "UseStartPoint", "Start Point", QtCore.QT_TRANSLATE_NOOP("PathOp", "Make True, if specifying a Start Point"))
 
         # For debugging
         obj.addProperty('App::PropertyString', 'AreaParams', 'Debugging')
@@ -226,9 +229,9 @@ class ObjectSurface(PathOp.ObjectOp):
         output = ''
         if obj.Comment != '':
             output += '(' + str(obj.Comment) + ')\n'
-
         output += '(' + obj.Label + ')'
         output += '(Compensated Tool Path. Diameter: ' + str(obj.ToolController.Tool.Diameter) + ')'
+        self.commandlist.append(Path.Command('N ({})'.format(output), {}))
 
         parentJob = PathUtils.findParentJob(obj)
         if parentJob is None:
@@ -239,6 +242,8 @@ class ObjectSurface(PathOp.ObjectOp):
 
         # Raise to clearance height to start operation
         self.commandlist.append(Path.Command('G0', {'Z': obj.ClearanceHeight.Value, 'F': self.vertRapid}))
+        if obj.UseStartPoint is True:
+            self.commandlist.append(Path.Command('G0', {'X': obj.StartPoint.x, 'Y': obj.StartPoint.y, 'F': self.horizRapid}))
 
         # Import OpFinalDepth from pre-existing operation for recompute() scenarios
         if obj.OpFinalDepth.Value != self.initOpFinalDepth:
@@ -248,7 +253,7 @@ class ObjectSurface(PathOp.ObjectOp):
             if self.initOpFinalDepth is not None:
                 obj.OpFinalDepth.Value = self.initOpFinalDepth
 
-        depthparams = PathUtils.depth_params(obj.ClearanceHeight.Value, obj.SafeHeight.Value, obj.StartDepth.Value*2, obj.StepDown.Value, 0.0, obj.FinalDepth.Value)
+        depthparams = PathUtils.depth_params(obj.ClearanceHeight.Value, obj.SafeHeight.Value, obj.StartDepth.Value, obj.StepDown.Value, 0.0, obj.FinalDepth.Value)
 
         addFlag = False
         voidFlag = False
@@ -360,7 +365,6 @@ class ObjectSurface(PathOp.ObjectOp):
 
                 if voidFlag is True:
                     cutShape = faceOffsetShape.cut(DEL)
-                    # for fa in faceAvoidAreaShapes:
                 else:
                     cutShape = faceOffsetShape
 
@@ -396,6 +400,10 @@ class ObjectSurface(PathOp.ObjectOp):
         obj.OptimizeArcTransitions = False
         obj.FinishPassOnly = False
         obj.RespectBoundary = True
+        obj.UseStartPoint = False
+        obj.StartPoint.x = 0.0
+        obj.StartPoint.y = 0.0
+        obj.StartPoint.z = obj.ClearanceHeight.Value
         obj.LayerMode = 'Single-pass'
         obj.ScanType = 'Planar'
         obj.RotationAxis = 'X'
@@ -473,6 +481,7 @@ class ObjectSurface(PathOp.ObjectOp):
         # Compute number and size of stepdowns, and final depth
         depthparams = PathUtils.depth_params(obj.ClearanceHeight.Value, obj.SafeHeight.Value, obj.StartDepth.Value, obj.StepDown.Value, 0.0, obj.FinalDepth.Value)
 
+        '''
         # Create envelope for stock boundary
         if obj.BoundBox == 'BaseBoundBox':
             bbperim = Part.makeBox(bb.XLength, bb.YLength, 1, FreeCAD.Vector(bb.XMin, bb.YMin, bb.ZMin), FreeCAD.Vector(0, 0, 1))
@@ -480,6 +489,7 @@ class ObjectSurface(PathOp.ObjectOp):
         elif obj.BoundBox == 'Stock':
             stock = PathUtils.findParentJob(obj).Stock.Shape
             env = stock
+        '''
 
         # Objective is to remove material from surface in StepDown layers rather than one pass to FinalDepth
         final = list()
@@ -504,6 +514,8 @@ class ObjectSurface(PathOp.ObjectOp):
 
             # Create stl object via OCL
             if self.stl is None:
+                # make stock.cut(model_ENVELOPE) united with model - for avoidance detection on transitions
+                self.fullSTL = self._makeMass(obj, parentJob, depthparams, deflection)
                 self.stl = ocl.STLSurf()
                 for f in mesh.Facets:
                     p = f.Points[0]
@@ -514,11 +526,13 @@ class ObjectSurface(PathOp.ObjectOp):
                                      ocl.Point(r[0], r[1], r[2]))
                     self.stl.addTriangle(t)
 
+            '''
             # Prepare global holdpoint container
             if self.holdPoint is None:
                 self.holdPoint = ocl.Point(float("inf"), float("inf"), float("inf"))
             if self.layerEndPnt is None:
                 self.layerEndPnt = ocl.Point(float("inf"), float("inf"), float("inf"))
+            '''
 
             if obj.ScanType == 'Planar':
                 # If cut pattern is all arcs, there are minimal straight lines to optimize
@@ -527,9 +541,9 @@ class ObjectSurface(PathOp.ObjectOp):
                     obj.OptimizeLinearPaths = False
 
                 if obj.LayerMode == 'Single-pass':
-                    final = self._planarDropCutSingle(obj, self.stl, bb, base, compoundFaces)
+                    final = self._planarDropCutSingle(obj, bb, base, compoundFaces)
                 elif obj.LayerMode == 'Multi-pass':
-                    final = self._planarDropCutMulti(obj, self.stl, bb, base, compoundFaces)
+                    final = self._planarDropCutMulti(obj, bb, base, compoundFaces)
 
                 # If cut pattern is all arcs, restore initial OLP value
                 if obj.CutPattern == 'Circular':
@@ -626,8 +640,42 @@ class ObjectSurface(PathOp.ObjectOp):
             obj.AvoidLastXFaces = 100
             PathLog.error(translate('PathSurface', 'AvoidLastXFaces: Avoid last X faces count limited to 100.'))
 
+    def _makeMass(self, obj, Job, depthparam, deflection):
+        # get envelope of Model.
+        mdlsShp = Part.makeCompound([M.Shape for M in Job.Model.Group])
+        mdlsEnv = PathUtils.getEnvelope(partshape=mdlsShp, depthparams=depthparam)  # Produces .Shape
+        wstShp = Job.Stock.Shape.cut(mdlsEnv)
+        waste = FreeCAD.ActiveDocument.addObject("Part::Feature", "Waste")
+        waste.Shape = wstShp
+        waste.recompute()
+        waste.purgeTouched()
+        fuseObjects = [M for M in Job.Model.Group]
+        fuseObjects.append(waste)
+        fuse = FreeCAD.ActiveDocument.addObject("Part::MultiFuse", "Fusion")
+        fuse.Shapes = fuseObjects
+        fuse.recompute()
+        fuse.purgeTouched()
+
+        # Extract mesh from fusion
+        meshFuse = MeshPart.meshFromShape(Shape=fuse.Shape, LinearDeflection=deflection, AngularDeflection=0.25, Relative=False)
+        fullSTL = ocl.STLSurf()
+        for f in meshFuse.Facets:
+            p = f.Points[0]
+            q = f.Points[1]
+            r = f.Points[2]
+            t = ocl.Triangle(ocl.Point(p[0], p[1], p[2]),
+                                ocl.Point(q[0], q[1], q[2]),
+                                ocl.Point(r[0], r[1], r[2]))
+            fullSTL.addTriangle(t)
+
+        # Delete temporary objects
+        FreeCAD.ActiveDocument.removeObject(fuse.Name)
+        FreeCAD.ActiveDocument.removeObject(waste.Name)
+
+        return fullSTL
+
     # Main planar scan functions
-    def _planarDropCutSingle(self, obj, stl, bb, base, compoundFaces=None):
+    def _planarDropCutSingle(self, obj, bb, base, compoundFaces=None):
         GCODE = list()
         GCODE.append(Path.Command('N (Beginning of Single-pass layer.)', {}))
 
@@ -636,7 +684,8 @@ class ObjectSurface(PathOp.ObjectOp):
         lenDP = len(depthparams)
 
         # Scan the piece to depth
-        pdc = self._planarGetPDC(stl, depthparams[lenDP - 1], obj.SampleInterval.Value)
+        pdc = self._planarGetPDC(self.stl, depthparams[lenDP - 1], obj.SampleInterval.Value)
+        fullPDC = self._planarGetPDC(self.fullSTL, depthparams[lenDP - 1], obj.SampleInterval.Value)
         SCANS = self._planarGetLineScans(obj, pdc, base, compoundFaces)
         lenScans = len(SCANS)
         COM = FreeCAD.Vector(self.tmpCOM.x, self.tmpCOM.y, 0.0)
@@ -740,20 +789,21 @@ class ObjectSurface(PathOp.ObjectOp):
                         cmds.append(Path.Command('G0', {'Z': obj.SafeHeight.Value, 'F': self.vertRapid}))
                         cmds.append(Path.Command('G0', {'X': first.x, 'Y': first.y, 'F': self.horizRapid}))
                     else:
-                        tolrnc = 0.000001
-                        minSTH = self._getMinSafeTravelHeight(pdc, lstPnt, first)
                         if COLIN[ln] == 'Y':
                             cmds.append(Path.Command('G0', {'Z': obj.SafeHeight.Value, 'F': self.vertRapid}))
                             cmds.append(Path.Command('G0', {'X': first.x, 'Y': first.y, 'F': self.horizRapid}))
                         else:
-                            # sth = max(first.z, minSTH)
-                            # cmds.append(Path.Command('G0', {'Z': obj.SafeHeight.Value, 'F': self.vertRapid}))
-                            # cmds.append(Path.Command('G0', {'Z': sth, 'F': self.vertRapid}))
-                            if first.z > lstPnt.z:
+                            tolrnc = 0.000001
+                            minSTH = self._getMinSafeTravelHeight(fullPDC, lstPnt, first)  # Check safe travel height against fullSTL
+                            vectTrvl = first.z - lstPnt.z
+                            if abs(vectTrvl) < tolrnc:  # transitions to same Z height
+                                if minSTH > first.z:
+                                    cmds.append(Path.Command('G0', {'Z': minSTH, 'F': self.vertRapid}))
+                                cmds.append(Path.Command('G0', {'X': first.x, 'Y': first.y, 'F': self.horizRapid}))
+                            elif vectTrvl > tolrnc:  # transition steps up
                                 cmds.append(Path.Command('G0', {'Z': first.z, 'F': self.vertRapid}))
                             else:
                                 cmds.append(Path.Command('G0', {'X': first.x, 'Y': first.y, 'F': self.horizRapid}))
-                            # cmds.append(Path.Command('G1', {'Z': first.z + obj.StepDown.Value, 'F': self.vertFeed}))
                         '''
                         if abs(first.z - lstPnt.z) < tolrnc:  # transitions over flat surface at same Z height
                             other = True
@@ -764,7 +814,6 @@ class ObjectSurface(PathOp.ObjectOp):
                                         cmds.append(Path.Command('G0', {'X': first.x, 'Y': first.y, 'F': self.horizRapid}))
                                         other = False
                             if other:
-                                # sth = max(first.z, minSTH)
                                 sth = first.z
                                 if minSTH > first.z:
                                     sth = minSTH
@@ -808,7 +857,7 @@ class ObjectSurface(PathOp.ObjectOp):
 
         return GCODE
 
-    def _planarDropCutMulti(self, obj, stl, bb, base, compoundFaces=None):
+    def _planarDropCutMulti(self, obj, bb, base, compoundFaces=None):
         GCODE = list()
         GCODE.append(Path.Command('N (Beginning of Multi-pass layers.)', {}))
 
@@ -819,7 +868,7 @@ class ObjectSurface(PathOp.ObjectOp):
         prevDepth = bb.ZMax + 0.5  # depthparams[0]
 
         # Scan the piece to depth
-        pdc = self._planarGetPDC(stl, depthparams[lenDP - 1], obj.SampleInterval.Value)
+        pdc = self._planarGetPDC(self.stl, depthparams[lenDP - 1], obj.SampleInterval.Value)
         SCANS = self._planarGetLineScans(obj, pdc, base, compoundFaces)
         lenScans = len(SCANS)
         lastScanIdx = lenScans - 1
@@ -1237,17 +1286,17 @@ class ObjectSurface(PathOp.ObjectOp):
     def _planarGetLineScans(self, obj, pdc, base, compoundFaces):
         SCANS = list()
         # Get LINESET and perform OCL scan on each line within
-        LINESET = self._planarGetLineSet(obj, base, compoundFaces)
+        linesetObject = self._planarGetLineSet(obj, base, compoundFaces)
+        PNTSET = self._convertLinesetToPointSet(obj, linesetObject)
         if obj.CutPattern in ['Line', 'ZigZag']:
-            for p1p2Tup in LINESET:
+            for p1p2Tup in PNTSET:
                 SCANS.append(self._planarDropCutScan(pdc, p1p2Tup))
         elif obj.CutPattern == 'Circular':
-            for ARC in LINESET:
+            for ARC in PNTSET:
                 SCANS.append(self._planarCircularDropCutScan(pdc, ARC))
         return SCANS
 
     def _planarGetLineSet(self, obj, base, subShp=None):
-        LINES = list()
         axisRot = FreeCAD.Vector(0.0, 0.0, 1.0)
         addTopLine = False
         MaxLC = -1
@@ -1445,8 +1494,11 @@ class ObjectSurface(PathOp.ObjectOp):
         CMN.purgeTouched()
         FreeCAD.ActiveDocument.getObject(self.tempGroupName).addObject(CMN)
 
+        return FreeCAD.ActiveDocument.getObject(cmnName)
+
+    def _convertLinesetToPointSet(self, obj, LSET):
         # Extract intersection line segments for return value as list()
-        LSET = FreeCAD.ActiveDocument.getObject(cmnName)
+        LINES = list()
         ec = len(LSET.Shape.Edges)
         if obj.CutPattern == 'ZigZag':
             pp1 = None
@@ -1477,104 +1529,119 @@ class ObjectSurface(PathOp.ObjectOp):
                     tup = (p2, p1)
                 LINES.append(tup)
         elif obj.CutPattern == 'Circular':
-            # OBJ.Shape.Edge[e].Length = arc length
-            # OBJ.Shape.Edge[e].Vertexes = end points;  1=loop, >1=arc
-            # OBJ.Shape.Edge[e].Closed = True=loop, False=arc
-            # OBJ.Shape.Edge[e].Placement.Base = center of loop/arc
-            PARTS = list()
-            startOnAxis = list()
-            endOnAxis = list()
-            isSameCnt = 0
+            COM = LSET.Shape.Edges[0].Placement.Base
+            SEGS = list()
+            segEI = list()
+            LOOPS = list()
+            ARCS = list()
+            arcEI = list()
+            IDS = list()
+            isSame = False
             sameRad = None
-            sameEI = list()
             for ei in range(0, ec):
                 edg = LSET.Shape.Edges[ei]
                 if edg.Closed is True:
                     Loop = self._loopToLineSegments(obj, edg.Placement.Base, edg)
-                    PARTS.append(Loop)
+                    LOOPS.append(Loop)
+                    IDS.append('L')
                 else:
                     Arc = self._arcToLineSegments(ei, obj, edg.Placement.Base, edg)
-                    PARTS.append(Arc)
-                    if obj.CutMode == 'Climb':
-                        if isSameCnt == 0:
-                            isSameCnt += 1
+                    if isSame is False:
+                        SEGS.append(Arc)
+                        segEI.append(ei)
+                        isSame = True
+                        pnt = FreeCAD.Vector(edg.Vertexes[0].X, edg.Vertexes[0].Y, 0.0)
+                        sameRad = pnt.sub(COM).Length
+                    else:
+                        # Check if arc is co-radial to current SEGS
+                        pnt = FreeCAD.Vector(edg.Vertexes[0].X, edg.Vertexes[0].Y, 0.0)
+                        if abs(sameRad - pnt.sub(COM).Length) > 0.00001:
+                            isSame = False
+                        
+                        if isSame is True:
+                            SEGS.append(Arc)
+                            segEI.append(ei)
+                        else:
+                            # Move co-radial arc segments
+                            ARCS.append(SEGS)
+                            arcEI.append(segEI)
+                            IDS.append('A')
+                            # Start new list of arc segments
+                            SEGS = [Arc]
+                            segEI = [ei]
+                            isSame = True
                             pnt = FreeCAD.Vector(edg.Vertexes[0].X, edg.Vertexes[0].Y, 0.0)
                             sameRad = pnt.sub(COM).Length
-                            sameEI.append(ei)
-                        else:
-                            pnt = FreeCAD.Vector(edg.Vertexes[0].X, edg.Vertexes[0].Y, 0.0)
-                            if abs(sameRad - pnt.sub(COM).Length) < 0.00001:
-                                isSameCnt += 1
-                                sameEI.append(ei)
-                            else:
-                                # reverse order of existing sameRad arcs on end of PARTS
-                                if isSameCnt > 1:
-                                    T = list()
-                                    for i in range(0, isSameCnt):
-                                        T.append(PARTS.pop())
-                                    PARTS.extend(T)
-                                # Identify arcs with y=0 start/end points
-                                for EI in sameEI:
-                                    edge = LSET.Shape.Edges[EI]
-                                    if abs(COM.y - edge.Vertexes[0].Y) < 0.00001:
-                                        startOnAxis.append((EI, edge.Vertexes[0]))
-                                    elif abs(COM.y - edge.Vertexes[1].Y) < 0.00001:
-                                        endOnAxis.append((EI, edge.Vertexes[1]))
-                                # Reset variables
-                                isSameCnt = 0
-                                sameRad = None
-                                sameEI = list()
-                            # Eif
-                    else:
-                        if abs(COM.y - edg.Vertexes[0].Y) < 0.00001:
-                            startOnAxis.append((ei, edg.Vertexes[0]))
-                        elif abs(COM.y - edg.Vertexes[1].Y) < 0.00001:
-                            endOnAxis.append((ei, edg.Vertexes[1]))
-                    # Eif
-                # Eif
+            # Process trailing SEGS data, if available
+            if isSame is True:
+                ARCS.append(SEGS)
+                arcEI.append(segEI)
+                IDS.append('A')
+
+            # Identify adjacent arcs with y=0 start/end points that connect
+            for SG in range(0, len(ARCS)):
+                startOnAxis = list()
+                endOnAxis = list()
+                A = ARCS[SG]  # list of arc segments
+                EI = arcEI[SG]  # list of corresponding LSET.Shape.Edges indexes
+
+                # Identify startOnAxis and endOnAxis arcs
+                for i in range(0, len(EI)):
+                    ei = EI[i]
+                    E = LSET.Shape.Edges[ei]
+                    if abs(COM.y - E.Vertexes[0].Y) < 0.00001:
+                        startOnAxis.append((i, E.Vertexes[0]))
+                    elif abs(COM.y - E.Vertexes[1].Y) < 0.00001:
+                        endOnAxis.append((i, E.Vertexes[1]))
+
+                # Look for connections between startOnAxis and endOnAxis arcs. Consolidate data when connected
+                delList = list()
+                lenSOA = len(startOnAxis)
+                lenEOA = len(endOnAxis)
+                if lenSOA > 0 and lenEOA > 0:
+                    delIdxs = list()
+                    lstFindIdx = 0
+                    for soa in range(0, lenSOA):
+                        (iS, vS) = startOnAxis[soa]
+                        for eoa in range(0, len(endOnAxis)):
+                            (iE, vE) = endOnAxis[eoa]
+                            dist = vE.X - vS.X
+                            if abs(dist) < 0.00001:  # They connect on axis at same radius
+                                # Transfer points to end of ending arc
+                                for d in ARCS[SG][iS]:
+                                    ARCS[SG][iE].append(d)
+                                delList.append(iS)
+                                break
+                            elif dist > 0:
+                                break  # stop searching
+
+                # Remove empty arcs that were connected to another
+                if len(delList) > 0:
+                    delList.sort(reverse=True)
+                    for d in delList:
+                        ARCS[SG].pop(d)
+                        arcEI[SG].pop(d)
             # Efor
 
-            # Look for connections between startOnAxis and endOnAxis arcs
-            # Consolidate data when connected
-            lenSOA = len(startOnAxis)
-            lenEOA = len(endOnAxis)
-            if lenSOA > 0 and lenEOA > 0:
-                delIdxs = list()
-                lstFindIdx = 0
-                for soa in range(0, lenSOA):
-                    (eiS, vS) = startOnAxis[soa]
-                    for eoa in range(0, len(endOnAxis)):
-                        (eiE, vE) = endOnAxis[eoa]
-                        dist = vE.X - vS.X
-                        if abs(dist) < 0.00001:  # They connect on axis at same radius
-                            # Transfer points to end of ending arc
-                            for d in PARTS[eiS]:
-                                PARTS[eiE].append(d)
-                            PARTS[eiS] = list()  # clear data from starting arc
-                            '''
-                            if obj.CutMode == 'Climb':
-                                for d in PARTS[eiE]:
-                                    PARTS[eiS].append(d)
-                                PARTS[eiE] = list()  # clear data from starting arc
-                            else:
-                                for d in PARTS[eiS]:
-                                    PARTS[eiE].append(d)
-                                PARTS[eiS] = list()  # clear data from starting arc
-                            '''
-                            break
-                        elif dist > 0:
-                            # stop searching
-                            break
-                        # Eif
-                    # Efor
-                # Efor
-            # Eif
-
-            # Remove empty list items from PARTS
-            for P in PARTS:
-                if len(P) > 0:
-                    LINES.append(P)
-        # Eif
+            # Re-assemble loops and arcs in order
+            for i in IDS:
+                if i == 'L':
+                    LINES.append(LOOPS.pop(0))
+                else:
+                    SEGS = ARCS.pop(0)
+                    if obj.CutMode == 'Climb':
+                        SEGS.reverse()  # Reverse order of arcs.
+                        REVSEGS = list()
+                        for S in SEGS:
+                            REV = list()
+                            S.reverse()  # Reverse order of point sets in each arc
+                            for (p1, p2) in S:
+                                REV.append((p2, p1))  # reverse order of vertexes in each point set
+                            REVSEGS.append(REV)
+                        LINES.extend(REVSEGS)
+                    else:
+                        LINES.extend(SEGS)
+        # Eif 'Circular'
                 
         return LINES
 
@@ -2681,6 +2748,7 @@ class ObjectSurface(PathOp.ObjectOp):
         if all is True:
             self.cutter = None
             self.stl = None
+            self.fullSTL = None
             self.cutOut = 0.0
             self.radius = 0.0
             self.useTiltCutter = False
@@ -2706,6 +2774,7 @@ class ObjectSurface(PathOp.ObjectOp):
         if all is True:
             del self.cutter
             del self.stl
+            del self.fullSTL
             del self.cutOut
             del self.radius
             del self.useTiltCutter
@@ -3013,12 +3082,6 @@ class ObjectSurface(PathOp.ObjectOp):
             for nm in Names:
                 TG.addObject(FreeCAD.ActiveDocument.getObject(nm))
 
-        if obj.CutMode == 'Climb':
-            ARC.reverse()
-            for (p1, p2) in ARC:
-                ARCSEGS.append((p2, p1))
-            return ARCSEGS
-
         return ARC
 
     def _mapPointToRadianCircle(self, pnt):
@@ -3083,6 +3146,8 @@ def SetupProperties():
     setup.append('FinishPassOnly')
     setup.append('AreaParams')
     setup.append('AvoidLastXFaces')
+    setup.append('UseStartPoint')
+    setup.append('StartPoint')
     # Targeted for possible removal
     setup.append('IgnoreWasteDepth')
     setup.append('IgnoreWaste')
