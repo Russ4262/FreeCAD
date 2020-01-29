@@ -50,10 +50,10 @@ __url__ = "http://www.freecadweb.org"
 __doc__ = "Class and implementation of Mill Facing operation."
 __contributors__ = "russ4262 (Russell Johnson), roivai[FreeCAD]"
 __created__ = "2016"
-__scriptVersion__ = "8a"
-__lastModified__ = "2020-01-28 22:59 CST"
+__scriptVersion__ = "8b"
+__lastModified__ = "2020-01-29 16:47 CST"
 
-PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
+PathLog.setLevel(PathLog.Level.DEBUG, PathLog.thisModule())
 # PathLog.trackModule(PathLog.thisModule())
 
 
@@ -202,10 +202,11 @@ class ObjectSurface(PathOp.ObjectOp):
         self.safeSTLs = list()
         self.modelTypes = list()
         self.boundBoxes = list()
-        faceShapes = list()
-        voidShapes = list()
+        faceShapesList = list()
+        voidShapesList = list()
         deflection = None
         deleteTempsFlag = True  # Set to False for debugging
+        CMDS = list()
 
         # mark beginning of operation and identify parent Job
         startTime = time.time()
@@ -289,53 +290,30 @@ class ObjectSurface(PathOp.ObjectOp):
                     self.boundBoxes.append(M.Shape.BoundBox)
             elif obj.BoundBox == 'Stock':
                 self.boundBoxes.append(JOB.Stock.Shape.BoundBox)
-            self.safeSTLs.append(self._makeMass(JOB, obj, M, deflection))
-
-        # make stock.cut(model_ENVELOPE) united with model - for avoidance detection on transitions
-        # self.fullSTL = self._makeMass(JOB, obj, deflection)
-        prepSTLs = self._prepareSTLs(JOB, deflection)
 
         if obj.Algorithm == 'OCL Waterline':
+            PathLog.debug("obj.Algorithm == 'OCL Waterline'")
             for M in JOB.Model.Group:
-                final = self._waterlineOp(obj, M)
+                CMDS = self._waterlineOp(obj, M)  # independent method set for Waterline
         elif obj.Algorithm == 'OCL Dropcutter':
+            PathLog.debug("obj.Algorithm == 'OCL Dropcutter'")
             # Process selected faces, if available
-            addFlag = False
-            voidFlag = False
-            faceAvoidAreaShapes = list()
-            faceCutAreaShapes = list()
+            (faceShapesList, voidShapesList) = self._preProcessModel(JOB, obj)
+            PathLog.info(f'(faceShapesList, voidShapesList) = ({faceShapesList}, {voidShapesList})')
 
-            if obj.Base:
-                (FACES, VOIDS) = self._preProcessSelectedFaces(JOB, obj)
+            # Create OCL.stl model objects
+            prepSTLs = self._prepareSTLs(JOB, obj, deflection)
 
-            if len(FACES) > 0:
-                addFlag = True
-            if len(VOIDS) > 0:
-                voidFlag = True
-            # Convert avoid faces to avoid areas
-            if voidFlag is True:
-                for (mdlIdx, fcshp, faceIdx) in VOIDS:
-                    base = JOB.Model.Group[mdlIdx]
-                    faceAvoidAreaShp = self._createFacialCutArea(obj, base, fcshp, faceIdx, avoid=True)
-                    if faceAvoidAreaShp is not False:
-                        faceAvoidAreaShapes.append(faceAvoidAreaShp)
-            # Convert add faces to add areas.
-            if addFlag is True:
-                if obj.OptimizeLinearTransitions is True and len(FACES) > 1:
-                    PathLog.warning(translate('PathSurface', "Multiple faces selected. \nWARNING: The `OptimizeLinearTransitions` algorithm might produce incorrect transitional paths between face regions. \nSeparate out faces to fix problem."))
-
-                # Convert faces to cut areas
-                for (mdlIdx, fcshp, faceIdx) in FACES:
-                    base = JOB.Model.Group[mdlIdx]
-                    faceCutAreaShp = self._createFacialCutArea(obj, base, fcshp, faceIdx)
-                    if faceCutAreaShp is not False:
-                        faceCutAreaShapes.append(faceCutAreaShp)
-            # return (faceCutAreaShapes, faceAvoidAreaShapes)
-
-            if addFlag is True:
-                final = self._processSelectedFaces(obj, faceCutAreaShapes, faceAvoidAreaShapes)
-            else:
-                final = self._processEntireModel(obj, faceAvoidAreaShapes)
+            for m in range(0, len(JOB.Model.Group)):
+                Mdl = JOB.Model.Group[m]
+                if faceShapesList[m] is not False:
+                    # make stock-model-voidShapes STL model for avoidance detection on transitions
+                    self.safeSTLs[m] = self._makeSafeSTL(JOB, Mdl, deflection, voidShapesList[m])
+                    # Process model/faces - OCL objects must be ready
+                    if voidShapesList[m] is False:
+                        CMDS.extend(self._processSelectedFaces(JOB, obj, m, Mdl, faceShapesList[m], False))
+                    else:
+                        CMDS.extend(self._processSelectedFaces(JOB, obj, m, Mdl, faceShapesList[m], voidShapesList[m]))
 
         # Delete temporary objects
         if deleteTempsFlag is True:
@@ -356,77 +334,8 @@ class ObjectSurface(PathOp.ObjectOp):
 
         return True
 
-    def _processSelectedFaces(self, obj, faceShapes, voidShapes):
-        final = list()
-        # Process faces Collectively or Individually
-        if obj.HandleMultipleFeatures == 'Collectively':
-            if len(voidShapes) > 0:
-                DEL = Part.makeCompound(voidShapes)
-                ADD = Part.makeCompound(faceShapes)
-                COMP = ADD.cut(DEL)
-            else:
-                COMP = Part.makeCompound(faceShapes)
-
-            if obj.ScanType == 'Planar':
-                final = self.opProcessBasePlanar(obj, base, COMP)
-            elif obj.ScanType == 'Rotational':
-                final = self.opProcessBaseRotational(obj, base, COMP)
-        elif obj.HandleMultipleFeatures == 'Individually':
-            for cas in faceShapes:
-                # self.deleteOpVariables(all=False)
-                self.resetOpVariables(all=False)
-                if len(voidShapes) > 0:
-                    DEL = Part.makeCompound(voidShapes)
-                    ADD = Part.makeCompound([cas])
-                    COMP = ADD.cut(DEL)
-                else:
-                    COMP = Part.makeCompound([cas])
-
-                if obj.ScanType == 'Planar':
-                    final.extend(self.opProcessBasePlanar(obj, base, COMP))
-                elif obj.ScanType == 'Rotational':
-                    final.extend(self.opProcessBaseRotational(obj, base, COMP))
-                COMP = None
-                final = None
-        # Eif
-
-        return final
-
-    def _processEntireModel(self, obj, voidShapes):
-        # Cycle through parts of model
-        final = list()
-        # for base in self.model:
-        for mdl in range(0, len(JOB.Model.Group)):
-            model = JOB.Model.Group[mdl]
-            if obj.BoundBox == 'Stock':
-                BS = JOB.Stock
-                baseEnv = PathUtils.getEnvelope(BS.Shape, depthparams=self.depthParams)
-            elif obj.BoundBox == 'BaseBoundBox':
-                baseEnv = PathUtils.getEnvelope(model.Shape, depthparams=self.depthParams)
-
-            # Make cross-section and convert to planar face
-            midHeight = (baseEnv.BoundBox.ZMax - baseEnv.BoundBox.ZMin) / 2
-            csFaceShape = self._makeCrossSectionToFaceshape(baseEnv, midHeight, zHghtTrgt=0.0)
-
-            # Create offset shape
-            faceOffsetShape = self._extractFaceOffset(obj, csFaceShape, isHole=False)
-
-            if len(voidShapes) > 0:
-                DEL = Part.makeCompound(voidShapes)
-                cutShape = faceOffsetShape.cut(DEL)
-            else:
-                cutShape = faceOffsetShape
-
-            # Process faces Collectively or Individually
-            if obj.ScanType == 'Planar':
-                final.extend(self.opProcessBasePlanar(obj, mdl, COMP))
-            elif obj.ScanType == 'Rotational':
-                final.extend(self.opProcessBaseRotational(obj, mdl, COMP))
-        # Efor
-
-        return final
-
-    def _prepareSTLs(self, JOB, deflection):
+    def _prepareSTLs(self, JOB, obj, deflection):
+        PathLog.debug('_prepareSTLs(self, JOB, obj, deflection)')
         rtn = False
         for m in range(0, len(JOB.Model.Group)):
             M = JOB.Model.Group[m]
@@ -439,6 +348,7 @@ class ObjectSurface(PathOp.ObjectOp):
                 mesh = MeshPart.meshFromShape(Shape=M.Shape, LinearDeflection=deflection, AngularDeflection=0.25, Relative=False)
 
             if self.modelSTLs[m] is True:
+                PathLog.debug('self.modelSTLs[{}] is True'.format(m))
                 stl = ocl.STLSurf()
                 if obj.Algorithm == 'OCL Dropcutter':
                     for f in mesh.Facets:
@@ -462,55 +372,207 @@ class ObjectSurface(PathOp.ObjectOp):
                 rtn = True
         return rtn
 
-    def _preProcessSelectedFaces(self, JOB, obj):
+    def _processSelectedFaces(self, JOB, obj, mdlIdx, base, faceShapes, voidShapes):
+        PathLog.debug('_processSelectedFaces(self, JOB, obj, mdlIdx, base, faceShapes, voidShapes)')
+        final = list()
+        # Process faces Collectively or Individually
+        if obj.HandleMultipleFeatures == 'Collectively':
+            if voidShapes is not False:
+                DEL = Part.makeCompound(voidShapes)
+                ADD = Part.makeCompound(faceShapes)
+                COMP = ADD.cut(DEL)
+            else:
+                COMP = Part.makeCompound(faceShapes)
+
+            if obj.ScanType == 'Planar':
+                final = self.opProcessBasePlanar(obj, mdlIdx, COMP)
+            elif obj.ScanType == 'Rotational':
+                final = self.opProcessBaseRotational(obj, base, COMP)
+        elif obj.HandleMultipleFeatures == 'Individually':
+            for cas in faceShapes:
+                # self.deleteOpVariables(all=False)
+                self.resetOpVariables(all=False)
+                if voidShapes is not False:
+                    DEL = Part.makeCompound(voidShapes)
+                    ADD = Part.makeCompound([cas])
+                    COMP = ADD.cut(DEL)
+                else:
+                    COMP = Part.makeCompound([cas])
+
+                if obj.ScanType == 'Planar':
+                    final.extend(self.opProcessBasePlanar(obj, mdlIdx, COMP))
+                elif obj.ScanType == 'Rotational':
+                    final.extend(self.opProcessBaseRotational(obj, base, COMP))
+                COMP = None
+                final = None
+        # Eif
+
+        return final
+
+    '''
+    def _processEntireModel(self, JOB, obj, mdlIdx, voidShapes):
+        final = list()
+        model = JOB.Model.Group[mdlIdx]
+
+        if obj.BoundBox == 'Stock':
+            BS = JOB.Stock
+            baseEnv = PathUtils.getEnvelope(BS.Shape, depthparams=self.depthParams)
+        elif obj.BoundBox == 'BaseBoundBox':
+            baseEnv = PathUtils.getEnvelope(model.Shape, depthparams=self.depthParams)
+
+        # Make cross-section and convert to planar face
+        midHeight = (baseEnv.BoundBox.ZMax - baseEnv.BoundBox.ZMin) / 2
+        csFaceShape = self._makeCrossSectionToFaceshape(baseEnv, midHeight, zHghtTrgt=0.0)
+
+        # Create offset shape
+        faceOffsetShape = self._extractFaceOffset(obj, csFaceShape, isHole=False)
+
+        if len(voidShapes) > 0:
+            DEL = Part.makeCompound(voidShapes)
+            cutShape = faceOffsetShape.cut(DEL)
+        else:
+            cutShape = faceOffsetShape
+
+        # Process faces Collectively or Individually
+        if obj.ScanType == 'Planar':
+            final.extend(self.opProcessBasePlanar(obj, mdl, COMP))
+        elif obj.ScanType == 'Rotational':
+            final.extend(self.opProcessBaseRotational(obj, mdl, COMP))
+
+        return final
+
+    '''
+    def _preProcessModel(self, JOB, obj):
+        PathLog.debug('_preProcessModel(self, JOB, obj)')
         FACES = list()
         VOIDS = list()
+        fShapes = list()
+        vShapes = list()
+        baseSubTuples = list()
         minHeight = None
         maxHeight = None
+        addFlag = False
+        voidFlag = False
+        hasBase = False
+
+        # Crete place holders for each base model in Job
+        for m in range(0, len(JOB.Model.Group)):
+            FACES.append(list())
+            VOIDS.append(list())
+            fShapes.append(False)
+            vShapes.append(False)
 
         # The user has selected subobjects from the base.  Pre-Process each.
-        PathLog.debug('obj.Base exists. Pre-processing for selected faces.')
-        baseSubTuples = list()
-        oneBase = [obj.Base[0][0], True]
-        sub0 = getattr(obj.Base[0][0].Shape, obj.Base[0][1][0])
-        minHeight = sub0.BoundBox.ZMax
-        maxHeight = sub0.BoundBox.ZMin
-        # Separate selected faces into (base, face) tuples
-        for (bs, SBS) in obj.Base:
-            for sb in SBS:
-                # Flag model for STL creation
-                mdlIdx = None
-                for m in range(0, len(JOB.Model.Group)):
-                    if bs is JOB.Model.Group[m]:
-                        self.modelSTLs[m] = True
-                        mdlIdx = m
-                        break
-                if oneBase[0] is not bs:
-                    # Cancel op: Only one model base allowed in the operation
-                    oneBase[1] = False
-                    PathLog.error(translate('PathSurface', '3D Surface cancelled. Only one base model permitted in an operation.'))
-                    return False
-                baseSubTuples.append((mdlIdx, bs, sb))  # (base, sub)
+        if obj.Base:
+            PathLog.debug(' -obj.Base exists. Pre-processing for selected faces.')
+            hasBase = True
 
-        faceCnt = len(baseSubTuples)
-        add = faceCnt - obj.AvoidLastXFaces
-        for bst in range(0, faceCnt):
-            (mdlIdx, base, sub) = baseSubTuples[bst]
-            shape = getattr(base.Shape, sub)
-            if isinstance(shape, Part.Face):
-                faceIdx = int(sub[4:]) - 1
-                if bst < add:
-                    FACES.append((mdlIdx, shape, faceIdx))
-                    PathLog.info(translate('PathSurface', 'Adding Face') + str(faceIdx + 1))
-                    # Record min/max zHeights of added faces
-                    if shape.BoundBox.ZMax > maxHeight:
-                        maxHeight = shape.BoundBox.ZMax
-                    if shape.BoundBox.ZMin < minHeight:
-                        minHeight = shape.BoundBox.ZMin
-                else:
-                    VOIDS.append((mdlIdx, shape, faceIdx))
-                    PathLog.info(translate('PathSurface', 'Adding Face') + str(faceIdx + 1))
-        return (FACES, VOIDS)
+            sub0 = getattr(obj.Base[0][0].Shape, obj.Base[0][1][0])
+            minHeight = sub0.BoundBox.ZMax
+            maxHeight = sub0.BoundBox.ZMin
+            
+            # Separate selected faces into (base, face) tuples
+            for (bs, SBS) in obj.Base:
+                for sb in SBS:
+                    # Flag model for STL creation
+                    mdlIdx = None
+                    for m in range(0, len(JOB.Model.Group)):
+                        if bs is JOB.Model.Group[m]:
+                            PathLog.debug('self.modelSTLs[{}] = True'.format(m))
+                            self.modelSTLs[m] = True
+                            mdlIdx = m
+                            break
+                    baseSubTuples.append((mdlIdx, bs, sb))  # (base, sub)
+
+            faceCnt = len(baseSubTuples)
+            add = faceCnt - obj.AvoidLastXFaces
+            for bst in range(0, faceCnt):
+                (mdlIdx, base, sub) = baseSubTuples[bst]
+                shape = getattr(base.Shape, sub)
+                if isinstance(shape, Part.Face):
+                    faceIdx = int(sub[4:]) - 1
+                    if bst < add:
+                        FACES[mdlIdx].append((shape, faceIdx))
+                        PathLog.info(translate('PathSurface', 'Adding Face') + str(faceIdx + 1))
+                        # Record min/max zHeights of added faces
+                        if shape.BoundBox.ZMax > maxHeight:
+                            maxHeight = shape.BoundBox.ZMax
+                        if shape.BoundBox.ZMin < minHeight:
+                            minHeight = shape.BoundBox.ZMin
+                    else:
+                        VOIDS[mdlIdx].append((shape, faceIdx))
+                        PathLog.info(translate('PathSurface', 'Adding Face') + str(faceIdx + 1))
+
+            # Cycle through each base model, processing faces for each
+            for m in range(0, len(JOB.Model.Group)):
+                prcs = False
+
+                M = JOB.Model.Group[m]
+                FCS = FACES[m]
+                VDS = VOIDS[m]
+
+                # Convert avoid faces to avoid areas
+                if len(VDS) > 0:
+                    for (fcshp, faceIdx) in VDS:
+                        if vShapes[m] is False:
+                            vShapes[m] = list()
+                        base = JOB.Model.Group[m]
+                        faceAvoidAreaShp = self._createFacialCutArea(obj, base, fcshp, faceIdx, avoid=True)
+                        if faceAvoidAreaShp is not False:
+                            vShapes[m].append(faceAvoidAreaShp)
+                            voidFlag = True
+
+                # Convert add faces to add areas.
+                if len(FCS) > 0:
+                    if obj.OptimizeLinearTransitions is True and len(FACES) > 1:
+                        PathLog.warning(translate('PathSurface', "Multiple faces selected. \nWARNING: The `OptimizeLinearTransitions` algorithm might produce incorrect transitional paths between face regions. \nSeparate out faces to fix problem."))
+
+                    # Convert faces to cut areas
+                    for (fcshp, faceIdx) in FCS:
+                        if fShapes[m] is False:
+                            fShapes[m] = list()
+                        base = JOB.Model.Group[m]
+                        faceCutAreaShp = self._createFacialCutArea(obj, base, fcshp, faceIdx)
+                        if faceCutAreaShp is not False:
+                            fShapes[m].append(faceCutAreaShp)
+                            addFlag = True
+
+
+        # If no faces selected, flag each model for STL creation
+        if hasBase is False:  # addFlag is False and voidFlag is False:
+            PathLog.debug(' -No obj.Base.')
+            for m in range(0, len(JOB.Model.Group)):
+                self.modelSTLs[m] = True
+
+        # Process each entire model
+        if (addFlag is False and voidFlag is True) or hasBase is False:
+            PathLog.debug(' -Pre-processing all models in Job.')
+            # Cycle through each base model, processing faces for each
+            for m in range(0, len(JOB.Model.Group)):
+                M = JOB.Model.Group[m]
+                if obj.BoundBox == 'BaseBoundBox':
+                    base = M
+                elif obj.BoundBox == 'Stock':
+                    base = JOB.Stock
+
+                # Create envelope, extract cross-section and make offset co-planar shape
+                baseEnv = PathUtils.getEnvelope(base.Shape, depthparams=self.depthParams)
+                midHeight = (baseEnv.BoundBox.ZMax - baseEnv.BoundBox.ZMin) / 2
+                csFaceShape = self._makeCrossSectionToFaceshape(baseEnv, midHeight, zHghtTrgt=0.0)
+                faceOffsetShape = self._extractFaceOffset(obj, csFaceShape, isHole=False)
+
+                # Respect avoid faces if available
+                #if len(vShapes[m]) > 0:
+                #    DEL = Part.makeCompound(vShapes[m])
+                #    cutShape = faceOffsetShape.cut(DEL)
+                #else:
+                #    cutShape = faceOffsetShape
+
+                if fShapes[m] is False:
+                    fShapes[m] = [faceOffsetShape]
+                # fShapes[m].append(faceOffsetShape)
+
+        return (fShapes, vShapes)
 
     def opSetDefaultValues(self, obj, job):
         '''opSetDefaultValues(obj, job) ... initialize defaults'''
@@ -569,11 +631,10 @@ class ObjectSurface(PathOp.ObjectOp):
         obj.IgnoreWasteDepth = obj.FinalDepth.Value + 0.001
 
     def opProcessBasePlanar(self, obj, mdlIdx, compoundFaces=None):
+        PathLog.debug('opProcessBasePlanar(self, obj, mdlIdx, compoundFaces=None)')
         initIdx = 0.0
         final = list()
 
-        JOB = PathUtils.findParentJob(obj)
-        base = JOB.Model.Group[mdlIdx]
         bb = self.boundBoxes[mdlIdx]
 
         # If cut pattern is all arcs, there are minimal straight lines to optimize
@@ -582,9 +643,9 @@ class ObjectSurface(PathOp.ObjectOp):
             obj.OptimizeLinearPaths = False
 
         if obj.LayerMode == 'Single-pass':
-            final = self._planarDropCutSingle(obj, bb, base, compoundFaces)
+            final = self._planarDropCutSingle(obj, bb, mdlIdx, compoundFaces)
         elif obj.LayerMode == 'Multi-pass':
-            final = self._planarDropCutMulti(obj, bb, base, compoundFaces)
+            final = self._planarDropCutMulti(obj, bb, mdlIdx, compoundFaces)
 
         # If cut pattern is all arcs, restore initial OLP value
         if obj.CutPattern == 'Circular':
@@ -597,6 +658,7 @@ class ObjectSurface(PathOp.ObjectOp):
         return final
 
     def opProcessBaseRotational(self, obj, mdlIdx, compoundFaces=None):
+        PathLog.debug('opProcessBaseRotational(self, obj, mdlIdx, compoundFaces=None)')
         initIdx = 0.0
         final = list()
 
@@ -713,27 +775,35 @@ class ObjectSurface(PathOp.ObjectOp):
             obj.AvoidLastXFaces = 100
             PathLog.error(translate('PathSurface', 'AvoidLastXFaces: Avoid last X faces count limited to 100.'))
 
-    def _makeMass(self, JOB, obj, M, deflection):
-        # get envelope of Model.
-        # mdlShp = Part.makeCompound([M.Shape for M in JOB.Model.Group])
-        mdlShp = M.Shape
-        mdlsEnv = PathUtils.getEnvelope(partshape=mdlShp, depthparams=self.depthParams)  # Produces .Shape
-        wstShp = JOB.Stock.Shape.cut(mdlsEnv)
-        waste = FreeCAD.ActiveDocument.addObject("Part::Feature", "Waste")
+    def _makeSafeSTL(self, JOB, Mdl, deflection, voidShapes):
+        PathLog.debug('_makeSafeSTL(self, JOB, obj, M, deflection, voidShapes)')
+        fuseObjects = [Mdl]
+
+        wstEnv = PathUtils.getEnvelope(partshape=Mdl.Shape, depthparams=self.depthParams)  # Produces .Shape
+        wstShp = JOB.Stock.Shape.cut(wstEnv)
+        waste = FreeCAD.ActiveDocument.addObject("Part::Feature", "safeWaste")
         waste.Shape = wstShp
         waste.recompute()
         waste.purgeTouched()
-        # fuseObjects = [M for M in JOB.Model.Group]
-        # fuseObjects.append(waste)
-        fuse = FreeCAD.ActiveDocument.addObject("Part::MultiFuse", "Fusion")
-        # fuse.Shapes = fuseObjects
-        fuse.Shapes = [M, waste]
+        fuseObjects.append(waste)
+
+        if voidShapes is not False:
+            voidComp = Part.makeCompound(voidShapes)
+            voidEnv = PathUtils.getEnvelope(partshape=voidComp, depthparams=self.depthParams)  # Produces .Shape
+            void = FreeCAD.ActiveDocument.addObject("Part::Feature", "safeVoids")
+            void.Shape = wstShp
+            void.recompute()
+            void.purgeTouched()
+            fuseObjects.append(void)
+
+        fuse = FreeCAD.ActiveDocument.addObject("Part::MultiFuse", "safeSTL")
+        fuse.Shapes = fuseObjects
         fuse.recompute()
         fuse.purgeTouched()
 
         # Extract mesh from fusion
         meshFuse = MeshPart.meshFromShape(Shape=fuse.Shape, LinearDeflection=deflection, AngularDeflection=0.25, Relative=False)
-        fullSTL = ocl.STLSurf()
+        stl = ocl.STLSurf()
         for f in meshFuse.Facets:
             p = f.Points[0]
             q = f.Points[1]
@@ -741,26 +811,38 @@ class ObjectSurface(PathOp.ObjectOp):
             t = ocl.Triangle(ocl.Point(p[0], p[1], p[2]),
                                 ocl.Point(q[0], q[1], q[2]),
                                 ocl.Point(r[0], r[1], r[2]))
-            fullSTL.addTriangle(t)
+            stl.addTriangle(t)
 
         # Delete temporary objects
-        FreeCAD.ActiveDocument.removeObject(fuse.Name)
-        FreeCAD.ActiveDocument.removeObject(waste.Name)
+        if PathLog.getLevel(PathLog.thisModule()) == 4:  # DEBUG is on, only move objects to temp folder
+            FreeCAD.ActiveDocument.getObject(self.tempGroupName).addObject(fuse)
+            FreeCAD.ActiveDocument.getObject(self.tempGroupName).addObject(waste)
+            if voidShapes is not False:
+                FreeCAD.ActiveDocument.getObject(self.tempGroupName).addObject(void)
+        else:
+            FreeCAD.ActiveDocument.removeObject(fuse.Name)
+            FreeCAD.ActiveDocument.removeObject(waste.Name)
+            if voidShapes is not False:
+                FreeCAD.ActiveDocument.removeObject(void.Name)
 
-        return fullSTL
+        return stl
 
     # Main planar scan functions
-    def _planarDropCutSingle(self, obj, bb, base, compoundFaces=None):
+    def _planarDropCutSingle(self, obj, bb, mdlIdx, compoundFaces=None):
+        PathLog.debug('_planarDropCutSingle(self, obj, bb, mdlIdx, compoundFaces=None)')
         GCODE = list()
         GCODE.append(Path.Command('N (Beginning of Single-pass layer.)', {}))
+
+        JOB = PathUtils.findParentJob(obj)
+        base = JOB.Model.Group[mdlIdx]
 
         # Compute number and size of stepdowns, and final depth
         depthparams = [obj.FinalDepth.Value]
         lenDP = len(depthparams)
 
         # Scan the piece to depth
-        pdc = self._planarGetPDC(self.stl, depthparams[lenDP - 1], obj.SampleInterval.Value)
-        fullPDC = self._planarGetPDC(self.fullSTL, depthparams[lenDP - 1], obj.SampleInterval.Value)
+        pdc = self._planarGetPDC(self.modelSTLs[mdlIdx], depthparams[lenDP - 1], obj.SampleInterval.Value)
+        fullPDC = self._planarGetPDC(self.safeSTLs[mdlIdx], depthparams[lenDP - 1], obj.SampleInterval.Value)
         SCANS = self._planarGetLineScans(obj, pdc, base, compoundFaces)
         lenScans = len(SCANS)
         COM = FreeCAD.Vector(self.tmpCOM.x, self.tmpCOM.y, 0.0)
@@ -932,9 +1014,12 @@ class ObjectSurface(PathOp.ObjectOp):
 
         return GCODE
 
-    def _planarDropCutMulti(self, obj, bb, base, compoundFaces=None):
+    def _planarDropCutMulti(self, obj, bb, mdlIdx, compoundFaces=None):
         GCODE = list()
         GCODE.append(Path.Command('N (Beginning of Multi-pass layers.)', {}))
+
+        JOB = PathUtils.findParentJob(obj)
+        base = JOB.Model.Group[mdlIdx]
 
         # Compute number and size of stepdowns, and final depth
         dep_par = PathUtils.depth_params(obj.ClearanceHeight.Value, obj.SafeHeight.Value, obj.StartDepth.Value, obj.StepDown.Value, 0.0, obj.FinalDepth.Value)
@@ -943,7 +1028,8 @@ class ObjectSurface(PathOp.ObjectOp):
         prevDepth = bb.ZMax + 0.5  # depthparams[0]
 
         # Scan the piece to depth
-        pdc = self._planarGetPDC(self.stl, depthparams[lenDP - 1], obj.SampleInterval.Value)
+        pdc = self._planarGetPDC(self.modelSTLs, depthparams[lenDP - 1], obj.SampleInterval.Value)
+        fullPDC = self._planarGetPDC(self.safeSTLs[mdlIdx], depthparams[lenDP - 1], obj.SampleInterval.Value)
         SCANS = self._planarGetLineScans(obj, pdc, base, compoundFaces)
         lenScans = len(SCANS)
         lastScanIdx = lenScans - 1
