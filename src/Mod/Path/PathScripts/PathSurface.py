@@ -50,8 +50,8 @@ __url__ = "http://www.freecadweb.org"
 __doc__ = "Class and implementation of Mill Facing operation."
 __contributors__ = "russ4262 (Russell Johnson), roivai[FreeCAD]"
 __created__ = "2016"
-__scriptVersion__ = "7e"
-__lastModified__ = "2020-01-28 16:08 CST"
+__scriptVersion__ = "8a"
+__lastModified__ = "2020-01-28 22:59 CST"
 
 PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 # PathLog.trackModule(PathLog.thisModule())
@@ -197,10 +197,36 @@ class ObjectSurface(PathOp.ObjectOp):
     def opExecute(self, obj):
         '''opExecute(obj) ... process surface operation'''
         PathLog.track()
+
+        self.modelSTLs = list()
+        self.safeSTLs = list()
+        self.modelTypes = list()
+        self.boundBoxes = list()
+        faceShapes = list()
+        voidShapes = list()
+        deflection = None
         deleteTempsFlag = True  # Set to False for debugging
 
-        # mark beginning of operation
+        # mark beginning of operation and identify parent Job
         startTime = time.time()
+
+        # Identify parent Job
+        JOB = PathUtils.findParentJob(obj)
+        if JOB is None:
+            PathLog.error(translate('PathSurface', "No JOB"))
+            return
+
+        # Begin GCode for operation with basic information
+        # ... and move cutter to clearance height and startpoint
+        output = ''
+        if obj.Comment != '':
+            output += '(' + str(obj.Comment) + ')\n'
+        output += '(' + obj.Label + ')'
+        output += '(Compensated Tool Path. Diameter: ' + str(obj.ToolController.Tool.Diameter) + ')'
+        self.commandlist.append(Path.Command('N ({})'.format(output), {}))
+        self.commandlist.append(Path.Command('G0', {'Z': obj.ClearanceHeight.Value, 'F': self.vertRapid}))
+        if obj.UseStartPoint is True:
+            self.commandlist.append(Path.Command('G0', {'X': obj.StartPoint.x, 'Y': obj.StartPoint.y, 'F': self.horizRapid}))
 
         # Instantiate additional class operation variables
         self.resetOpVariables()
@@ -226,24 +252,9 @@ class ObjectSurface(PathOp.ObjectOp):
         self.cutOut = (self.cutter.getDiameter() * (float(obj.StepOver) / 100.0))
         self.radius = self.cutter.getDiameter() / 2
 
-        output = ''
-        if obj.Comment != '':
-            output += '(' + str(obj.Comment) + ')\n'
-        output += '(' + obj.Label + ')'
-        output += '(Compensated Tool Path. Diameter: ' + str(obj.ToolController.Tool.Diameter) + ')'
-        self.commandlist.append(Path.Command('N ({})'.format(output), {}))
-
-        parentJob = PathUtils.findParentJob(obj)
-        if parentJob is None:
-            PathLog.error(translate('PathSurface', "No parentJob"))
-            return
-        self.SafeHeightOffset = parentJob.SetupSheet.SafeHeightOffset.Value
-        self.ClearHeightOffset = parentJob.SetupSheet.ClearanceHeightOffset.Value
-
-        # Raise to clearance height to start operation
-        self.commandlist.append(Path.Command('G0', {'Z': obj.ClearanceHeight.Value, 'F': self.vertRapid}))
-        if obj.UseStartPoint is True:
-            self.commandlist.append(Path.Command('G0', {'X': obj.StartPoint.x, 'Y': obj.StartPoint.y, 'F': self.horizRapid}))
+        # Get height offset values for later use
+        self.SafeHeightOffset = JOB.SetupSheet.SafeHeightOffset.Value
+        self.ClearHeightOffset = JOB.SetupSheet.ClearanceHeightOffset.Value
 
         # Import OpFinalDepth from pre-existing operation for recompute() scenarios
         if obj.OpFinalDepth.Value != self.initOpFinalDepth:
@@ -253,127 +264,78 @@ class ObjectSurface(PathOp.ObjectOp):
             if self.initOpFinalDepth is not None:
                 obj.OpFinalDepth.Value = self.initOpFinalDepth
 
-        depthparams = PathUtils.depth_params(obj.ClearanceHeight.Value, obj.SafeHeight.Value, obj.StartDepth.Value, obj.StepDown.Value, 0.0, obj.FinalDepth.Value)
+        # Calculate default depthparams for operation
+        self.depthParams = PathUtils.depth_params(obj.ClearanceHeight.Value, obj.SafeHeight.Value, obj.StartDepth.Value, obj.StepDown.Value, 0.0, obj.FinalDepth.Value)
 
-        addFlag = False
-        voidFlag = False
-        if obj.Base:  # The user has selected subobjects from the base.  Pre-Process each.
-            PathLog.debug('obj.Base exists. Pre-processing for selected faces.')
-            baseSubTuples = list()
-            FACES = list()
-            VOIDS = list()
-            oneBase = [obj.Base[0][0], True]
-            sub0 = getattr(obj.Base[0][0].Shape, obj.Base[0][1][0])
-            minHeight = sub0.BoundBox.ZMax
-            maxHeight = sub0.BoundBox.ZMin
-            # Separate selected faces into (base, face) tuples
-            for (bs, SBS) in obj.Base:
-                for sb in SBS:
-                    if oneBase[0] is not bs:
-                        # Cancel op: Only one model base allowed in the operation
-                        oneBase[1] = False
-                        PathLog.error(translate('PathSurface', '3D Surface cancelled. Only one base model permitted in the operation.'))
-                        return False
-                    baseSubTuples.append((bs, sb))  # (base, sub)
+        # try/except is for Path Jobs created before GeometryTolerance
+        try:
+            deflection = JOB.GeometryTolerance
+        except AttributeError as ee:
+            import PathScripts.PathPreferences as PathPreferences
+            deflection = PathPreferences.defaultGeometryTolerance()
 
-            faceCnt = len(baseSubTuples)
-            add = faceCnt - obj.AvoidLastXFaces
-            for bst in range(0, faceCnt):
-                (base, sub) = baseSubTuples[bst]
-                shape = getattr(base.Shape, sub)
-                if isinstance(shape, Part.Face):
-                    faceIdx = int(sub[4:]) - 1
-                    if bst < add:
-                        FACES.append((shape, faceIdx))
-                        PathLog.info(translate('PathSurface', 'Adding Face') + str(faceIdx + 1))
-                        # Record min/max zHeights of added faces
-                        if shape.BoundBox.ZMax > maxHeight:
-                            maxHeight = shape.BoundBox.ZMax
-                        if shape.BoundBox.ZMin < minHeight:
-                            minHeight = shape.BoundBox.ZMin
-                    else:
-                        VOIDS.append((shape, faceIdx))
-                        PathLog.info(translate('PathSurface', 'Adding Face') + str(faceIdx + 1))
+        # Setup STL, model type, and bound box containers for each model in Job
+        for m in range(0, len(JOB.Model.Group)):
+            M = JOB.Model.Group[m]
+            self.modelSTLs.append(False)
+            self.safeSTLs.append(False)
+            # Set bound box
+            if obj.BoundBox == 'BaseBoundBox':
+                if M.TypeId.startswith('Mesh'):
+                    self.modelTypes.append('M')  # Mesh
+                    self.boundBoxes.append(M.Mesh.BoundBox)
+                else:
+                    self.modelTypes.append('S')  # Solid
+                    self.boundBoxes.append(M.Shape.BoundBox)
+            elif obj.BoundBox == 'Stock':
+                self.boundBoxes.append(JOB.Stock.Shape.BoundBox)
+            self.safeSTLs.append(self._makeMass(JOB, obj, M, deflection))
+
+        # make stock.cut(model_ENVELOPE) united with model - for avoidance detection on transitions
+        # self.fullSTL = self._makeMass(JOB, obj, deflection)
+        prepSTLs = self._prepareSTLs(JOB, deflection)
+
+        if obj.Algorithm == 'OCL Waterline':
+            for M in JOB.Model.Group:
+                final = self._waterlineOp(obj, M)
+        elif obj.Algorithm == 'OCL Dropcutter':
+            # Process selected faces, if available
+            addFlag = False
+            voidFlag = False
+            faceAvoidAreaShapes = list()
+            faceCutAreaShapes = list()
+
+            if obj.Base:
+                (FACES, VOIDS) = self._preProcessSelectedFaces(JOB, obj)
+
             if len(FACES) > 0:
                 addFlag = True
             if len(VOIDS) > 0:
                 voidFlag = True
+            # Convert avoid faces to avoid areas
+            if voidFlag is True:
+                for (mdlIdx, fcshp, faceIdx) in VOIDS:
+                    base = JOB.Model.Group[mdlIdx]
+                    faceAvoidAreaShp = self._createFacialCutArea(obj, base, fcshp, faceIdx, avoid=True)
+                    if faceAvoidAreaShp is not False:
+                        faceAvoidAreaShapes.append(faceAvoidAreaShp)
+            # Convert add faces to add areas.
+            if addFlag is True:
+                if obj.OptimizeLinearTransitions is True and len(FACES) > 1:
+                    PathLog.warning(translate('PathSurface', "Multiple faces selected. \nWARNING: The `OptimizeLinearTransitions` algorithm might produce incorrect transitional paths between face regions. \nSeparate out faces to fix problem."))
 
-        # Convert avoid faces to avoid areas
-        if voidFlag is True:
-            faceAvoidAreaShapes = list()
-            for (fcshp, faceIdx) in VOIDS:
-                faceAvoidAreaShp = self._createFacialCutArea(obj, oneBase[0], fcshp, faceIdx, avoid=True)
-                if faceAvoidAreaShp is not False:
-                    faceAvoidAreaShapes.append(faceAvoidAreaShp)
-            DEL = Part.makeCompound(faceAvoidAreaShapes)
+                # Convert faces to cut areas
+                for (mdlIdx, fcshp, faceIdx) in FACES:
+                    base = JOB.Model.Group[mdlIdx]
+                    faceCutAreaShp = self._createFacialCutArea(obj, base, fcshp, faceIdx)
+                    if faceCutAreaShp is not False:
+                        faceCutAreaShapes.append(faceCutAreaShp)
+            # return (faceCutAreaShapes, faceAvoidAreaShapes)
 
-        if addFlag is True:  # The user has selected subobjects from the base.  Process each.
-            PathLog.debug('obj.Base exists. Processing selected faces.')
-            # if minHeight > obj.FinalDepth.Value:
-            #    obj.FinalDepth.Value = minHeight
-            if obj.OptimizeLinearTransitions is True and len(FACES) > 1:
-                PathLog.warning(translate('PathSurface', "Multiple faces selected. \nWARNING: The `OptimizeLinearTransitions` algorithm might produce incorrect transitional paths between face regions. \nSeparate out faces to fix problem."))
-
-            # Convert faces to cut areas
-            faceCutAreaShapes = list()
-            for (fcshp, faceIdx) in FACES:
-                faceCutAreaShp = self._createFacialCutArea(obj, oneBase[0], fcshp, faceIdx)
-                if faceCutAreaShp is not False:
-                    faceCutAreaShapes.append(faceCutAreaShp)
-
-            # Process faces Collectively or Individually
-            if obj.HandleMultipleFeatures == 'Collectively':
-                if voidFlag is True:
-                    ADD = Part.makeCompound(faceCutAreaShapes)
-                    COMP = ADD.cut(DEL)
-                else:
-                    COMP = Part.makeCompound(faceCutAreaShapes)
-                final = self.opProcessBase(obj, base, COMP)
-                self.commandlist.extend(final)
-            elif obj.HandleMultipleFeatures == 'Individually':
-                for cas in faceCutAreaShapes:
-                    self.deleteOpVariables(all=False)
-                    self.resetOpVariables(all=False)
-                    if voidFlag is True:
-                        ADD = Part.makeCompound([cas])
-                        COMP = ADD.cut(DEL)
-                    else:
-                        COMP = Part.makeCompound([cas])
-                    final = self.opProcessBase(obj, base, COMP)
-                    self.commandlist.extend(final)
-                    COMP = None
-                    final = None
-        else:
-            PathLog.debug('No obj.Base. Processing self.model.')
-            # Cycle through parts of model
-            for base in self.model:
-                PathLog.debug("BASE object: " + str(base.Name))
-
-                if obj.BoundBox == 'Stock':
-                    BS = PathUtils.findParentJob(obj).Stock
-                    baseEnv = PathUtils.getEnvelope(BS.Shape, depthparams=depthparams)
-                elif obj.BoundBox == 'BaseBoundBox':
-                    baseEnv = PathUtils.getEnvelope(base.Shape, depthparams=depthparams)
-
-                # Make cross-section and convert to planar face
-                midHeight = (baseEnv.BoundBox.ZMax - baseEnv.BoundBox.ZMin) / 2
-                csFaceShape = self._makeCrossSectionToFaceshape(baseEnv, midHeight, zHghtTrgt=0.0)
-
-                # Create offset shape
-                faceOffsetShape = self._extractFaceOffset(obj, csFaceShape, isHole=False)
-
-                if voidFlag is True:
-                    cutShape = faceOffsetShape.cut(DEL)
-                else:
-                    cutShape = faceOffsetShape
-
-                # Process faces Collectively or Individually
-                final = self.opProcessBase(obj, base, cutShape)
-
-                # Send final list of commands to operation object
-                self.commandlist.extend(final)
-            # Efor
+            if addFlag is True:
+                final = self._processSelectedFaces(obj, faceCutAreaShapes, faceAvoidAreaShapes)
+            else:
+                final = self._processEntireModel(obj, faceAvoidAreaShapes)
 
         # Delete temporary objects
         if deleteTempsFlag is True:
@@ -384,10 +346,171 @@ class ObjectSurface(PathOp.ObjectOp):
             FreeCAD.ActiveDocument.getObject(self.tempGroupName).purgeTouched()
 
         self.resetOpVariables()
-        self.deleteOpVariables()
+        # self.deleteOpVariables()
+
+        # Save gcode produced
+        self.commandslist.extend(final)
 
         execTime = time.time() - startTime
         PathLog.info('Operation time: {} sec.'.format(execTime))
+
+        return True
+
+    def _processSelectedFaces(self, obj, faceShapes, voidShapes):
+        final = list()
+        # Process faces Collectively or Individually
+        if obj.HandleMultipleFeatures == 'Collectively':
+            if len(voidShapes) > 0:
+                DEL = Part.makeCompound(voidShapes)
+                ADD = Part.makeCompound(faceShapes)
+                COMP = ADD.cut(DEL)
+            else:
+                COMP = Part.makeCompound(faceShapes)
+
+            if obj.ScanType == 'Planar':
+                final = self.opProcessBasePlanar(obj, base, COMP)
+            elif obj.ScanType == 'Rotational':
+                final = self.opProcessBaseRotational(obj, base, COMP)
+        elif obj.HandleMultipleFeatures == 'Individually':
+            for cas in faceShapes:
+                # self.deleteOpVariables(all=False)
+                self.resetOpVariables(all=False)
+                if len(voidShapes) > 0:
+                    DEL = Part.makeCompound(voidShapes)
+                    ADD = Part.makeCompound([cas])
+                    COMP = ADD.cut(DEL)
+                else:
+                    COMP = Part.makeCompound([cas])
+
+                if obj.ScanType == 'Planar':
+                    final.extend(self.opProcessBasePlanar(obj, base, COMP))
+                elif obj.ScanType == 'Rotational':
+                    final.extend(self.opProcessBaseRotational(obj, base, COMP))
+                COMP = None
+                final = None
+        # Eif
+
+        return final
+
+    def _processEntireModel(self, obj, voidShapes):
+        # Cycle through parts of model
+        final = list()
+        # for base in self.model:
+        for mdl in range(0, len(JOB.Model.Group)):
+            model = JOB.Model.Group[mdl]
+            if obj.BoundBox == 'Stock':
+                BS = JOB.Stock
+                baseEnv = PathUtils.getEnvelope(BS.Shape, depthparams=self.depthParams)
+            elif obj.BoundBox == 'BaseBoundBox':
+                baseEnv = PathUtils.getEnvelope(model.Shape, depthparams=self.depthParams)
+
+            # Make cross-section and convert to planar face
+            midHeight = (baseEnv.BoundBox.ZMax - baseEnv.BoundBox.ZMin) / 2
+            csFaceShape = self._makeCrossSectionToFaceshape(baseEnv, midHeight, zHghtTrgt=0.0)
+
+            # Create offset shape
+            faceOffsetShape = self._extractFaceOffset(obj, csFaceShape, isHole=False)
+
+            if len(voidShapes) > 0:
+                DEL = Part.makeCompound(voidShapes)
+                cutShape = faceOffsetShape.cut(DEL)
+            else:
+                cutShape = faceOffsetShape
+
+            # Process faces Collectively or Individually
+            if obj.ScanType == 'Planar':
+                final.extend(self.opProcessBasePlanar(obj, mdl, COMP))
+            elif obj.ScanType == 'Rotational':
+                final.extend(self.opProcessBaseRotational(obj, mdl, COMP))
+        # Efor
+
+        return final
+
+    def _prepareSTLs(self, JOB, deflection):
+        rtn = False
+        for m in range(0, len(JOB.Model.Group)):
+            M = JOB.Model.Group[m]
+
+            if self.modelTypes[m] == 'M':
+                mesh = M.Mesh
+            else:
+                # base.Shape.tessellate(0.05) # 0.5 original value
+                # mesh = MeshPart.meshFromShape(base.Shape, Deflection=deflection)
+                mesh = MeshPart.meshFromShape(Shape=M.Shape, LinearDeflection=deflection, AngularDeflection=0.25, Relative=False)
+
+            if self.modelSTLs[m] is True:
+                stl = ocl.STLSurf()
+                if obj.Algorithm == 'OCL Dropcutter':
+                    for f in mesh.Facets:
+                        p = f.Points[0]
+                        q = f.Points[1]
+                        r = f.Points[2]
+                        t = ocl.Triangle(ocl.Point(p[0], p[1], p[2]),
+                                            ocl.Point(q[0], q[1], q[2]),
+                                            ocl.Point(r[0], r[1], r[2]))
+                        stl.addTriangle(t)
+                elif obj.Algorithm == 'OCL Waterline':
+                    for f in mesh.Facets:
+                        p = f.Points[0]
+                        q = f.Points[1]
+                        r = f.Points[2]
+                        t = ocl.Triangle(ocl.Point(p[0], p[1], p[2] + obj.DepthOffset.Value),
+                                            ocl.Point(q[0], q[1], q[2] + obj.DepthOffset.Value),
+                                            ocl.Point(r[0], r[1], r[2] + obj.DepthOffset.Value))
+                        stl.addTriangle(t)
+                self.modelSTLs[m] = stl
+                rtn = True
+        return rtn
+
+    def _preProcessSelectedFaces(self, JOB, obj):
+        FACES = list()
+        VOIDS = list()
+        minHeight = None
+        maxHeight = None
+
+        # The user has selected subobjects from the base.  Pre-Process each.
+        PathLog.debug('obj.Base exists. Pre-processing for selected faces.')
+        baseSubTuples = list()
+        oneBase = [obj.Base[0][0], True]
+        sub0 = getattr(obj.Base[0][0].Shape, obj.Base[0][1][0])
+        minHeight = sub0.BoundBox.ZMax
+        maxHeight = sub0.BoundBox.ZMin
+        # Separate selected faces into (base, face) tuples
+        for (bs, SBS) in obj.Base:
+            for sb in SBS:
+                # Flag model for STL creation
+                mdlIdx = None
+                for m in range(0, len(JOB.Model.Group)):
+                    if bs is JOB.Model.Group[m]:
+                        self.modelSTLs[m] = True
+                        mdlIdx = m
+                        break
+                if oneBase[0] is not bs:
+                    # Cancel op: Only one model base allowed in the operation
+                    oneBase[1] = False
+                    PathLog.error(translate('PathSurface', '3D Surface cancelled. Only one base model permitted in an operation.'))
+                    return False
+                baseSubTuples.append((mdlIdx, bs, sb))  # (base, sub)
+
+        faceCnt = len(baseSubTuples)
+        add = faceCnt - obj.AvoidLastXFaces
+        for bst in range(0, faceCnt):
+            (mdlIdx, base, sub) = baseSubTuples[bst]
+            shape = getattr(base.Shape, sub)
+            if isinstance(shape, Part.Face):
+                faceIdx = int(sub[4:]) - 1
+                if bst < add:
+                    FACES.append((mdlIdx, shape, faceIdx))
+                    PathLog.info(translate('PathSurface', 'Adding Face') + str(faceIdx + 1))
+                    # Record min/max zHeights of added faces
+                    if shape.BoundBox.ZMax > maxHeight:
+                        maxHeight = shape.BoundBox.ZMax
+                    if shape.BoundBox.ZMin < minHeight:
+                        minHeight = shape.BoundBox.ZMin
+                else:
+                    VOIDS.append((mdlIdx, shape, faceIdx))
+                    PathLog.info(translate('PathSurface', 'Adding Face') + str(faceIdx + 1))
+        return (FACES, VOIDS)
 
     def opSetDefaultValues(self, obj, job):
         '''opSetDefaultValues(obj, job) ... initialize defaults'''
@@ -445,149 +568,99 @@ class ObjectSurface(PathOp.ObjectOp):
                 PathLog.debug("-initOpFinalDepth" + str(self.initOpFinalDepth))
         obj.IgnoreWasteDepth = obj.FinalDepth.Value + 0.001
 
-    def opProcessBase(self, obj, base, compoundFaces=None):
+    def opProcessBasePlanar(self, obj, mdlIdx, compoundFaces=None):
         initIdx = 0.0
-        parentJob = PathUtils.findParentJob(obj)
+        final = list()
+
+        JOB = PathUtils.findParentJob(obj)
+        base = JOB.Model.Group[mdlIdx]
+        bb = self.boundBoxes[mdlIdx]
+
+        # If cut pattern is all arcs, there are minimal straight lines to optimize
+        preOLP = obj.OptimizeLinearPaths
+        if obj.CutPattern == 'Circular':
+            obj.OptimizeLinearPaths = False
+
+        if obj.LayerMode == 'Single-pass':
+            final = self._planarDropCutSingle(obj, bb, base, compoundFaces)
+        elif obj.LayerMode == 'Multi-pass':
+            final = self._planarDropCutMulti(obj, bb, base, compoundFaces)
+
+        # If cut pattern is all arcs, restore initial OLP value
+        if obj.CutPattern == 'Circular':
+            obj.OptimizeLinearPaths = preOLP
+
+        # Raise to clearance height between individual faces.
+        if obj.HandleMultipleFeatures == 'Individually':
+            final.insert(0, Path.Command('G0', {'Z': obj.ClearanceHeight.Value, 'F': self.vertRapid}))
+
+        return final
+
+    def opProcessBaseRotational(self, obj, mdlIdx, compoundFaces=None):
+        initIdx = 0.0
+        final = list()
+
+        JOB = PathUtils.findParentJob(obj)
+        base = JOB.Model.Group[mdlIdx]
+        bb = self.boundBoxes[mdlIdx]
+        stl = self.modelSTLs[mdlIdx]
 
         # Rotate model to initial index
+        initIdx = obj.CutterTilt + obj.StartIndex
+        if initIdx != 0.0:
+            self.basePlacement = FreeCAD.ActiveDocument.getObject(base.Name).Placement
+            if obj.RotationAxis == 'X':
+                base.Placement = FreeCAD.Placement(FreeCAD.Vector(0, 0, 0), FreeCAD.Rotation(FreeCAD.Vector(1, 0, 0), initIdx))
+            else:
+                base.Placement = FreeCAD.Placement(FreeCAD.Vector(0, 0, 0), FreeCAD.Rotation(FreeCAD.Vector(0, 1, 0), initIdx))
+
+        '''
+        # Rotate model back to original index
         if obj.ScanType == 'Rotational':
-            initIdx = obj.CutterTilt + obj.StartIndex
             if initIdx != 0.0:
-                self.basePlacement = FreeCAD.ActiveDocument.getObject(base.Name).Placement
-                if obj.RotationAxis == 'X':
-                    base.Placement = FreeCAD.Placement(FreeCAD.Vector(0, 0, 0), FreeCAD.Rotation(FreeCAD.Vector(1, 0, 0), initIdx))
-                else:
-                    base.Placement = FreeCAD.Placement(FreeCAD.Vector(0, 0, 0), FreeCAD.Rotation(FreeCAD.Vector(0, 1, 0), initIdx))
+                initIdx = 0.0
+                base.Placement = self.basePlacement
+        '''
 
-        if base.TypeId.startswith('Mesh'):
-            mesh = base.Mesh
+        # Prepare global holdpoint container
+        if self.holdPoint is None:
+            self.holdPoint = ocl.Point(float("inf"), float("inf"), float("inf"))
+        if self.layerEndPnt is None:
+            self.layerEndPnt = ocl.Point(float("inf"), float("inf"), float("inf"))
+
+        # Avoid division by zero in rotational scan calculations
+        if obj.FinalDepth.Value <= 0.0:
+            zero = obj.SampleInterval.Value  # 0.00001
+            self.FinalDepth = zero
+            obj.FinalDepth.Value = 0.0
         else:
-            # try/except is for Path Jobs created before GeometryTolerance
-            try:
-                deflection = parentJob.GeometryTolerance
-            except AttributeError:
-                import PathScripts.PathPreferences as PathPreferences
-                deflection = PathPreferences.defaultGeometryTolerance()
-            # base.Shape.tessellate(0.05) # 0.5 original value
-            # mesh = MeshPart.meshFromShape(base.Shape, Deflection=deflection)
-            mesh = MeshPart.meshFromShape(Shape=base.Shape, LinearDeflection=deflection, AngularDeflection=0.25, Relative=False)
+            self.FinalDepth = obj.FinalDepth.Value
 
-        # Set bound box
-        if obj.BoundBox == 'BaseBoundBox':
-            bb = mesh.BoundBox
-        elif obj.BoundBox == 'Stock':
-            bb = parentJob.Stock.Shape.BoundBox
+        # Determine boundbox radius based upon xzy limits data
+        if math.fabs(bb.ZMin) > math.fabs(bb.ZMax):
+            vlim = bb.ZMin
+        else:
+            vlim = bb.ZMax
+        if obj.RotationAxis == 'X':
+            # Rotation is around X-axis, cutter moves along same axis
+            if math.fabs(bb.YMin) > math.fabs(bb.YMax):
+                hlim = bb.YMin
+            else:
+                hlim = bb.YMax
+        else:
+            # Rotation is around Y-axis, cutter moves along same axis
+            if math.fabs(bb.XMin) > math.fabs(bb.XMax):
+                hlim = bb.XMin
+            else:
+                hlim = bb.XMax
 
-        # Compute number and size of stepdowns, and final depth
-        depthparams = PathUtils.depth_params(obj.ClearanceHeight.Value, obj.SafeHeight.Value, obj.StartDepth.Value, obj.StepDown.Value, 0.0, obj.FinalDepth.Value)
+        # Compute max radius of stock, as it rotates, and rotational clearance & safe heights
+        self.bbRadius = math.sqrt(hlim**2 + vlim**2)
+        self.clearHeight = self.bbRadius + JOB.SetupSheet.ClearanceHeightOffset.Value
+        self.safeHeight = self.bbRadius + JOB.SetupSheet.ClearanceHeightOffset.Value
 
-        '''
-        # Create envelope for stock boundary
-        if obj.BoundBox == 'BaseBoundBox':
-            bbperim = Part.makeBox(bb.XLength, bb.YLength, 1, FreeCAD.Vector(bb.XMin, bb.YMin, bb.ZMin), FreeCAD.Vector(0, 0, 1))
-            env = PathUtils.getEnvelope(partshape=bbperim, depthparams=depthparams)
-        elif obj.BoundBox == 'Stock':
-            stock = PathUtils.findParentJob(obj).Stock.Shape
-            env = stock
-        '''
+        final = self._rotationalDropCutterOp(obj, stl, bb)
 
-        # Objective is to remove material from surface in StepDown layers rather than one pass to FinalDepth
-        final = list()
-        if obj.Algorithm == 'OCL Waterline':
-            if self.stl is None:
-                self.stl = ocl.STLSurf()
-                for f in mesh.Facets:
-                    p = f.Points[0]
-                    q = f.Points[1]
-                    r = f.Points[2]
-                    t = ocl.Triangle(ocl.Point(p[0], p[1], p[2] + obj.DepthOffset.Value),
-                                     ocl.Point(q[0], q[1], q[2] + obj.DepthOffset.Value),
-                                     ocl.Point(r[0], r[1], r[2] + obj.DepthOffset.Value))
-                    self.stl.addTriangle(t)
-            final = self._waterlineOp(obj, self.stl, bb)
-        elif obj.Algorithm == 'OCL Dropcutter':
-            # Rotate model back to original index
-            if obj.ScanType == 'Rotational':
-                if initIdx != 0.0:
-                    initIdx = 0.0
-                    base.Placement = self.basePlacement
-
-            # Create stl object via OCL
-            if self.stl is None:
-                # make stock.cut(model_ENVELOPE) united with model - for avoidance detection on transitions
-                self.fullSTL = self._makeMass(obj, parentJob, depthparams, deflection)
-                self.stl = ocl.STLSurf()
-                for f in mesh.Facets:
-                    p = f.Points[0]
-                    q = f.Points[1]
-                    r = f.Points[2]
-                    t = ocl.Triangle(ocl.Point(p[0], p[1], p[2]),
-                                     ocl.Point(q[0], q[1], q[2]),
-                                     ocl.Point(r[0], r[1], r[2]))
-                    self.stl.addTriangle(t)
-
-            '''
-            # Prepare global holdpoint container
-            if self.holdPoint is None:
-                self.holdPoint = ocl.Point(float("inf"), float("inf"), float("inf"))
-            if self.layerEndPnt is None:
-                self.layerEndPnt = ocl.Point(float("inf"), float("inf"), float("inf"))
-            '''
-
-            if obj.ScanType == 'Planar':
-                # If cut pattern is all arcs, there are minimal straight lines to optimize
-                preOLP = obj.OptimizeLinearPaths
-                if obj.CutPattern == 'Circular':
-                    obj.OptimizeLinearPaths = False
-
-                if obj.LayerMode == 'Single-pass':
-                    final = self._planarDropCutSingle(obj, bb, base, compoundFaces)
-                elif obj.LayerMode == 'Multi-pass':
-                    final = self._planarDropCutMulti(obj, bb, base, compoundFaces)
-
-                # If cut pattern is all arcs, restore initial OLP value
-                if obj.CutPattern == 'Circular':
-                    obj.OptimizeLinearPaths = preOLP
-
-                # Raise to clearance height between individual faces.
-                if obj.HandleMultipleFeatures == 'Individually':
-                    final.insert(0, Path.Command('G0', {'Z': obj.ClearanceHeight.Value, 'F': self.vertRapid}))
-
-            elif obj.ScanType == 'Rotational':
-                # Avoid division by zero in rotational scan calculations
-                if obj.FinalDepth.Value <= 0.0:
-                    zero = obj.SampleInterval.Value  # 0.00001
-                    self.FinalDepth = zero
-                    obj.FinalDepth.Value = 0.0
-                else:
-                    self.FinalDepth = obj.FinalDepth.Value
-
-                # Determine boundbox radius based upon xzy limits data
-                if math.fabs(bb.ZMin) > math.fabs(bb.ZMax):
-                    vlim = bb.ZMin
-                else:
-                    vlim = bb.ZMax
-                if obj.RotationAxis == 'X':
-                    # Rotation is around X-axis, cutter moves along same axis
-                    if math.fabs(bb.YMin) > math.fabs(bb.YMax):
-                        hlim = bb.YMin
-                    else:
-                        hlim = bb.YMax
-                else:
-                    # Rotation is around Y-axis, cutter moves along same axis
-                    if math.fabs(bb.XMin) > math.fabs(bb.XMax):
-                        hlim = bb.XMin
-                    else:
-                        hlim = bb.XMax
-
-                # Compute max radius of stock, as it rotates, and rotational clearance & safe heights
-                self.bbRadius = math.sqrt(hlim**2 + vlim**2)
-                self.clearHeight = self.bbRadius + parentJob.SetupSheet.ClearanceHeightOffset.Value
-                self.safeHeight = self.bbRadius + parentJob.SetupSheet.ClearanceHeightOffset.Value
-
-                final = self._rotationalDropCutterOp(obj, self.stl, bb)
-            # Eif
-        # Eif
         return final
 
     def opApplyPropertyLimits(self, obj):
@@ -640,19 +713,21 @@ class ObjectSurface(PathOp.ObjectOp):
             obj.AvoidLastXFaces = 100
             PathLog.error(translate('PathSurface', 'AvoidLastXFaces: Avoid last X faces count limited to 100.'))
 
-    def _makeMass(self, obj, Job, depthparam, deflection):
+    def _makeMass(self, JOB, obj, M, deflection):
         # get envelope of Model.
-        mdlsShp = Part.makeCompound([M.Shape for M in Job.Model.Group])
-        mdlsEnv = PathUtils.getEnvelope(partshape=mdlsShp, depthparams=depthparam)  # Produces .Shape
-        wstShp = Job.Stock.Shape.cut(mdlsEnv)
+        # mdlShp = Part.makeCompound([M.Shape for M in JOB.Model.Group])
+        mdlShp = M.Shape
+        mdlsEnv = PathUtils.getEnvelope(partshape=mdlShp, depthparams=self.depthParams)  # Produces .Shape
+        wstShp = JOB.Stock.Shape.cut(mdlsEnv)
         waste = FreeCAD.ActiveDocument.addObject("Part::Feature", "Waste")
         waste.Shape = wstShp
         waste.recompute()
         waste.purgeTouched()
-        fuseObjects = [M for M in Job.Model.Group]
-        fuseObjects.append(waste)
+        # fuseObjects = [M for M in JOB.Model.Group]
+        # fuseObjects.append(waste)
         fuse = FreeCAD.ActiveDocument.addObject("Part::MultiFuse", "Fusion")
-        fuse.Shapes = fuseObjects
+        # fuse.Shapes = fuseObjects
+        fuse.Shapes = [M, waste]
         fuse.recompute()
         fuse.purgeTouched()
 
@@ -1300,6 +1375,8 @@ class ObjectSurface(PathOp.ObjectOp):
         axisRot = FreeCAD.Vector(0.0, 0.0, 1.0)
         addTopLine = False
         MaxLC = -1
+        # JOB = PathUtils.findParentJob(obj)
+        # base = JOB.Model.Group[mdlIdx]
 
         # set initial placement - used for each line
         pl = FreeCAD.Placement()
@@ -2286,10 +2363,41 @@ class ObjectSurface(PathOp.ObjectOp):
         return output
 
     # Main waterline functions
-    def _waterlineOp(self, obj, stl, bb):
-        '''_waterlineOp(obj, stl, bb) ... Main waterline function to perform waterline extraction from model.'''
-        t_begin = time.time()
+    def _waterlineOp(self, obj, base):
+        '''_waterlineOp(obj, base) ... Main waterline function to perform waterline extraction from model.'''
         commands = []
+
+        t_begin = time.time()
+        JOB = PathUtils.findParentJob(obj)
+
+        if base.TypeId.startswith('Mesh'):
+            mesh = base.Mesh
+        else:
+            # try/except is for Path Jobs created before GeometryTolerance
+            try:
+                deflection = JOB.GeometryTolerance
+            except AttributeError:
+                import PathScripts.PathPreferences as PathPreferences
+                deflection = PathPreferences.defaultGeometryTolerance()
+            # base.Shape.tessellate(0.05) # 0.5 original value
+            # mesh = MeshPart.meshFromShape(base.Shape, Deflection=deflection)
+            mesh = MeshPart.meshFromShape(Shape=base.Shape, LinearDeflection=deflection, AngularDeflection=0.25, Relative=False)
+
+        # Set bound box
+        if obj.BoundBox == 'BaseBoundBox':
+            bb = mesh.BoundBox
+        elif obj.BoundBox == 'Stock':
+            bb = JOB.Stock.Shape.BoundBox
+
+        stl = ocl.STLSurf()
+        for f in mesh.Facets:
+            p = f.Points[0]
+            q = f.Points[1]
+            r = f.Points[2]
+            t = ocl.Triangle(ocl.Point(p[0], p[1], p[2] + obj.DepthOffset.Value),
+                                ocl.Point(q[0], q[1], q[2] + obj.DepthOffset.Value),
+                                ocl.Point(r[0], r[1], r[2] + obj.DepthOffset.Value))
+            stl.addTriangle(t)
 
         # Prepare global holdpoint and layerEndPnt containers
         if self.holdPoint is None:
