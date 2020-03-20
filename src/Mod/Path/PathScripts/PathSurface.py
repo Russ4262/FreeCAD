@@ -23,7 +23,7 @@
 # ***************************************************************************
 # *                                                                         *
 # *   Additional modifications and contributions beginning 2019             *
-# *   by Russell Johnson  <russ4262@gmail.com>  2020-03-18 12:29 CST        *
+# *   by Russell Johnson  <russ4262@gmail.com>  2020-03-18 18:30 CST        *
 # *                                                                         *
 # ***************************************************************************
 
@@ -50,7 +50,7 @@ __author__ = "sliptonic (Brad Collette)"
 __url__ = "http://www.freecadweb.org"
 __doc__ = "Class and implementation of Mill Facing operation."
 
-PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
+PathLog.setLevel(PathLog.Level.DEBUG, PathLog.thisModule())
 # PathLog.trackModule(PathLog.thisModule())
 
 
@@ -185,7 +185,7 @@ class ObjectSurface(PathOp.ObjectOp):
                 obj.setEditorMode('StopIndex', 0)
                 obj.setEditorMode('CutterTilt', 0)
 
-        elif obj.Algorithm == 'OCL Waterline':
+        elif obj.Algorithm == 'Waterline':
             obj.setEditorMode('DropCutterExtraOffset', 2)
             obj.setEditorMode('DropCutterDir', 2)
             obj.setEditorMode('HandleMultipleFeatures', 2)
@@ -336,10 +336,15 @@ class ObjectSurface(PathOp.ObjectOp):
         '''opExecute(obj) ... process surface operation'''
         PathLog.track()
 
+        self.modelMeshes = list()
         self.modelSTLs = list()
         self.safeSTLs = list()
         self.modelTypes = list()
         self.boundBoxes = list()
+        self.processVolumes = list()
+        self.processRegions = list()
+        self.modelEnvs = list()
+        self.modelCrsSctns = list()
         self.profileShapes = list()
         self.collectiveShapes = list()
         self.individualShapes = list()
@@ -348,6 +353,7 @@ class ObjectSurface(PathOp.ObjectOp):
         self.tempGroup = None
         self.CutClimb = False
         self.closedGap = False
+        self.entireModel = False
         self.gaps = [0.1, 0.2, 0.3]
         CMDS = list()
         modelVisibility = list()
@@ -441,12 +447,12 @@ class ObjectSurface(PathOp.ObjectOp):
 
         # Calculate default depthparams for operation
         self.depthParams = PathUtils.depth_params(obj.ClearanceHeight.Value, obj.SafeHeight.Value, obj.StartDepth.Value, obj.StepDown.Value, 0.0, obj.FinalDepth.Value)
+        self.extDepParams = PathUtils.depth_params(obj.ClearanceHeight.Value, obj.SafeHeight.Value, obj.StartDepth.Value, obj.StepDown.Value, 0.0, obj.FinalDepth.Value - 0.1)
         self.midDep = (obj.StartDepth.Value + obj.FinalDepth.Value) / 2.0
 
         # make circle for workplane
         self.wpc = Part.makeCircle(2.0)
 
-        # Set deflection values for mesh generation
         try:  # try/except is for Path Jobs created before GeometryTolerance
             self.deflection = JOB.GeometryTolerance.Value
         except AttributeError as ee:
@@ -463,9 +469,14 @@ class ObjectSurface(PathOp.ObjectOp):
         # Setup STL, model type, and bound box containers for each model in Job
         for m in range(0, len(JOB.Model.Group)):
             M = JOB.Model.Group[m]
+            self.modelMeshes.append(False)
             self.modelSTLs.append(False)
             self.safeSTLs.append(False)
             self.profileShapes.append(False)
+            self.processVolumes.append(False)
+            self.processRegions.append(False)
+            self.modelEnvs.append(False)
+            self.modelCrsSctns.append(False)
             # Set bound box
             if obj.BoundBox == 'BaseBoundBox':
                 if M.TypeId.startswith('Mesh'):
@@ -480,6 +491,7 @@ class ObjectSurface(PathOp.ObjectOp):
 
         # ######  MAIN COMMANDS FOR OPERATION ######
 
+        PathLog.info('Running time 1: {} sec.'.format(time.time() - startTime))
         # If algorithm is `Waterline`, force certain property values
         # Save initial value for restoration later.
         if obj.Algorithm == 'OCL Waterline':
@@ -493,29 +505,39 @@ class ObjectSurface(PathOp.ObjectOp):
         # Begin processing obj.Base data and creating GCode
         # Process selected faces, if available
         pPM = self._preProcessModel(JOB, obj)
+        PathLog.debug('Running time 2: {} sec.'.format(time.time() - startTime))
+
         if pPM is False:
             PathLog.error('Unable to pre-process obj.Base.')
         else:
             (FACES, VOIDS) = pPM
-
-            # Create OCL.stl model objects
-            self._prepareModelSTLs(JOB, obj)
 
             for m in range(0, len(JOB.Model.Group)):
                 Mdl = JOB.Model.Group[m]
                 if FACES[m] is False:
                     PathLog.error('No data for model base: {}'.format(JOB.Model.Group[m].Label))
                 else:
-                    if m > 0:
-                        # Raise to clearance between moddels
-                        CMDS.append(Path.Command('N (Transition to base: {}.)'.format(Mdl.Label)))
-                        CMDS.append(Path.Command('G0', {'Z': obj.ClearanceHeight.Value, 'F': self.vertRapid}))
-                        PathLog.info('Working on Model.Group[{}]: {}'.format(m, Mdl.Label))
-                    # make stock-model-voidShapes STL model for avoidance detection on transitions
-                    self._makeSafeSTL(JOB, obj, m, FACES[m], VOIDS[m])
-                    time.sleep(0.2)
-                    # Process model/faces - OCL objects must be ready
-                    CMDS.extend(self._processCutAreas(JOB, obj, m, FACES[m], VOIDS[m]))
+                    if self.modelSTLs[m] is True:
+                        if m > 0:
+                            # Raise to clearance between moddels
+                            CMDS.append(Path.Command('N (Transition to base: {}.)'.format(Mdl.Label)))
+                            CMDS.append(Path.Command('G0', {'Z': obj.ClearanceHeight.Value, 'F': self.vertRapid}))
+                            PathLog.debug('Working on Model.Group[{}]: {}'.format(m, Mdl.Label))
+
+                        # Create OCL.stl model objects
+                        self._prepareModelSTLs(JOB, obj, Mdl, m, FACES[m], VOIDS[m])
+                        PathLog.debug('Running time 3: {} sec.'.format(time.time() - startTime))
+                        time.sleep(0.2)
+                        # return True
+
+                        # make stock-model-voidShapes STL model for avoidance detection on transitions
+                        self._makeSafeSTL(JOB, obj, m, FACES[m], VOIDS[m])
+                        time.sleep(0.2)
+                        PathLog.debug('Running time 4: {} sec.'.format(time.time() - startTime))
+
+                        # Process model/faces - OCL objects must be ready
+                        CMDS.extend(self._processCutAreas(JOB, obj, m, FACES[m], VOIDS[m]))
+                        PathLog.debug('Running time 5: {} sec.'.format(time.time() - startTime))
 
             # Save gcode produced
             self.commandlist.extend(CMDS)
@@ -566,6 +588,7 @@ class ObjectSurface(PathOp.ObjectOp):
         self.resetOpVariables()
         self.deleteOpVariables()
 
+        self.modelMeshes = None
         self.modelSTLs = None
         self.safeSTLs = None
         self.modelTypes = None
@@ -578,6 +601,7 @@ class ObjectSurface(PathOp.ObjectOp):
         self.midDep = None
         self.wpc = None
         self.deflection = None
+        self.entireModel = None
         del self.modelSTLs
         del self.safeSTLs
         del self.modelTypes
@@ -633,6 +657,7 @@ class ObjectSurface(PathOp.ObjectOp):
             PathLog.debug(' -No obj.Base data.')
             for m in range(0, lenGRP):
                 self.modelSTLs[m] = True
+                # self.entireModel = True
 
         # Process each model base, as a whole, as needed
         # PathLog.debug(' -Pre-processing all models in Job.')
@@ -648,6 +673,7 @@ class ObjectSurface(PathOp.ObjectOp):
                 if pPEB is False:
                     PathLog.error(' -Failed to pre-process base as a whole.')
                 else:
+                    self.entireModel = True
                     (fcShp, prflShp) = pPEB
                     if fcShp is not False:
                         if fcShp is True:
@@ -986,30 +1012,12 @@ class ObjectSurface(PathOp.ObjectOp):
         # Create envelope, extract cross-section and make offset co-planar shape
         # baseEnv = PathUtils.getEnvelope(base.Shape, subshape=None, depthparams=self.depthParams)
 
-        try:
-            baseEnv = PathUtils.getEnvelope(partshape=base.Shape, subshape=None, depthparams=self.depthParams)  # Produces .Shape
-        except Exception as ee:
-            PathLog.error(str(ee))
-            shell = base.Shape.Shells[0]
-            solid = Part.makeSolid(shell)
-            try:
-                baseEnv = PathUtils.getEnvelope(partshape=solid, subshape=None, depthparams=self.depthParams)  # Produces .Shape
-            except Exception as eee:
-                PathLog.error(str(eee))
-                cont = False
-        time.sleep(0.2)
-
-        if cont is True:
-            csFaceShape = self._getShapeSlice(baseEnv)
-            if csFaceShape is False:
-                PathLog.debug('_getShapeSlice(baseEnv) failed')
-                csFaceShape = self._getCrossSection(baseEnv)
-                if csFaceShape is False:
-                    PathLog.debug('_getCrossSection(baseEnv) failed')
-                    csFaceShape = self._getSliceFromEnvelope(baseEnv)
-            if csFaceShape is False:
-                PathLog.error('Failed to slice baseEnv shape.')
-                cont = False
+        csFaceShape = self._getBaseCrossSection(base, m)
+        if csFaceShape is False:
+            PathLog.error('Failed to slice baseEnv shape.')
+            cont = False
+        else:
+            self.modelCrsSctns[m] = csFaceShape
 
         if cont is True and obj.ProfileEdges != 'None':
             PathLog.debug(' -Attempting profile geometry for model base.')
@@ -1187,6 +1195,44 @@ class ObjectSurface(PathOp.ObjectOp):
                             return True
         return False
 
+    def _getBaseCrossSection(self, base, m):
+        cont = True
+        try:
+            # baseEnv = PathUtils.getEnvelope(partshape=base.Shape, subshape=None, depthparams=self.depthParams)  # Produces .Shape
+            baseEnv = PathUtils.getEnvelope(partshape=base.Shape, depthparams=self.depthParams)  # Produces .Shape
+        except Exception as ee:
+            PathLog.error(str(ee))
+            shell = base.Shape.Shells[0]
+            solid = Part.makeSolid(shell)
+            try:
+                # baseEnv = PathUtils.getEnvelope(partshape=solid, subshape=None, depthparams=self.depthParams)  # Produces .Shape
+                baseEnv = PathUtils.getEnvelope(partshape=solid, depthparams=self.depthParams)  # Produces .Shape
+            except Exception as eee:
+                PathLog.error(str(eee))
+                cont = False
+        time.sleep(0.4)
+
+        if cont is True:
+            self.modelEnvs[m] = baseEnv
+        else:
+            PathLog.debug('_getBaseCrossSection() getEnvelope() failed')
+            return False
+
+        self.modelEnvs[m] = baseEnv
+        csFaceShape = self._getShapeSlice(baseEnv)
+        if csFaceShape is False:
+            PathLog.debug('_getShapeSlice() failed')
+            csFaceShape = self._getCrossSection(baseEnv)
+            if csFaceShape is False:
+                PathLog.debug('_getCrossSection() failed')
+                csFaceShape = self._getSliceFromEnvelope(baseEnv)
+                if csFaceShape is False:
+                    PathLog.debug('_getSliceFromEnvelope() failed')
+                    return False
+
+        self.modelCrsSctns[m] = csFaceShape
+        return csFaceShape
+
     def _flattenWireToFace(self, wire):
         PathLog.debug('_flattenWireToFace()')
         if wire.isClosed() is False:
@@ -1258,21 +1304,10 @@ class ObjectSurface(PathOp.ObjectOp):
         PathLog.debug('_getShapeSlice()')
 
         bb = shape.BoundBox
+        face = self._boundboxToWire(bb, 1.0)
         mid = (bb.ZMin + bb.ZMax) / 2.0
-        xmin = bb.XMin - 1.0
-        xmax = bb.XMax + 1.0
-        ymin = bb.YMin - 1.0
-        ymax = bb.YMax + 1.0
-        p1 = FreeCAD.Vector(xmin, ymin, mid)
-        p2 = FreeCAD.Vector(xmax, ymin, mid)
-        p3 = FreeCAD.Vector(xmax, ymax, mid)
-        p4 = FreeCAD.Vector(xmin, ymax, mid)
+        face.translate(FreeCAD.Vector(0.0, 0.0, mid - face.BoundBox.ZMin))
 
-        e1 = Part.makeLine(p1, p2)
-        e2 = Part.makeLine(p2, p3)
-        e3 = Part.makeLine(p3, p4)
-        e4 = Part.makeLine(p4, p1)
-        face = Part.Face(Part.Wire([e1, e2, e3, e4]))
         fArea = face.BoundBox.XLength * face.BoundBox.YLength  # face.Wires[0].Area
         sArea = shape.BoundBox.XLength * shape.BoundBox.YLength
         midArea = (fArea + sArea) / 2.0
@@ -1310,10 +1345,10 @@ class ObjectSurface(PathOp.ObjectOp):
         PathLog.debug(' -slcShp.Edges count: {}.  Might be a vertically oriented face.'.format(len(slcShp.Edges)))
         return False
 
-    def _getProjectedFace(self, wire):
+    def _getProjectedFace(self, shape):
         PathLog.debug('_getProjectedFace()')
         F = FreeCAD.ActiveDocument.addObject('Part::Feature', 'tmpProjectionWire')
-        F.Shape = wire
+        F.Shape = shape
         F.purgeTouched()
         self.tempGroup.addObject(F)
         try:
@@ -1335,6 +1370,7 @@ class ObjectSurface(PathOp.ObjectOp):
         return False
 
     def _getCrossSection(self, shape, withExtrude=False):
+        # This method expects that the cross-section will only yield one wire(loop)
         PathLog.debug('_getCrossSection()')
         wires = list()
         bb = shape.BoundBox
@@ -1354,6 +1390,8 @@ class ObjectSurface(PathOp.ObjectOp):
                 ext = self._getExtrudedShape(csWire)
                 CS = self._getShapeSlice(ext)
                 if CS is False:
+                    PathLog.error('_getCrossSection() failed to extrude cross-section wire')
+                    # CS = Part.Face(csWire)
                     return False
             else:
                 CS = Part.Face(csWire)
@@ -1402,82 +1440,161 @@ class ObjectSurface(PathOp.ObjectOp):
 
         return tf
 
-    def _prepareModelSTLs(self, JOB, obj):
+    def _prepareModelSTLs(self, JOB, obj, Mdl, m, FACES, VOIDS):
         PathLog.debug('_prepareModelSTLs()')
-        for m in range(0, len(JOB.Model.Group)):
-            M = JOB.Model.Group[m]
 
-            # PathLog.debug(f" -self.modelTypes[{m}] == 'M'")
-            if self.modelTypes[m] == 'M':
-                mesh = M.Mesh
-            else:
-                # base.Shape.tessellate(0.05) # 0.5 original value
-                # mesh = MeshPart.meshFromShape(base.Shape, Deflection=self.deflection)
-                mesh = MeshPart.meshFromShape(Shape=M.Shape,
+        if self.modelTypes[m] == 'M':
+            mesh = Mdl.Mesh
+        else:
+            # base.Shape.tessellate(0.05) # 0.5 original value
+            # mesh = MeshPart.meshFromShape(base.Shape, Deflection=self.deflection)
+            if self.entireModel is True:
+                self.processRegions[m] = Mdl.Shape
+                self.processVolumes[m] = self.modelEnvs[m]  # PathUtils.getEnvelope(partshape=Mdl.Shape, depthparams=self.depthParams)  # Produces .Shape
+                mesh = MeshPart.meshFromShape(Shape=Mdl.Shape,
                                               LinearDeflection=obj.LinearDeflection.Value,
                                               AngularDeflection=obj.AngularDeflection.Value,
                                               Relative=False)
+            else:
+                use = 2
+                # Limit solid-to-mesh conversion to selected faces adjusted area boundbox
+                offsetFaces = list()
+                offset = 1.0
+                if obj.BoundaryAdjustment > 0.0:
+                    offset += obj.BoundaryAdjustment
+                offset += self.cutter.getDiameter()
+                for F in FACES:
+                    osFace = self._extractFaceOffset(obj, F, offset)
+                    offsetFaces.append(osFace)
+                OF = Part.makeCompound(offsetFaces)
+                if use == 1:
+                    bbFace = self._boundboxToWire(OF.BoundBox, 1.0)
 
-            if self.modelSTLs[m] is True:
-                stl = ocl.STLSurf()
-                if obj.Algorithm == 'OCL Dropcutter':
-                    for f in mesh.Facets:
-                        p = f.Points[0]
-                        q = f.Points[1]
-                        r = f.Points[2]
-                        t = ocl.Triangle(ocl.Point(p[0], p[1], p[2]),
-                                         ocl.Point(q[0], q[1], q[2]),
-                                         ocl.Point(r[0], r[1], r[2]))
-                        stl.addTriangle(t)
-                    self.modelSTLs[m] = stl
-                elif obj.Algorithm == 'OCL Waterline':
-                    for f in mesh.Facets:
-                        p = f.Points[0]
-                        q = f.Points[1]
-                        r = f.Points[2]
-                        t = ocl.Triangle(ocl.Point(p[0], p[1], p[2] + obj.DepthOffset.Value),
-                                         ocl.Point(q[0], q[1], q[2] + obj.DepthOffset.Value),
-                                         ocl.Point(r[0], r[1], r[2] + obj.DepthOffset.Value))
-                        stl.addTriangle(t)
-                    self.modelSTLs[m] = stl
+                    if self.showDebugObjects is True:
+                        BT = FreeCAD.ActiveDocument.addObject('Part::Feature', 'tmpBndbxFace')
+                        BT.Shape = bbFace
+                        BT.purgeTouched()
+                        self.tempGroup.addObject(BT)
+
+                    ZLen = obj.ClearanceHeight.Value - obj.FinalDepth.Value
+                    bbExt = bbFace.extrude(FreeCAD.Vector(0.0, 0.0, ZLen))
+                    self.processVolumes[m] = bbExt
+                    prcsArea = Mdl.Shape.common(bbExt)
+                    self.processRegions[m] = prcsArea
+                elif use == 2:
+                    # make negative face of cut areas
+                    stkFace = self._boundboxToWire(JOB.Stock.Shape.BoundBox, 2.0)
+                    OF.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - OF.BoundBox.ZMin))
+                    negFace = stkFace.cut(OF)
+                    # extrude neg face to stock top+
+                    zTrans = (JOB.Stock.Shape.BoundBox.ZMin - 1.0) - OF.BoundBox.ZMax
+                    negFace.translate(FreeCAD.Vector(0.0, 0.0, zTrans))
+                    negExt = negFace.extrude(FreeCAD.Vector(0.0, 0.0, JOB.Stock.Shape.BoundBox.ZLength + 2.0))
+                    # cut model shape with neg extrude to leave processing area(s)
+                    rawPrcsArea = Mdl.Shape.cut(negExt)
+                    self.processVolumes[m] = rawPrcsArea
+                    # trim bottom
+                    zTrans = (JOB.Stock.Shape.BoundBox.ZMin - 1.0) - stkFace.BoundBox.ZMin
+                    stkFace.translate(FreeCAD.Vector(0.0, 0.0, zTrans))  # (obj.FinalDepth.Value - 1.0) - stkFace.BoundBox.ZMin)
+                    extLen = (obj.FinalDepth.Value - 0.1) - (JOB.Stock.Shape.BoundBox.ZMin - 1.0)
+                    lowTrim = stkFace.extrude(FreeCAD.Vector(0.0, 0.0, extLen))
+                    prcsArea = rawPrcsArea.cut(lowTrim)
+                    self.processRegions[m] = prcsArea
+
+                if self.showDebugObjects is True:
+                    T = FreeCAD.ActiveDocument.addObject('Part::Feature', 'tmpModelProcessingArea')
+                    T.Shape = prcsArea
+                    T.purgeTouched()
+                    self.tempGroup.addObject(T)
+
+                PathLog.debug('Limiting processing area...')
+
+                mesh = MeshPart.meshFromShape(Shape=prcsArea,
+                                                LinearDeflection=obj.LinearDeflection.Value,
+                                                AngularDeflection=obj.AngularDeflection.Value,
+                                                Relative=False)
+
+        PathLog.debug('mesh.Facets count: {}'.format(len(mesh.Facets)))
+        stl = ocl.STLSurf()
+        if obj.Algorithm == 'OCL Dropcutter':
+            for f in mesh.Facets:
+                p = f.Points[0]
+                q = f.Points[1]
+                r = f.Points[2]
+                t = ocl.Triangle(ocl.Point(p[0], p[1], p[2]),
+                                    ocl.Point(q[0], q[1], q[2]),
+                                    ocl.Point(r[0], r[1], r[2]))
+                stl.addTriangle(t)
+        elif obj.Algorithm == 'OCL Waterline':
+            for f in mesh.Facets:
+                p = f.Points[0]
+                q = f.Points[1]
+                r = f.Points[2]
+                t = ocl.Triangle(ocl.Point(p[0], p[1], p[2] + obj.DepthOffset.Value),
+                                    ocl.Point(q[0], q[1], q[2] + obj.DepthOffset.Value),
+                                    ocl.Point(r[0], r[1], r[2] + obj.DepthOffset.Value))
+                stl.addTriangle(t)
+
+        # save model mesh and STL
+        self.modelSTLs[m] = stl
+        self.modelMeshes[m] = mesh
         return
 
-    def _makeSafeSTL(self, JOB, obj, mdlIdx, faceShapes, voidShapes):
-        '''_makeSafeSTL(JOB, obj, mdlIdx, faceShapes, voidShapes)...
+    def _makeSafeSTL(self, JOB, obj, m, faceShapes, voidShapes):
+        '''_makeSafeSTL(JOB, obj, m, faceShapes, voidShapes)...
         Creates and OCL.stl object with combined data with waste stock,
         model, and avoided faces.  Travel lines can be checked against this 
         STL object to determine minimum travel height to clear stock and model.'''
         PathLog.debug('_makeSafeSTL()')
 
         fuseShapes = list()
-        Mdl = JOB.Model.Group[mdlIdx]
-        FCAD = FreeCAD.ActiveDocument
-        mBB = Mdl.Shape.BoundBox
-        sBB = JOB.Stock.Shape.BoundBox
+        stl = ocl.STLSurf()
+        start = time.time()
 
         # add Model shape to safeSTL shape
-        fuseShapes.append(Mdl.Shape)
+        prcsVol = self.processVolumes[m]
+        prcsReg = self.processRegions[m]
 
         if obj.BoundBox == 'BaseBoundBox':
             cont = False
-            extFwd = (sBB.ZLength)
-            zmin = mBB.ZMin
-            zmax = mBB.ZMin + extFwd
-            stpDwn = (zmax - zmin) / 4.0
-            dep_par = PathUtils.depth_params(zmax + 5.0, zmax + 3.0, zmax, stpDwn, 0.0, zmin)
-            
-            try:
-                envBB = PathUtils.getEnvelope(partshape=Mdl.Shape, depthparams=dep_par)  # Produces .Shape
-                cont = True
-            except Exception as ee:
-                PathLog.error(str(ee))
-                shell = Mdl.Shape.Shells[0]
-                solid = Part.makeSolid(shell)
+            Mdl = JOB.Model.Group[m]
+            PathLog.debug('safeSTL() run time A0: {}'.format(time.time() - start))
+            time.sleep(0.2)
+
+            if False:
+                mBB = Mdl.Shape.BoundBox
+                sBB = JOB.Stock.Shape.BoundBox
+                extFwd = sBB.ZLength
+                zmin = mBB.ZMin
+                zmax = mBB.ZMin + extFwd
+                stpDwn = (zmax - zmin) / 4.0
+                dep_par = PathUtils.depth_params(zmax + 5.0, zmax + 3.0, zmax, stpDwn, 0.0, zmin)
                 try:
-                    envBB = PathUtils.getEnvelope(partshape=solid, depthparams=dep_par)  # Produces .Shape
+                    envBB = PathUtils.getEnvelope(partshape=Mdl.Shape, subshape=None, depthparams=dep_par)  # Produces .Shape
                     cont = True
-                except Exception as eee:
-                    PathLog.error(str(eee))
+                    PathLog.debug('safeSTL() run time A1: {}'.format(time.time() - start))
+                except Exception as ee:
+                    PathLog.error(str(ee))
+                    shell = Mdl.Shape.Shells[0]
+                    solid = Part.makeSolid(shell)
+                    PathLog.debug('safeSTL() run time A2: {}'.format(time.time() - start))
+                    try:
+                        envBB = PathUtils.getEnvelope(partshape=Mdl.Shape, depthparams=dep_par)  # Produces .Shape
+                        cont = True
+                        PathLog.debug('safeSTL() run time A3: {}'.format(time.time() - start))
+                    except Exception as eee:
+                        PathLog.error(str(eee))
+            else:
+                mCS = self._getBaseCrossSection(Mdl, m)
+                if mCS is False:
+                    PathLog.error('Failed to slice baseEnv shape.')
+
+                mCS = self.modelCrsSctns[m]
+                zTrans = JOB.Stock.Shape.BoundBox.ZMin - mCS.BoundBox.ZMax
+                mCS.translate(FreeCAD.Vector(0.0, 0.0, zTrans))
+                envBB = mCS.extrude(FreeCAD.Vector(0.0, 0.0, JOB.Stock.Shape.BoundBox.ZLength))
+
+            time.sleep(0.2)
 
             if cont is True:
                 stckWst = JOB.Stock.Shape.cut(envBB)
@@ -1487,58 +1604,91 @@ class ObjectSurface(PathOp.ObjectOp):
                     adjStckWst = stckWst.cut(baBB)
                 else:
                     adjStckWst = stckWst
-                fuseShapes.append(adjStckWst)
+                PathLog.debug('safeSTL() run time A4: {}'.format(time.time() - start))
+
+                if self.entireModel is True:
+                    fuseShapes.append(adjStckWst)
+                else:
+                    cmn = adjStckWst.common(prcsVol)
+                    if cmn.Volume > 0.0:
+                        fuseShapes.append(adjStckWst.common(prcsVol))
+                    else:
+                        fuseShapes.append(adjStckWst)
+                PathLog.debug('safeSTL() run time A5: {}'.format(time.time() - start))
             else:
                 PathLog.warning('Path transitions might not avoid the model. Verify paths.')
-            time.sleep(0.3)
-
+            time.sleep(0.2)
         else:
             # If boundbox is Job.Stock, add hidden pad under stock as base plate
+            if self.entireModel is True:
+                stkShp = JOB.Stock.Shape
+            else:
+                stkShp = prcsReg
+            PathLog.debug('safeSTL() run time B1: {}'.format(time.time() - start))
+            
             toolDiam = self.cutter.getDiameter()
-            zMin = JOB.Stock.Shape.BoundBox.ZMin
-            xMin = JOB.Stock.Shape.BoundBox.XMin - toolDiam
-            yMin = JOB.Stock.Shape.BoundBox.YMin - toolDiam
-            bL = JOB.Stock.Shape.BoundBox.XLength + (2 * toolDiam)
-            bW = JOB.Stock.Shape.BoundBox.YLength + (2 * toolDiam)
+            zMin = stkShp.BoundBox.ZMin
+            xMin = stkShp.BoundBox.XMin - toolDiam
+            yMin = stkShp.BoundBox.YMin - toolDiam
+            bL = stkShp.BoundBox.XLength + (2 * toolDiam)
+            bW = stkShp.BoundBox.YLength + (2 * toolDiam)
             bH = 1.0
             crnr = FreeCAD.Vector(xMin, yMin, zMin - 1.0)
             B = Part.makeBox(bL, bW, bH, crnr, FreeCAD.Vector(0, 0, 1))
             fuseShapes.append(B)
+            PathLog.debug('safeSTL() run time B2: {}'.format(time.time() - start))
+
 
         if voidShapes is not False:
             voidComp = Part.makeCompound(voidShapes)
             voidEnv = PathUtils.getEnvelope(partshape=voidComp, depthparams=self.depthParams)  # Produces .Shape
             fuseShapes.append(voidEnv)
+        PathLog.debug('safeSTL() run time C: {}'.format(time.time() - start))
 
-        f0 = fuseShapes.pop(0)
+        # Fuse all shapes together
         if len(fuseShapes) > 0:
-            fused = f0.fuse(fuseShapes)
-        else:
-            fused = f0
+            f0 = fuseShapes.pop(0)
+            if len(fuseShapes) > 0:
+                fused = f0.fuse(fuseShapes)
+            else:
+                fused = f0
+            
+            if self.showDebugObjects is True:
+                T = FreeCAD.ActiveDocument.addObject('Part::Feature', 'safeSTLShape')
+                T.Shape = fused
+                T.purgeTouched()
+                self.tempGroup.addObject(T)
 
-        if self.showDebugObjects is True:
-            T = FreeCAD.ActiveDocument.addObject('Part::Feature', 'safeSTLShape')
-            T.Shape = fused
-            T.purgeTouched()
-            self.tempGroup.addObject(T)
+            # Extract mesh from fusion
+            meshFuse = MeshPart.meshFromShape(Shape=fused,
+                                            LinearDeflection=obj.LinearDeflection.Value,
+                                            AngularDeflection=obj.AngularDeflection.Value,
+                                            Relative=False)
+            time.sleep(0.2)
 
-        # Extract mesh from fusion
-        meshFuse = MeshPart.meshFromShape(Shape=fused,
-                                          LinearDeflection=obj.LinearDeflection.Value,
-                                          AngularDeflection=obj.AngularDeflection.Value,
-                                          Relative=False)
-        time.sleep(0.2)
-        stl = ocl.STLSurf()
-        for f in meshFuse.Facets:
+            PathLog.debug('meshFuse.Facets count: {}'.format(len(meshFuse.Facets)))
+            for f in meshFuse.Facets:
+                p = f.Points[0]
+                q = f.Points[1]
+                r = f.Points[2]
+                t = ocl.Triangle(ocl.Point(p[0], p[1], p[2]),
+                                ocl.Point(q[0], q[1], q[2]),
+                                ocl.Point(r[0], r[1], r[2]))
+                stl.addTriangle(t)
+            time.sleep(0.2)
+
+        prcsMesh = self.modelMeshes[m]
+        for f in prcsMesh.Facets:
             p = f.Points[0]
             q = f.Points[1]
             r = f.Points[2]
             t = ocl.Triangle(ocl.Point(p[0], p[1], p[2]),
-                             ocl.Point(q[0], q[1], q[2]),
-                             ocl.Point(r[0], r[1], r[2]))
+                            ocl.Point(q[0], q[1], q[2]),
+                            ocl.Point(r[0], r[1], r[2]))
             stl.addTriangle(t)
 
-        self.safeSTLs[mdlIdx] = stl
+        self.safeSTLs[m] = stl
+        time.sleep(0.2)
 
     def _processCutAreas(self, JOB, obj, mdlIdx, FCS, VDS):
         '''_processCutAreas(JOB, obj, mdlIdx, FCS, VDS)...
@@ -4168,6 +4318,23 @@ class ObjectSurface(PathOp.ObjectOp):
             if zMax < minDep:
                 zMax = minDep
         return zMax
+
+    def _boundboxToWire(self, bb, extra):
+        xmin = bb.XMin - extra
+        xmax = bb.XMax + extra
+        ymin = bb.YMin - extra
+        ymax = bb.YMax + extra
+        p1 = FreeCAD.Vector(xmin, ymin, 0.0)
+        p2 = FreeCAD.Vector(xmax, ymin, 0.0)
+        p3 = FreeCAD.Vector(xmax, ymax, 0.0)
+        p4 = FreeCAD.Vector(xmin, ymax, 0.0)
+
+        e1 = Part.makeLine(p1, p2)
+        e2 = Part.makeLine(p2, p3)
+        e3 = Part.makeLine(p3, p4)
+        e4 = Part.makeLine(p4, p1)
+        face = Part.Face(Part.Wire([e1, e2, e3, e4]))
+        return face
 
 
 def SetupProperties():
