@@ -534,6 +534,7 @@ class ObjectSurface(PathOp.ObjectOp):
                         self._makeSafeSTL(JOB, obj, m, FACES[m], VOIDS[m])
                         time.sleep(0.2)
                         PathLog.debug('Running time 4: {} sec.'.format(time.time() - startTime))
+                        return True
 
                         # Process model/faces - OCL objects must be ready
                         CMDS.extend(self._processCutAreas(JOB, obj, m, FACES[m], VOIDS[m]))
@@ -1196,42 +1197,61 @@ class ObjectSurface(PathOp.ObjectOp):
         return False
 
     def _getBaseCrossSection(self, base, m):
-        cont = True
-        try:
-            # baseEnv = PathUtils.getEnvelope(partshape=base.Shape, subshape=None, depthparams=self.depthParams)  # Produces .Shape
-            baseEnv = PathUtils.getEnvelope(partshape=base.Shape, depthparams=self.depthParams)  # Produces .Shape
-        except Exception as ee:
-            PathLog.error(str(ee))
+        PathLog.debug('_getBaseCrossSection()')
+        cont = 1
+
+        if cont == 1:
+            mCS = self._getProjectedFace(base.Shape)
+            if mCS is False:
+                PathLog.debug(' -_getProjectedFace() failed')
+                cont = 3
+            else:
+                baseEnv = PathUtils.getEnvelope(partshape=mCS, depthparams=self.depthParams)  # Produces .Shape
+                self.modelEnvs[m] = baseEnv
+                cont = 2
+                time.sleep(0.3)
+
+        if cont == 1:
+            try:
+                # baseEnv = PathUtils.getEnvelope(partshape=base.Shape, subshape=None, depthparams=self.depthParams)  # Produces .Shape
+                baseEnv = PathUtils.getEnvelope(partshape=base.Shape, depthparams=self.depthParams)  # Produces .Shape
+                self.modelEnvs[m] = baseEnv
+                cont = 2
+                time.sleep(0.3)
+            except Exception as ee:
+                PathLog.error(str(ee))
+                PathLog.debug(' -getEnvelope() failed')
+
+        if cont == 1:
             shell = base.Shape.Shells[0]
             solid = Part.makeSolid(shell)
             try:
                 # baseEnv = PathUtils.getEnvelope(partshape=solid, subshape=None, depthparams=self.depthParams)  # Produces .Shape
                 baseEnv = PathUtils.getEnvelope(partshape=solid, depthparams=self.depthParams)  # Produces .Shape
+                self.modelEnvs[m] = baseEnv
+                cont = 2
+                time.sleep(0.3)
             except Exception as eee:
                 PathLog.error(str(eee))
-                cont = False
-        time.sleep(0.4)
+                PathLog.debug(' -getEnvelope() failed')
+                cont = 0
 
-        if cont is True:
+        if cont == 2:
             self.modelEnvs[m] = baseEnv
-        else:
-            PathLog.debug('_getBaseCrossSection() getEnvelope() failed')
-            return False
-
-        self.modelEnvs[m] = baseEnv
-        csFaceShape = self._getShapeSlice(baseEnv)
-        if csFaceShape is False:
-            PathLog.debug('_getShapeSlice() failed')
-            csFaceShape = self._getCrossSection(baseEnv)
+            csFaceShape = self._getShapeSlice(baseEnv)
             if csFaceShape is False:
-                PathLog.debug('_getCrossSection() failed')
-                csFaceShape = self._getSliceFromEnvelope(baseEnv)
+                PathLog.debug('_getShapeSlice() failed')
+                csFaceShape = self._getCrossSection(baseEnv)
                 if csFaceShape is False:
-                    PathLog.debug('_getSliceFromEnvelope() failed')
-                    return False
+                    PathLog.debug('_getCrossSection() failed')
+                    csFaceShape = self._getSliceFromEnvelope(baseEnv)
+                    if csFaceShape is False:
+                        PathLog.debug('_getSliceFromEnvelope() failed')
+                        return False
+            self.modelCrsSctns[m] = csFaceShape
+            return csFaceShape
 
-        self.modelCrsSctns[m] = csFaceShape
-        return csFaceShape
+        return False
 
     def _flattenWireToFace(self, wire):
         PathLog.debug('_flattenWireToFace()')
@@ -1353,7 +1373,9 @@ class ObjectSurface(PathOp.ObjectOp):
         self.tempGroup.addObject(F)
         try:
             prj = Draft.makeShape2DView(F, FreeCAD.Vector(0, 0, 1))
-            prj.recompute()
+            time.sleep(0.4)
+            #prj.recompute()
+            #time.sleep(0.4)
             prj.purgeTouched()
             self.tempGroup.addObject(prj)
         except Exception as ee:
@@ -1361,6 +1383,7 @@ class ObjectSurface(PathOp.ObjectOp):
             return False
         else:
             pWire = Part.Wire(prj.Shape.Edges)
+            time.sleep(0.2)
             if pWire.isClosed() is False:
                 # PathLog.debug(' -pWire.isClosed() is False')
                 return False
@@ -1588,6 +1611,12 @@ class ObjectSurface(PathOp.ObjectOp):
                 mCS = self._getBaseCrossSection(Mdl, m)
                 if mCS is False:
                     PathLog.error('Failed to slice baseEnv shape.')
+                else:
+                    T = FreeCAD.ActiveDocument.addObject('Part::Feature', 'safeSTLShape')
+                    T.Shape = mCS
+                    T.purgeTouched()
+                    self.tempGroup.addObject(T)
+                return
 
                 mCS = self.modelCrsSctns[m]
                 zTrans = JOB.Stock.Shape.BoundBox.ZMin - mCS.BoundBox.ZMax
