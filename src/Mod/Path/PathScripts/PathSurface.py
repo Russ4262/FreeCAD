@@ -82,60 +82,107 @@ class ObjectSurface(PathOp.ObjectOp):
         return PathOp.FeatureTool | PathOp.FeatureDepths | PathOp.FeatureHeights | PathOp.FeatureStepDown | PathOp.FeatureCoolant | PathOp.FeatureBaseFaces
 
     def initOperation(self, obj):
-        '''initPocketOp(obj) ... create facing specific properties'''
-        obj.addProperty("App::PropertyEnumeration", "Algorithm", "Algorithm", QtCore.QT_TRANSLATE_NOOP("App::Property", "The library to use to generate the path"))
-        obj.addProperty("App::PropertyEnumeration", "BoundBox", "Algorithm", QtCore.QT_TRANSLATE_NOOP("App::Property", "Should the operation be limited by the stock object or by the bounding box of the base object"))
-        obj.addProperty("App::PropertyEnumeration", "DropCutterDir", "Algorithm", QtCore.QT_TRANSLATE_NOOP("App::Property", "The direction along which dropcutter lines are created"))
-        obj.addProperty("App::PropertyVectorDistance", "DropCutterExtraOffset", "Algorithm", QtCore.QT_TRANSLATE_NOOP("App::Property", "Additional offset to the selected bounding box"))
-        obj.addProperty("App::PropertyEnumeration", "LayerMode", "Algorithm", QtCore.QT_TRANSLATE_NOOP("App::Property", "The completion mode for the operation: single or multi-pass"))
-        obj.addProperty("App::PropertyEnumeration", "ScanType", "Algorithm", QtCore.QT_TRANSLATE_NOOP("App::Property", "Planar: Flat, 3D surface scan.  Rotational: 4th-axis rotational scan."))
+        '''initPocketOp(obj) ... Initialize the operation.'''
+        self.initOpProperties(obj)
 
-        obj.addProperty("App::PropertyDistance", "AngularDeflection", "Mesh Conversion", QtCore.QT_TRANSLATE_NOOP("App::Property", "Smaller values yield a finer, more accurate the mesh. Smaller values increase processing time a lot."))
-        obj.addProperty("App::PropertyDistance", "LinearDeflection", "Mesh Conversion", QtCore.QT_TRANSLATE_NOOP("App::Property", "Smaller values yield a finer, more accurate the mesh. Smaller values do not increase processing time much."))
+        if not hasattr(obj, 'DoNotSetDefaultValues'):
+            self.setEditorProperties(obj)
 
-        obj.addProperty("App::PropertyFloat", "CutterTilt", "Rotational", QtCore.QT_TRANSLATE_NOOP("App::Property", "Stop index(angle) for rotational scan"))
-        obj.addProperty("App::PropertyEnumeration", "RotationAxis", "Rotational", QtCore.QT_TRANSLATE_NOOP("App::Property", "The model will be rotated around this axis."))
-        obj.addProperty("App::PropertyFloat", "StartIndex", "Rotational", QtCore.QT_TRANSLATE_NOOP("App::Property", "Start index(angle) for rotational scan"))
-        obj.addProperty("App::PropertyFloat", "StopIndex", "Rotational", QtCore.QT_TRANSLATE_NOOP("App::Property", "Stop index(angle) for rotational scan"))
+    def initOpProperties(self, obj):
+        '''initOpProperties(obj) ... Create operation specific properties'''
+        PROPS = [
+            ("App::PropertyEnumeration", "Algorithm", "Algorithm",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "The library to use to generate the path")),
+            ("App::PropertyEnumeration", "BoundBox", "Algorithm",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Should the operation be limited by the stock object or by the bounding box of the base object")),
+            ("App::PropertyEnumeration", "DropCutterDir", "Algorithm",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "The direction along which dropcutter lines are created")),
+            ("App::PropertyVectorDistance", "DropCutterExtraOffset", "Algorithm",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Additional offset to the selected bounding box")),
+            ("App::PropertyEnumeration", "LayerMode", "Algorithm",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "The completion mode for the operation: single or multi-pass")),
+            ("App::PropertyEnumeration", "ScanType", "Algorithm",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Planar: Flat, 3D surface scan.  Rotational: 4th-axis rotational scan.")),
 
-        obj.addProperty("App::PropertyInteger", "AvoidLastX_Faces", "Surface", QtCore.QT_TRANSLATE_NOOP("App::Property", "Avoid cutting the last 'N' faces in the Base Geometry list of selected faces."))
-        obj.addProperty("App::PropertyBool", "AvoidLastX_InternalFeatures", "Surface", QtCore.QT_TRANSLATE_NOOP("App::Property", "Do not cut internal features on avoided faces."))
-        obj.addProperty("App::PropertyDistance", "BoundaryAdjustment", "Surface", QtCore.QT_TRANSLATE_NOOP("App::Property", "Positive values push the cutter toward, or beyond, the boundary. Negative values retract the cutter away from the boundary."))
-        obj.addProperty("App::PropertyBool", "BoundaryEnforcement", "Surface", QtCore.QT_TRANSLATE_NOOP("App::Property", "If true, the cutter will remain inside the boundaries of the model or selected face(s)."))
-        obj.addProperty("App::PropertyDistance", "DepthOffset", "Surface", QtCore.QT_TRANSLATE_NOOP("App::Property", "Z-axis offset from the surface of the object"))
-        obj.addProperty("App::PropertyEnumeration", "HandleMultipleFeatures", "Surface", QtCore.QT_TRANSLATE_NOOP("App::Property", "Choose how to process multiple Base Geometry features."))
-        obj.addProperty("App::PropertyDistance", "InternalFeaturesAdjustment", "Surface", QtCore.QT_TRANSLATE_NOOP("App::Property", "Positive values push the cutter toward, or into, the feature. Negative values retract the cutter away from the feature."))
-        obj.addProperty("App::PropertyBool", "InternalFeaturesCut", "Surface", QtCore.QT_TRANSLATE_NOOP("App::Property", "Ignore internal feature areas within a larger selected face."))
-        obj.addProperty("App::PropertyEnumeration", "ProfileEdges", "Surface", QtCore.QT_TRANSLATE_NOOP("App::Property", "Profile the edges of the selection."))
-        obj.addProperty("App::PropertyDistance", "SampleInterval", "Surface", QtCore.QT_TRANSLATE_NOOP("App::Property", "The Sample Interval. Small values cause long wait times"))
-        obj.addProperty("App::PropertyPercent", "StepOver", "Surface", QtCore.QT_TRANSLATE_NOOP("App::Property", "Step over percentage of the drop cutter path"))
+            ("App::PropertyDistance", "AngularDeflection", "Mesh Conversion",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Smaller values yield a finer, more accurate mesh, but increase processing time a lot.")),
+            ("App::PropertyDistance", "LinearDeflection", "Mesh Conversion",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Smaller values yield a finer, more accurate mesh.")),
 
-        obj.addProperty("App::PropertyVectorDistance", "CircularCenterCustom", "Surface Cut Options", QtCore.QT_TRANSLATE_NOOP("PathOp", "The start point of this path"))
-        obj.addProperty("App::PropertyEnumeration", "CircularCenterAt", "Surface Cut Options", QtCore.QT_TRANSLATE_NOOP("PathOp", "Choose what point to start the ciruclar pattern: Center Of Mass, Center Of Boundbox, Xmin Ymin of boundbox, Custom."))
-        obj.addProperty("App::PropertyEnumeration", "CutMode", "Surface Cut Options", QtCore.QT_TRANSLATE_NOOP("App::Property", "The direction that the toolpath should go around the part: Climb(ClockWise) or Conventional(CounterClockWise)"))
-        obj.addProperty("App::PropertyEnumeration", "CutPattern", "Surface Cut Options", QtCore.QT_TRANSLATE_NOOP("App::Property", "Clearing pattern to use"))
-        obj.addProperty("App::PropertyFloat", "CutPatternAngle", "Surface Cut Options", QtCore.QT_TRANSLATE_NOOP("App::Property", "Yaw angle for certain clearing patterns"))
-        obj.addProperty("App::PropertyBool", "CutPatternReversed", "Surface Cut Options", QtCore.QT_TRANSLATE_NOOP("App::Property", "If true, the order of the step-overs will be reversed; the operation will begin cutting the outer most line/arc, and work toward the inner most line/arc."))
+            ("App::PropertyFloat", "CutterTilt", "Rotational",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Stop index(angle) for rotational scan")),
+            ("App::PropertyEnumeration", "RotationAxis", "Rotational",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "The model will be rotated around this axis.")),
+            ("App::PropertyFloat", "StartIndex", "Rotational",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Start index(angle) for rotational scan")),
+            ("App::PropertyFloat", "StopIndex", "Rotational",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Stop index(angle) for rotational scan")),
 
-        obj.addProperty("App::PropertyBool", "OptimizeLinearPaths", "Surface Optimization", QtCore.QT_TRANSLATE_NOOP("App::Property", "Enable optimization of linear paths (co-linear points). Removes unnecessary co-linear points from G-Code output."))
-        obj.addProperty("App::PropertyBool", "OptimizeStepOverTransitions", "Surface Optimization", QtCore.QT_TRANSLATE_NOOP("App::Property", "Enable separate optimization of transitions between, and breaks within, each step over path."))
-        obj.addProperty("App::PropertyBool", "CircularUseG2G3", "Surface Optimization", QtCore.QT_TRANSLATE_NOOP("App::Property", "Convert co-planar arcs to G2/G3 gcode commands for `Circular` and `CircularZigZag` cut patterns."))
-        obj.addProperty("App::PropertyDistance", "GapThreshold", "Surface Optimization", QtCore.QT_TRANSLATE_NOOP("App::Property", "Collinear and co-radial artifact gaps that are smaller than this threshold are closed in the path."))
-        obj.addProperty("App::PropertyString", "GapSizes", "Surface Optimization", QtCore.QT_TRANSLATE_NOOP("App::Property", "Feedback: three smallest gaps identified in the path geometry."))
+            ("App::PropertyInteger", "AvoidLastX_Faces", "Surface",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Avoid cutting the last 'X' faces in the 'Base Geometry' list.")),
+            ("App::PropertyBool", "AvoidLastX_InternalFeatures", "Surface",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Do not cut internal features on avoided faces.")),
+            ("App::PropertyDistance", "BoundaryAdjustment", "Surface",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Positive values push the cutter toward, or beyond, the boundary. Negative values retract the cutter away from the boundary.")),
+            ("App::PropertyBool", "BoundaryEnforcement", "Surface",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Keep the cutter inside the boundaries of the model or selected face(s).")),
+            ("App::PropertyDistance", "DepthOffset", "Surface",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Z-axis offset from the surface of the object")),
+            ("App::PropertyEnumeration", "HandleMultipleFeatures", "Surface",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Choose how to process multiple 'Base Geometry' features.")),
+            ("App::PropertyDistance", "InternalFeaturesAdjustment", "Surface",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Positive values push the cutter toward, or into, the feature. Negative values retract the cutter away from the feature.")),
+            ("App::PropertyBool", "InternalFeaturesCut", "Surface",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Ignore internal feature areas within a larger selected face.")),
+            ("App::PropertyEnumeration", "ProfileEdges", "Surface",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Profile the edges of the selection.")),
+            ("App::PropertyDistance", "SampleInterval", "Surface",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "The Sample Interval. Small values cause long wait times")),
+            ("App::PropertyPercent", "StepOver", "Surface",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Step over percentage of the drop cutter path")),
 
-        obj.addProperty("App::PropertyBool", "IgnoreWaste", "Waste", QtCore.QT_TRANSLATE_NOOP("App::Property", "Ignore areas that proceed below specified depth."))
-        obj.addProperty("App::PropertyFloat", "IgnoreWasteDepth", "Waste", QtCore.QT_TRANSLATE_NOOP("App::Property", "Depth used to identify waste areas to ignore."))
-        obj.addProperty("App::PropertyBool", "ReleaseFromWaste", "Waste", QtCore.QT_TRANSLATE_NOOP("App::Property", "Cut through waste to depth at model edge, releasing the model."))
+            ("App::PropertyVectorDistance", "CircularCenterCustom", "Surface Cut Options",
+                QtCore.QT_TRANSLATE_NOOP("PathOp", "The start point of this path")),
+            ("App::PropertyEnumeration", "CircularCenterAt", "Surface Cut Options",
+                QtCore.QT_TRANSLATE_NOOP("PathOp", "Choose the center point for starting ciruclar cut patterns.")),
+            ("App::PropertyEnumeration", "CutMode", "Surface Cut Options",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "The direction in which the cutter engages the material: Climb (CW) or Conventional (CCW)")),
+            ("App::PropertyEnumeration", "CutPattern", "Surface Cut Options",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Clearing pattern to use")),
+            ("App::PropertyFloat", "CutPatternAngle", "Surface Cut Options",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Yaw angle for certain clearing patterns")),
+            ("App::PropertyBool", "CutPatternReversed", "Surface Cut Options",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Reverse the cut order of step-over paths.")),
 
-        obj.addProperty("App::PropertyVectorDistance", "StartPoint", "Start Point", QtCore.QT_TRANSLATE_NOOP("PathOp", "The start point of this path"))
-        obj.addProperty("App::PropertyBool", "UseStartPoint", "Start Point", QtCore.QT_TRANSLATE_NOOP("PathOp", "Make True, if specifying a Start Point"))
+            ("App::PropertyBool", "OptimizeLinearPaths", "Surface Optimization",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "This optimizes linear paths (co-linear points) in the G-Code output.")),
+            ("App::PropertyBool", "OptimizeStepOverTransitions", "Surface Optimization",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "This optimizes the transitions between, and breaks within, each step over path.")),
+            ("App::PropertyBool", "CircularUseG2G3", "Surface Optimization",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Convert co-planar, horizontal arcs to G2/G3 gcode commands for circular-based cut patterns.")),
+            ("App::PropertyDistance", "GapThreshold", "Surface Optimization",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Close identified collinear and co-radial gaps in the path below this threshold.")),
+            ("App::PropertyString", "GapSizes", "Surface Optimization",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Feedback: three smallest gaps identified in the path geometry.")),
 
-        # For debugging
-        obj.addProperty('App::PropertyString', 'AreaParams', 'Debugging')
-        obj.setEditorMode('AreaParams', 2)  # hide
-        obj.addProperty("App::PropertyBool", "ShowTempObjects", "Debug", QtCore.QT_TRANSLATE_NOOP("App::Property", "If true, the temporary path construction objects will be shown."))
-        if PathLog.getLevel(PathLog.thisModule()) != 4:
-            obj.setEditorMode('ShowTempObjects', 2)  # hide
+            ("App::PropertyBool", "IgnoreWaste", "Waste",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Ignore areas that proceed below specified depth.")),
+            ("App::PropertyFloat", "IgnoreWasteDepth", "Waste",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Depth used to identify waste areas to ignore.")),
+            ("App::PropertyBool", "ReleaseFromWaste", "Waste",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Cut through waste to depth at model edge, releasing the model.")),
+
+            ("App::PropertyVectorDistance", "StartPoint", "Start Point",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "The start point of this path")),
+            ("App::PropertyBool", "UseStartPoint", "Start Point",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Make True, if specifying a Start Point")),
+
+            ("App::PropertyBool", "ShowTempObjects", "Debug",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "If true, the temporary path construction objects will be shown."))
+        ]
+        for (proptype, name, group, tooltip) in PROPS:
+            if not hasattr(obj, name):
+                obj.addProperty(proptype, name, group, tooltip)
 
         obj.Algorithm = ['OCL Dropcutter', 'OCL Waterline']
         obj.BoundBox = ['BaseBoundBox', 'Stock']
@@ -149,8 +196,9 @@ class ObjectSurface(PathOp.ObjectOp):
         obj.RotationAxis = ['X', 'Y']
         obj.ScanType = ['Planar', 'Rotational']
 
-        if not hasattr(obj, 'DoNotSetDefaultValues'):
-            self.setEditorProperties(obj)
+        # For debugging
+        if PathLog.getLevel(PathLog.thisModule()) != 4:
+            obj.setEditorMode('ShowTempObjects', 2)  # hide
 
         self.addedAllProperties = True
 
@@ -201,14 +249,11 @@ class ObjectSurface(PathOp.ObjectOp):
     def onChanged(self, obj, prop):
         if hasattr(self, 'addedAllProperties'):
             if self.addedAllProperties is True:
-                if prop == 'Algorithm':
-                    self.setEditorProperties(obj)
-                if prop == 'ScanType':
-                    self.setEditorProperties(obj)
-                if prop == 'CutPattern':
+                if prop in ['Algorithm', 'ScanType', 'CutPattern']:
                     self.setEditorProperties(obj)
 
     def opOnDocumentRestored(self, obj):
+        self.initOpProperties(obj)
         if PathLog.getLevel(PathLog.thisModule()) != 4:
             obj.setEditorMode('ShowTempObjects', 2)  # hide
         else:
@@ -220,44 +265,43 @@ class ObjectSurface(PathOp.ObjectOp):
         '''opSetDefaultValues(obj, job) ... initialize defaults'''
         job = PathUtils.findParentJob(obj)
 
-        obj.OptimizeLinearPaths = True
-        obj.IgnoreWaste = False
-        obj.ReleaseFromWaste = False
-        obj.InternalFeaturesCut = True
-        obj.OptimizeStepOverTransitions = False
-        obj.CircularUseG2G3 = False
-        obj.BoundaryEnforcement = True
-        obj.UseStartPoint = False
-        obj.AvoidLastX_InternalFeatures = True
-        obj.CutPatternReversed = False
-        obj.StartPoint.x = 0.0
-        obj.StartPoint.y = 0.0
-        obj.StartPoint.z = obj.ClearanceHeight.Value
-        obj.ProfileEdges = 'None'
-        obj.LayerMode = 'Single-pass'
-        obj.ScanType = 'Planar'
-        obj.RotationAxis = 'X'
-        obj.CutMode = 'Conventional'
-        obj.CutPattern = 'Line'
-        obj.HandleMultipleFeatures = 'Collectively'  # 'Individually'
-        obj.CircularCenterAt = 'CenterOfMass'  # 'CenterOfBoundBox', 'XminYmin', 'Custom'
-        obj.AreaParams = ''
-        obj.GapSizes = 'No gaps identified.'
-        obj.StepOver = 100
-        obj.CutPatternAngle = 0.0
-        obj.CutterTilt = 0.0
-        obj.StartIndex = 0.0
-        obj.StopIndex = 360.0
-        obj.SampleInterval.Value = 1.0
-        obj.BoundaryAdjustment.Value = 0.0
-        obj.InternalFeaturesAdjustment.Value = 0.0
+        obj.AngularDeflection.Value = 0.25
         obj.AvoidLastX_Faces = 0
+        obj.AvoidLastX_InternalFeatures = True
+        obj.BoundaryAdjustment.Value = 0.0
+        obj.BoundaryEnforcement = True
+        obj.CircularCenterAt = 'CenterOfMass'
         obj.CircularCenterCustom.x = 0.0
         obj.CircularCenterCustom.y = 0.0
         obj.CircularCenterCustom.z = 0.0
+        obj.CircularUseG2G3 = False
+        obj.CutMode = 'Conventional'
+        obj.CutPattern = 'Line'
+        obj.CutPatternAngle = 0.0
+        obj.CutPatternReversed = False
+        obj.CutterTilt = 0.0
+        obj.GapSizes = 'No gaps identified.'
         obj.GapThreshold.Value = 0.005
-        obj.AngularDeflection.Value = 0.25
+        obj.HandleMultipleFeatures = 'Collectively'
+        obj.IgnoreWaste = False
+        obj.InternalFeaturesAdjustment.Value = 0.0
+        obj.InternalFeaturesCut = True
+        obj.LayerMode = 'Single-pass'
         obj.LinearDeflection.Value = job.GeometryTolerance
+        obj.OptimizeLinearPaths = True
+        obj.OptimizeStepOverTransitions = False
+        obj.ProfileEdges = 'None'
+        obj.ReleaseFromWaste = False
+        obj.RotationAxis = 'X'
+        obj.SampleInterval.Value = 1.0
+        obj.ScanType = 'Planar'
+        obj.StartIndex = 0.0
+        obj.StartPoint.x = 0.0
+        obj.StartPoint.y = 0.0
+        obj.StartPoint.z = obj.ClearanceHeight.Value
+        obj.StepOver = 100
+        obj.StopIndex = 360.0
+        obj.UseStartPoint = False
         # For debugging
         obj.ShowTempObjects = False
 
@@ -4435,7 +4479,6 @@ def SetupProperties():
     setup.append('AngularDeflection')
     setup.append('LinearDeflection')
     # For debugging
-    setup.append('AreaParams')
     setup.append('ShowTempObjects')
     # Targeted for possible removal
     setup.append('IgnoreWaste')
