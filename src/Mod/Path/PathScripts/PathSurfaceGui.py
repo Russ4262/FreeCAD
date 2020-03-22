@@ -54,6 +54,9 @@ class TaskPanelOpPage(PathOpGui.TaskPanelPage):
         if obj.Algorithm != str(self.form.algorithmSelect.currentText()):
             obj.Algorithm = str(self.form.algorithmSelect.currentText())
 
+        if obj.ScanType != str(self.form.scanType.currentText()):
+            obj.ScanType = str(self.form.scanType.currentText())
+
         if obj.BoundBox != str(self.form.boundBoxSelect.currentText()):
             obj.BoundBox = str(self.form.boundBoxSelect.currentText())
 
@@ -72,6 +75,7 @@ class TaskPanelOpPage(PathOpGui.TaskPanelPage):
     def setFields(self, obj):
         '''setFields(obj) ... transfers obj's property values to UI'''
         self.selectInComboBox(obj.Algorithm, self.form.algorithmSelect)
+        self.selectInComboBox(obj.ScanType, self.form.scanType)
         self.selectInComboBox(obj.BoundBox, self.form.boundBoxSelect)
         self.selectInComboBox(obj.DropCutterDir, self.form.dropCutterDirSelect)
 
@@ -94,6 +98,7 @@ class TaskPanelOpPage(PathOpGui.TaskPanelPage):
         signals = []
         signals.append(self.form.toolController.currentIndexChanged)
         signals.append(self.form.algorithmSelect.currentIndexChanged)
+        signals.append(self.form.scanType.currentIndexChanged)
         signals.append(self.form.boundBoxSelect.currentIndexChanged)
         signals.append(self.form.dropCutterDirSelect.currentIndexChanged)
         signals.append(self.form.boundBoxExtraOffsetX.editingFinished)
@@ -113,16 +118,19 @@ class TaskPanelOpPage(PathOpGui.TaskPanelPage):
         self.form.dropCutterDirSelect.setEnabled(False)
         # Set dynamic
         if self.form.algorithmSelect.currentText() == "OCL Dropcutter":
+            self.form.scanType.setEnabled(True)
             self.form.boundBoxSelect.setEnabled(True)
-            if obj.ScanType == 'Rotational':
+            if self.form.scanType.currentText() == 'Rotational':
                 self.form.dropCutterDirSelect.setEnabled(True)
             self.form.stepOver.setEnabled(True)
         else:
+            self.form.scanType.setEnabled(False)
             self.form.boundBoxSelect.setEnabled(False)
             self.form.stepOver.setEnabled(False)
 
     def registerSignalHandlers(self, obj):
         self.form.algorithmSelect.currentIndexChanged.connect(self.updateVisibility)
+        self.form.scanType.currentIndexChanged.connect(self.updateVisibility)
 
 
 Command = PathOpGui.SetupOperation('Surface',
