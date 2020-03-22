@@ -23,7 +23,7 @@
 # ***************************************************************************
 # *                                                                         *
 # *   Additional modifications and contributions beginning 2019             *
-# *   by Russell Johnson  <russ4262@gmail.com>  2020-03-18 18:30 CST        *
+# *   by Russell Johnson  <russ4262@gmail.com>  2020-03-22 00:02 CST        *
 # *                                                                         *
 # ***************************************************************************
 
@@ -534,7 +534,7 @@ class ObjectSurface(PathOp.ObjectOp):
                         self._makeSafeSTL(JOB, obj, m, FACES[m], VOIDS[m])
                         time.sleep(0.2)
                         PathLog.debug('Running time 4: {} sec.'.format(time.time() - startTime))
-                        return True
+                        # return True
 
                         # Process model/faces - OCL objects must be ready
                         CMDS.extend(self._processCutAreas(JOB, obj, m, FACES[m], VOIDS[m]))
@@ -777,7 +777,7 @@ class ObjectSurface(PathOp.ObjectOp):
                 # Handle profile edges request
                 if cont is True and obj.ProfileEdges != 'None':
                     ofstVal = self._calculateOffsetValue(obj, isHole)
-                    psOfst = self._extractFaceOffset(obj, cfsL, ofstVal)
+                    psOfst = self._extractFaceOffset(cfsL, ofstVal)
                     if psOfst is not False:
                         mPS = [psOfst]
                         if obj.ProfileEdges == 'Only':
@@ -795,7 +795,7 @@ class ObjectSurface(PathOp.ObjectOp):
                         self.tempGroup.addObject(T)
 
                     ofstVal = self._calculateOffsetValue(obj, isHole)
-                    faceOfstShp = self._extractFaceOffset(obj, cfsL, ofstVal)
+                    faceOfstShp = self._extractFaceOffset(cfsL, ofstVal)
                     if faceOfstShp is False:
                         PathLog.error(' -Failed to create offset face.')
                         cont = False
@@ -816,7 +816,7 @@ class ObjectSurface(PathOp.ObjectOp):
                                 C.purgeTouched()
                                 self.tempGroup.addObject(C)
                             ofstVal = self._calculateOffsetValue(obj, isHole=True)
-                            intOfstShp = self._extractFaceOffset(obj, casL, ofstVal)
+                            intOfstShp = self._extractFaceOffset(casL, ofstVal)
                             mIFS.append(intOfstShp)
                             # faceOfstShp = faceOfstShp.cut(intOfstShp)
 
@@ -852,7 +852,7 @@ class ObjectSurface(PathOp.ObjectOp):
 
                         if obj.ProfileEdges != 'None':
                             ofstVal = self._calculateOffsetValue(obj, isHole)
-                            psOfst = self._extractFaceOffset(obj, outerFace, ofstVal)
+                            psOfst = self._extractFaceOffset(outerFace, ofstVal)
                             if psOfst is not False:
                                 if mPS is False:
                                     mPS = list()
@@ -868,7 +868,7 @@ class ObjectSurface(PathOp.ObjectOp):
 
                         if cont is True:
                             ofstVal = self._calculateOffsetValue(obj, isHole)
-                            faceOfstShp = self._extractFaceOffset(obj, outerFace, ofstVal)
+                            faceOfstShp = self._extractFaceOffset(outerFace, ofstVal)
 
                             lenIfl = len(ifL)
                             if obj.InternalFeaturesCut is False and lenIfl > 0:
@@ -878,7 +878,7 @@ class ObjectSurface(PathOp.ObjectOp):
                                     casL = Part.makeCompound(ifL)
 
                                 ofstVal = self._calculateOffsetValue(obj, isHole=True)
-                                intOfstShp = self._extractFaceOffset(obj, casL, ofstVal)
+                                intOfstShp = self._extractFaceOffset(casL, ofstVal)
                                 mIFS.append(intOfstShp)
                                 # faceOfstShp = faceOfstShp.cut(intOfstShp)
 
@@ -943,7 +943,7 @@ class ObjectSurface(PathOp.ObjectOp):
                     P.purgeTouched()
                     self.tempGroup.addObject(P)
                 ofstVal = self._calculateOffsetValue(obj, isHole, isVoid=True)
-                avdOfstShp = self._extractFaceOffset(obj, avoid, ofstVal)
+                avdOfstShp = self._extractFaceOffset(avoid, ofstVal)
                 if avdOfstShp is False:
                     PathLog.error('Failed to create collective offset avoid face.')
                     cont = False
@@ -957,7 +957,7 @@ class ObjectSurface(PathOp.ObjectOp):
                     else:
                         ifc = intFEAT[0]
                     ofstVal = self._calculateOffsetValue(obj, isHole=True)
-                    ifOfstShp = self._extractFaceOffset(obj, ifc, ofstVal)
+                    ifOfstShp = self._extractFaceOffset(ifc, ofstVal)
                     if ifOfstShp is False:
                         PathLog.error('Failed to create collective offset avoid internal features.')
                     else:
@@ -1013,7 +1013,7 @@ class ObjectSurface(PathOp.ObjectOp):
         # Create envelope, extract cross-section and make offset co-planar shape
         # baseEnv = PathUtils.getEnvelope(base.Shape, subshape=None, depthparams=self.depthParams)
 
-        csFaceShape = self._getBaseCrossSection(base, m)
+        csFaceShape = self._getShapeCrossSection(base, m)
         if csFaceShape is False:
             PathLog.error('Failed to slice baseEnv shape.')
             cont = False
@@ -1023,7 +1023,7 @@ class ObjectSurface(PathOp.ObjectOp):
         if cont is True and obj.ProfileEdges != 'None':
             PathLog.debug(' -Attempting profile geometry for model base.')
             ofstVal = self._calculateOffsetValue(obj, isHole)
-            psOfst = self._extractFaceOffset(obj, csFaceShape, ofstVal)
+            psOfst = self._extractFaceOffset(csFaceShape, ofstVal)
             if psOfst is not False:
                 if obj.ProfileEdges == 'Only':
                     return (True, psOfst)
@@ -1034,7 +1034,7 @@ class ObjectSurface(PathOp.ObjectOp):
 
         if cont is True:
             ofstVal = self._calculateOffsetValue(obj, isHole)
-            faceOffsetShape = self._extractFaceOffset(obj, csFaceShape, ofstVal)
+            faceOffsetShape = self._extractFaceOffset(csFaceShape, ofstVal)
             if faceOffsetShape is False:
                 PathLog.error('_extractFaceOffset() failed.')
             else:
@@ -1135,7 +1135,7 @@ class ObjectSurface(PathOp.ObjectOp):
 
         return offset
 
-    def _extractFaceOffset(self, obj, fcShape, offset):
+    def _extractFaceOffset(self, fcShape, offset):
         '''_extractFaceOffset(fcShape, offset) ... internal function.
             Original _buildPathArea() version copied from PathAreaOp.py module.  This version is modified.
             Adjustments made based on notes by @sliptonic at this webpage: https://github.com/sliptonic/FreeCAD/wiki/PathArea-notes.'''
@@ -1159,10 +1159,6 @@ class ObjectSurface(PathOp.ObjectOp):
         area.setPlane(PathUtils.makeWorkplane(self.wpc))  # Set working plane to normal at Z=1
         area.add(fcShape)
         area.setParams(**areaParams)  # set parameters
-
-        # Save parameters for debugging
-        # obj.AreaParams = str(area.getParams())
-        # PathLog.debug("Area with params: {}".format(area.getParams()))
 
         offsetShape = area.getShape()
         wCnt = len(offsetShape.Wires)
@@ -1196,31 +1192,34 @@ class ObjectSurface(PathOp.ObjectOp):
                             return True
         return False
 
-    def _getBaseCrossSection(self, base, m):
-        PathLog.debug('_getBaseCrossSection()')
+    def _getShapeCrossSection(self, base, m):
+        PathLog.debug('_getShapeCrossSection()')
         cont = 1
-
-        if cont == 1:
-            mCS = self._getProjectedFace(base.Shape)
-            if mCS is False:
-                PathLog.debug(' -_getProjectedFace() failed')
-                cont = 3
-            else:
-                baseEnv = PathUtils.getEnvelope(partshape=mCS, depthparams=self.depthParams)  # Produces .Shape
-                self.modelEnvs[m] = baseEnv
-                cont = 2
-                time.sleep(0.3)
+        fCnt = len(base.Shape.Faces)
+        slp = round(fCnt / 3000, 2)  # allow processing time for complex models
 
         if cont == 1:
             try:
-                # baseEnv = PathUtils.getEnvelope(partshape=base.Shape, subshape=None, depthparams=self.depthParams)  # Produces .Shape
                 baseEnv = PathUtils.getEnvelope(partshape=base.Shape, depthparams=self.depthParams)  # Produces .Shape
-                self.modelEnvs[m] = baseEnv
+                if fCnt > 250:
+                    time.sleep(slp)
                 cont = 2
-                time.sleep(0.3)
             except Exception as ee:
                 PathLog.error(str(ee))
-                PathLog.debug(' -getEnvelope() failed')
+                PathLog.debug(' -getEnvelope(base.Shape) failed')
+
+        if cont == 1:
+            shell = base.Shape.Shells[0]
+            solid = Part.makeSolid(shell)
+            extZ = math.ceil(solid.BoundBox.ZLength) * 2.0
+            try:
+                baseEnv = solid.extrude(FreeCAD.Vector(0.0, 0.0, extZ))  # Produces .Shape
+                cont = 2
+                if fCnt > 250:
+                    time.sleep(slp)
+            except Exception as eee:
+                PathLog.error(str(eee))
+                PathLog.debug(' -extrude() failed')
 
         if cont == 1:
             shell = base.Shape.Shells[0]
@@ -1228,13 +1227,21 @@ class ObjectSurface(PathOp.ObjectOp):
             try:
                 # baseEnv = PathUtils.getEnvelope(partshape=solid, subshape=None, depthparams=self.depthParams)  # Produces .Shape
                 baseEnv = PathUtils.getEnvelope(partshape=solid, depthparams=self.depthParams)  # Produces .Shape
-                self.modelEnvs[m] = baseEnv
                 cont = 2
-                time.sleep(0.3)
+                if fCnt > 250:
+                    time.sleep(slp)
             except Exception as eee:
                 PathLog.error(str(eee))
-                PathLog.debug(' -getEnvelope() failed')
-                cont = 0
+                PathLog.debug(' -getEnvelope(solid) failed')
+
+        if cont == 1:
+            mCS = self._getProjectedFace(base.Shape)
+            if mCS is False:
+                PathLog.debug(' -_getProjectedFace() failed')
+                cont = 3  # Will return False
+            else:
+                baseEnv = PathUtils.getEnvelope(partshape=mCS, depthparams=self.depthParams)  # Produces .Shape
+                cont = 2
 
         if cont == 2:
             self.modelEnvs[m] = baseEnv
@@ -1373,24 +1380,31 @@ class ObjectSurface(PathOp.ObjectOp):
         self.tempGroup.addObject(F)
         try:
             prj = Draft.makeShape2DView(F, FreeCAD.Vector(0, 0, 1))
-            time.sleep(0.4)
-            #prj.recompute()
-            #time.sleep(0.4)
+            prj.recompute()
+            time.sleep(0.2)
+            # Complex models result in the following BRep_API error.
+            # It is as if a C++ routine is prematurely ended before Python continues processing script
+            # <class 'Part.OCCError'>: BRep_API: command not done
+            # 1e-07 <App> Document.cpp(3715): Failed to recompute Skull_v1_B#Surface: BRep_API: command not done
+            # Recompute failed! Please check report view.
             prj.purgeTouched()
             self.tempGroup.addObject(prj)
         except Exception as ee:
             PathLog.error(str(ee))
             return False
-        else:
+
+        try:
             pWire = Part.Wire(prj.Shape.Edges)
-            time.sleep(0.2)
-            if pWire.isClosed() is False:
-                # PathLog.debug(' -pWire.isClosed() is False')
-                return False
-            slc = Part.Face(pWire)
-            slc.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - slc.BoundBox.ZMin))
-            return slc
-        return False
+        except Exception as ee:
+            PathLog.error(str(ee))
+            return False
+
+        if pWire.isClosed() is False:
+            # PathLog.debug(' -pWire.isClosed() is False')
+            return False
+        slc = Part.Face(pWire)
+        slc.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - slc.BoundBox.ZMin))
+        return slc
 
     def _getCrossSection(self, shape, withExtrude=False):
         # This method expects that the cross-section will only yield one wire(loop)
@@ -1487,7 +1501,7 @@ class ObjectSurface(PathOp.ObjectOp):
                     offset += obj.BoundaryAdjustment
                 offset += self.cutter.getDiameter()
                 for F in FACES:
-                    osFace = self._extractFaceOffset(obj, F, offset)
+                    osFace = self._extractFaceOffset(F, offset)
                     offsetFaces.append(osFace)
                 OF = Part.makeCompound(offsetFaces)
                 if use == 1:
@@ -1608,22 +1622,28 @@ class ObjectSurface(PathOp.ObjectOp):
                     except Exception as eee:
                         PathLog.error(str(eee))
             else:
-                mCS = self._getBaseCrossSection(Mdl, m)
-                if mCS is False:
-                    PathLog.error('Failed to slice baseEnv shape.')
-                else:
-                    T = FreeCAD.ActiveDocument.addObject('Part::Feature', 'safeSTLShape')
-                    T.Shape = mCS
-                    T.purgeTouched()
-                    self.tempGroup.addObject(T)
-                return
+                cmpndFS = Part.makeCompound(faceShapes)
+                if self._isInBoundBox(Mdl.Shape, cmpndFS) is False:
+                    PathLog.debug('safeSTL() run time A1: {}'.format(time.time() - start))
+                    gSCS = self._getShapeCrossSection(Mdl, m)
+                    if gSCS is False:
+                        PathLog.error('Failed to slice baseEnv shape.')
+                    else:
+                        cont = True
 
-                mCS = self.modelCrsSctns[m]
-                zTrans = JOB.Stock.Shape.BoundBox.ZMin - mCS.BoundBox.ZMax
-                mCS.translate(FreeCAD.Vector(0.0, 0.0, zTrans))
-                envBB = mCS.extrude(FreeCAD.Vector(0.0, 0.0, JOB.Stock.Shape.BoundBox.ZLength))
+                        T = FreeCAD.ActiveDocument.addObject('Part::Feature', 'tmpBaseCrossSection')
+                        T.Shape = gSCS
+                        T.purgeTouched()
+                        self.tempGroup.addObject(T)
 
-            time.sleep(0.2)
+                    PathLog.debug('safeSTL() run time A2: {}'.format(time.time() - start))
+                    gSCS = self.modelCrsSctns[m]
+                    toStkBtm = JOB.Stock.Shape.BoundBox.ZMin - gSCS.BoundBox.ZMax
+                    gSCS.translate(FreeCAD.Vector(0.0, 0.0, toStkBtm))
+                    envBB = gSCS.extrude(FreeCAD.Vector(0.0, 0.0, JOB.Stock.Shape.BoundBox.ZLength))
+                    PathLog.debug('safeSTL() run time A3: {}'.format(time.time() - start))
+                    time.sleep(0.2)
+
 
             if cont is True:
                 stckWst = JOB.Stock.Shape.cut(envBB)
@@ -4364,6 +4384,17 @@ class ObjectSurface(PathOp.ObjectOp):
         e4 = Part.makeLine(p4, p1)
         face = Part.Face(Part.Wire([e1, e2, e3, e4]))
         return face
+
+    def _isInBoundBox(self, outShp, inShp):
+        obb = outShp.BoundBox
+        ibb = inShp.BoundBox
+
+        if obb.XMin < ibb.XMin:
+            if obb.XMax > ibb.XMax:
+                if obb.YMin < ibb.YMin:
+                    if obb.YMax > ibb.YMax:
+                        return True
+        return False
 
 
 def SetupProperties():
