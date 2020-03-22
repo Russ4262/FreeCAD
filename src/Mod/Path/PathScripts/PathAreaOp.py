@@ -66,8 +66,7 @@ class ObjectOp(PathOp.ObjectOp):
         '''opFeatures(obj) ... returns the base features supported by all Path.Area based operations.
         The standard feature list is OR'ed with the return value of areaOpFeatures().
         Do not overwrite, implement areaOpFeatures(obj) instead.'''
-        # return PathOp.FeatureTool | PathOp.FeatureDepths | PathOp.FeatureStepDown | PathOp.FeatureHeights | PathOp.FeatureStartPoint | self.areaOpFeatures(obj) | PathOp.FeatureRotation
-        return PathOp.FeatureTool | PathOp.FeatureDepths | PathOp.FeatureStepDown | PathOp.FeatureHeights | PathOp.FeatureStartPoint | self.areaOpFeatures(obj) | PathOp.FeatureCoolant
+        return PathOp.FeatureTool | PathOp.FeatureDepths | PathOp.FeatureStepDown | PathOp.FeatureHeights | PathOp.FeatureStartPoint | self.areaOpFeatures(obj) | PathOp.FeatureCoolant | PathOp.FeatureRotation
 
     def areaOpFeatures(self, obj):
         '''areaOpFeatures(obj) ... overwrite to add operation specific features.

@@ -142,6 +142,10 @@ class PropertyString(Property):
     def typeString(self):
         return "String"
 
+class PropertyAngle(Property):
+    def typeString(self):
+        return "Angle"
+
 class OpPrototype(object):
 
     PropertyType = {

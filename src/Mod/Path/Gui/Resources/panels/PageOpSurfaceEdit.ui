@@ -81,7 +81,7 @@
       <item row="1" column="0">
        <widget class="QLabel" name="label_7">
         <property name="text">
-         <string>BoundBox</string>
+         <string>Optimize output</string>
         </property>
        </widget>
       </item>
@@ -102,7 +102,7 @@
       <item row="2" column="0">
        <widget class="QLabel" name="label_7">
         <property name="text">
-         <string>BoundBox extra offset X, Y</string>
+         <string>Enabled</string>
         </property>
        </widget>
       </item>
@@ -123,7 +123,7 @@
       <item row="3" column="0">
        <widget class="QLabel" name="label_7">
         <property name="text">
-         <string>Drop Cutter Direction</string>
+         <string>Depth offset</string>
         </property>
        </widget>
       </item>
@@ -198,7 +198,7 @@
       <item row="7" column="0">
        <widget class="QLabel" name="label_7">
         <property name="text">
-         <string>Optimize output</string>
+         <string>BoundBox extra offset X, Y</string>
         </property>
        </widget>
       </item>

@@ -59,6 +59,7 @@ FeatureBaseFaces    = 0x0400     # Base
 FeatureBasePanels   = 0x0800     # Base
 FeatureLocations    = 0x1000     # Locations
 FeatureCoolant      = 0x2000     # Coolant
+FeatureRotation     = 0x4000     # Rotation
 
 FeatureBaseGeometry = FeatureBaseVertexes | FeatureBaseFaces | FeatureBaseEdges | FeatureBasePanels | FeatureCoolant
 
@@ -86,6 +87,7 @@ class ObjectOp(object):
         FeatureBasePanels    ... Base geometry support for Arch.Panels
         FeatureLocations     ... Base location support
         FeatureCoolant       ... Support for operation coolant 
+        FeatureRotation      ... Rotation settings
 
     The base class handles all base API and forwards calls to subclasses with
     an op prefix. For instance, an op is not expected to overwrite onChanged(),
@@ -173,6 +175,21 @@ class ObjectOp(object):
         self.tool = None
         self.vertFeed = None
         self.vertRapid = None
+
+        if FeatureRotation & features:
+            obj.addProperty("App::PropertyEnumeration", "EnableRotation", "Rotation", QtCore.QT_TRANSLATE_NOOP("PathOp", "Enable rotation to gain access to pockets/areas not normal to Z axis."))
+            obj.addProperty("App::PropertyEnumeration", "IndexingMode", "Rotation", QtCore.QT_TRANSLATE_NOOP("PathOp", "Select indexing mode: auto = automatic angle detaction; fixed = user set angle."))
+            obj.addProperty("App::PropertyEnumeration", "RotationAxis", "Rotation", QtCore.QT_TRANSLATE_NOOP("PathOp", "Set the axis for model rotation."))
+            obj.addProperty("App::PropertyBool", "ReverseDirection", "Rotation", QtCore.QT_TRANSLATE_NOOP("PathOp", "Reverse direction of pocket operation."))
+            obj.addProperty("App::PropertyBool", "AltDepthCalc", "Rotation", QtCore.QT_TRANSLATE_NOOP("PathOp", "Use alternate depth calculation."))
+            obj.addProperty("App::PropertyFloat", "StartIndex", "Rotation", QtCore.QT_TRANSLATE_NOOP("PathOp", "Start index(angle) for rotation"))
+            obj.addProperty("App::PropertyFloat", "StopIndex", "Rotation", QtCore.QT_TRANSLATE_NOOP("PathOp", "Stop index(angle) for rotation"))
+            obj.addProperty("App::PropertyFloat", "FixedIndex", "Rotation", QtCore.QT_TRANSLATE_NOOP("PathOp", "Set fixed index for rotation."))
+            obj.addProperty("App::PropertyFloat", "CutterTilt", "Rotation", QtCore.QT_TRANSLATE_NOOP("PathOp", "Set the cutter tilt angle."))
+
+            obj.EnableRotation = ['Off', 'A(x)', 'B(y)', 'A & B']
+            obj.IndexingMode = ['Auto', 'Fixed']
+            obj.RotationAxis = ['X', 'Y']
 
         self.initOperation(obj)
 
@@ -348,6 +365,29 @@ class ObjectOp(object):
 
         if FeatureStartPoint & features:
             obj.UseStartPoint = False
+
+        if FeatureRotation & features:
+            #if not self.applyExpression(obj, 'EnableRotation', job.SetupSheet.SetupEnableRotation):
+            #    obj.EnableRotation = 'Off'
+            '''
+            if not self.applyExpression(obj, 'IndexingMode', job.SetupSheet.IndexingMode):
+                obj.IndexingMode = 'Auto'
+            if not self.applyExpression(obj, 'RotationAxis', job.SetupSheet.RotationAxis):
+                obj.RotationAxis = 'X'
+            if not self.applyExpression(obj, 'ReverseDirection', job.SetupSheet.ReverseDirection):
+                obj.ReverseDirection = False
+            if not self.applyExpression(obj, 'AltDepthCalc', job.SetupSheet.AltDepthCalc):
+                obj.AltDepthCalc = False
+            if not self.applyExpression(obj, 'StartIndex', job.SetupSheet.StartIndex):
+                obj.StartIndex = 0.0
+            if not self.applyExpression(obj, 'StopIndex', job.SetupSheet.StopIndex):
+                obj.StopIndex = 360.0
+            if not self.applyExpression(obj, 'FixedIndex', job.SetupSheet.FixedIndex):
+                obj.FixedIndex = 0.0
+            if not self.applyExpression(obj, 'CutterTilt', job.SetupSheet.CutterTilt):
+                obj.CutterTilt = 0.0
+            '''
+            pass
 
         self.opSetDefaultValues(obj, job)
         return job

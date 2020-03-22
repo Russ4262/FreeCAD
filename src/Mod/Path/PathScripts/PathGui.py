@@ -47,33 +47,69 @@ else:
 
 def updateInputField(obj, prop, widget, onBeforeChange=None):
     '''updateInputField(obj, prop, widget) ... update obj's property prop with the value of widget.
-The property's value is only assigned if the new value differs from the current value.
-This prevents onChanged notifications where the value didn't actually change.
-Gui::InputField and Gui::QuantitySpinBox widgets are supported - and the property can
-be of type Quantity or Float.
-If onBeforeChange is specified it is called before a new value is assigned to the property.
-Returns True if a new value was assigned, False otherwise (new value is the same as the current).
-'''
+    The property's value is only assigned if the new value differs from the current value.
+    This prevents onChanged notifications where the value didn't actually change.
+    Gui::InputField and Gui::QuantitySpinBox widgets are supported - and the property can
+    be of type Quantity or Float.
+    If onBeforeChange is specified it is called before a new value is assigned to the property.
+    Returns True if a new value was assigned, False otherwise (new value is the same as the current).
+    '''
     value = FreeCAD.Units.Quantity(widget.text()).Value
     attr = PathUtil.getProperty(obj, prop)
     attrValue = attr.Value if hasattr(attr, 'Value') else attr
     if not PathGeom.isRoughly(attrValue, value):
-        PathLog.debug("updateInputField(%s, %s): %.2f -> %.2f" % (obj.Label, prop, attr, value))
+        PathLog.debug("updateInputField(%s, %s) spinbox: %.2f -> %.2f" % (obj.Label, prop, attr, value)) # $.2f is float 2 decimal places
         if onBeforeChange:
             onBeforeChange(obj)
         PathUtil.setProperty(obj, prop, value)
         return True
     return False
 
+def updateInputFieldFromComboBox(obj, prop, widget, onBeforeChange=None):
+    '''updateInputFieldFromComboBox(obj, prop, widget) ... update obj's property prop with the value of widget.
+    The property's value is only assigned if the new value differs from the current value.
+    This prevents onChanged notifications where the value didn't actually change.
+    QComboBox widgets are supported.
+    If onBeforeChange is specified it is called before a new value is assigned to the property.
+    Returns True if a new value was assigned, False otherwise (new value is the same as the current).
+    '''
+    value = widget.currentText()  # Current widget value in UI
+    attrValue = getProperty(obj, prop) # Current property value
+    if str(attrValue) != str(value):
+        PathLog.debug("updateInputField(%s, %s) combobox: %s -> %s" % (obj.Label, prop, attrValue, value))
+        if onBeforeChange:
+            onBeforeChange(obj)
+        setProperty(obj, prop, value)
+        return True
+    return False
+
+def updateInputFieldFromCheckBox(obj, prop, widget, onBeforeChange=None):
+    '''updateInputFieldFromCheckBox(obj, prop, widget) ... update obj's property prop with the value of widget.
+    The property's value is only assigned if the new value differs from the current value.
+    This prevents onChanged notifications where the value didn't actually change.
+    QCheckBox widgets are supported.
+    If onBeforeChange is specified it is called before a new value is assigned to the property.
+    Returns True if a new value was assigned, False otherwise (new value is the same as the current).
+    '''
+    value = widget.isChecked()  # Current widget value in UI
+    attrValue = getProperty(obj, prop) # Current property value
+    if attrValue != value:
+        PathLog.debug("updateInputField(%s, %s) combobox: %s -> %s" % (obj.Label, prop, attrValue, value))
+        if onBeforeChange:
+            onBeforeChange(obj)
+        setProperty(obj, prop, value)
+        return True
+    return False
+
+
 class QuantitySpinBox:
     '''Controller class to interface a Gui::QuantitySpinBox.
-The spin box gets bound to a given property and supports update in both directions.
-   QuatitySpinBox(widget, obj, prop, onBeforeChange=None)
-        widget ... expected to be reference to a Gui::QuantitySpinBox
-        obj    ... document object
-        prop   ... canonical name of the (sub-) property
-        onBeforeChange ... an optional callback being executed before the value of the property is changed
-'''
+    The spin box gets bound to a given property and supports update in both directions.
+    QuatitySpinBox(widget, obj, prop, onBeforeChange=None)
+    widget ... expected to be reference to a Gui::QuantitySpinBox
+    obj    ... document object
+    prop   ... canonical name of the (sub-) property
+    onBeforeChange ... an optional callback being executed before the value of the property is changed'''
 
     def __init__(self, widget, obj, prop, onBeforeChange=None):
         self.obj = obj
@@ -103,8 +139,8 @@ The spin box gets bound to a given property and supports update in both directio
 
     def updateSpinBox(self, quantity=None):
         '''updateSpinBox(quantity=None) ... update the display value of the spin box.
-If no value is provided the value of the bound property is used.
-quantity can be of type Quantity or Float.'''
+        If no value is provided the value of the bound property is used.
+        quantity can be of type Quantity or Float.'''
         if self.valid:
             if quantity is None:
                 quantity = PathUtil.getProperty(self.obj, self.prop)
@@ -115,5 +151,87 @@ quantity can be of type Quantity or Float.'''
         '''updateProperty() ... update the bound property with the value from the spin box'''
         if self.valid:
             return updateInputField(self.obj, self.prop, self.widget, self.onBeforeChange)
+        return None
+
+class QComboBox:
+    '''Controller class to interface a QComboBox.
+    The combo box gets bound to a given property and supports update in both directions.
+    QComboBox(widget, obj, prop, onBeforeChange=None)
+    widget ... expected to be reference to a QComboBox
+    obj    ... document object
+    prop   ... canonical name of the (sub-) property
+    onBeforeChange ... an optional callback being executed before the value of the property is changed'''
+
+    def __init__(self, widget, obj, prop, onBeforeChange=None):
+        self.obj = obj
+        self.widget = widget
+        self.prop = prop
+        self.onBeforeChange = onBeforeChange
+        attr = getProperty(self.obj, self.prop)
+        if attr is not None:
+            widget.setProperty('binding', "%s.%s" % (obj.Name, prop))
+            self.valid = True
+        else:
+            PathLog.warning(translate('PathGui', "Cannot find property %s of %s") % (prop, obj.Label))
+            self.valid = False
+
+    def updateComboBox(self, value=None):
+        '''updateComboBox(quantity=None) ... update the display value of the combo box.
+        If no value is provided the value of the bound property is used.
+        value can be of type String.
+        Used selectInComboBox(value, combo) helper function to select a specific value in a combo box.'''
+        if self.valid:
+            if value is None:
+                value = getProperty(self.obj, self.prop) # get current property value, and save it
+            index = self.widget.findText(value, PySide.QtCore.Qt.MatchFixedString)
+            if index >= 0:
+                self.widget.blockSignals(True)
+                self.widget.setCurrentIndex(index)
+                self.widget.blockSignals(False)
+
+    def updateProperty(self):
+        '''updateProperty() ... update the bound property with the value from the spin box'''
+        if self.valid:
+            return updateInputFieldFromComboBox(self.obj, self.prop, self.widget, self.onBeforeChange)
+        return None
+
+class QCheckBox:
+    '''Controller class to interface a QCheckBox.
+    The combo box gets bound to a given property and supports update in both directions.
+    QCheckBox(widget, obj, prop, onBeforeChange=None)
+    widget ... expected to be reference to a QCheckBox
+    obj    ... document object
+    prop   ... canonical name of the (sub-) property
+    onBeforeChange ... an optional callback being executed before the value of the property is changed'''
+
+    def __init__(self, widget, obj, prop, onBeforeChange=None):
+        self.obj = obj
+        self.widget = widget
+        self.prop = prop
+        self.onBeforeChange = onBeforeChange
+        attr = getProperty(self.obj, self.prop)
+        if attr is not None:
+            widget.setProperty('binding', "%s.%s" % (obj.Name, prop))
+            self.valid = True
+        else:
+            PathLog.warning(translate('PathGui', "Cannot find property %s of %s") % (prop, obj.Label))
+            self.valid = False
+
+    def updateCheckBox(self, value=None):
+        '''updateCheckBox(value=None) ... update the display value of the combo box.
+        If no value is provided the value of the bound property is used.
+        value can be of type Boolean.'''
+        if self.valid:
+            if value is None:
+                value = getProperty(self.obj, self.prop) # get current property value, and save it
+            if value is True:
+                self.widget.setCheckState(PySide.QtCore.Qt.Checked)
+            else:
+                self.widget.setCheckState(PySide.QtCore.Qt.Unchecked)
+
+    def updateProperty(self):
+        '''updateProperty() ... update the bound property with the value from the spin box'''
+        if self.valid:
+            return updateInputFieldFromCheckBox(self.obj, self.prop, self.widget, self.onBeforeChange)
         return None
 

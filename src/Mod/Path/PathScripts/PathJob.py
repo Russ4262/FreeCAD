@@ -146,6 +146,10 @@ class ObjectJob:
                 obj.Stock = PathStock.CreateFromBase(obj)
         if obj.Stock.ViewObject:
             obj.Stock.ViewObject.Visibility = False
+        
+        for base in models:
+            if base.ViewObject:
+                base.ViewObject.Visibility = False
 
     def setupSetupSheet(self, obj):
         if not hasattr(obj, 'SetupSheet'):
@@ -161,7 +165,8 @@ class ObjectJob:
             obj.addProperty("App::PropertyLink", "Model", "Base", QtCore.QT_TRANSLATE_NOOP("PathJob", "The base objects for all operations"))
             model = FreeCAD.ActiveDocument.addObject("App::DocumentObjectGroup", "Model")
             if model.ViewObject:
-                model.ViewObject.Visibility = False
+                # model.ViewObject.Visibility = False
+                model.ViewObject.Visibility = True
             if models:
                 model.addObjects([createModelResourceClone(obj, base) for base in models])
             obj.Model = model

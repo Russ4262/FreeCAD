@@ -310,11 +310,18 @@ class GlobalEditor(object):
             if val != value:
                 PathUtil.setProperty(self.obj, name, value)
 
+        def updateComboBox(name, widget):
+            value = str(widget.currentText())
+            val = PathGui.getProperty(self.obj, name)
+            if val != value:
+                PathGui.setProperty(self.obj, name, value)
+
         updateExpression('StartDepthExpression',        self.form.setupStartDepthExpr)
         updateExpression('FinalDepthExpression',        self.form.setupFinalDepthExpr)
         updateExpression('StepDownExpression',          self.form.setupStepDownExpr)
         updateExpression('ClearanceHeightExpression',   self.form.setupClearanceHeightExpr)
         updateExpression('SafeHeightExpression',        self.form.setupSafeHeightExpr)
+        updateComboBox('SetupEnableRotation',         self.form.setupEnableRotation)
         self.clearanceHeightOffs.updateProperty()
         self.safeHeightOffs.updateProperty()
         self.rapidVertical.updateProperty()
@@ -341,6 +348,7 @@ class GlobalEditor(object):
         self.safeHeightOffs.updateSpinBox()
         self.rapidVertical.updateSpinBox()
         self.rapidHorizontal.updateSpinBox()
+        self.selectInComboBox(self.obj.SetupEnableRotation, self.form.setupEnableRotation)
         self.selectInComboBox(self.obj.CoolantMode, self.form.setupCoolantMode)
 
     def updateModel(self, recomp = True):
@@ -360,6 +368,16 @@ class GlobalEditor(object):
         self.rapidVertical = PathGui.QuantitySpinBox(self.form.setupRapidVertical, self.obj, 'VertRapid')
         self.form.setupCoolantMode.addItems(self.obj.CoolantModes)
         self.setFields()
+
+    def selectInComboBox(self, name, combo):
+        '''selectInComboBox(name, combo) ... helper function to select a specific value in a combo box.
+            This method copied from PathOpGui.py'''
+        index = combo.findText(name, QtCore.Qt.MatchFixedString)
+        if index >= 0:
+            combo.blockSignals(True)
+            combo.setCurrentIndex(index)
+            combo.blockSignals(False)
+
 
 class TaskPanel:
     '''TaskPanel for the SetupSheet - if it is being edited directly.'''

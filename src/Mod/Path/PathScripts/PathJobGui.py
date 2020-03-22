@@ -958,6 +958,7 @@ class TaskPanel:
         if selObject and selFeature:
             FreeCADGui.Selection.clearSelection()
             FreeCADGui.Selection.addSelection(selObject, selFeature)
+        self.refreshStock()  # Refresh stock
 
     def restoreSelection(self, selection):
         FreeCADGui.Selection.clearSelection()
@@ -976,6 +977,7 @@ class TaskPanel:
                     p = model.Placement
                     p.move(offset)
                     model.Placement = p
+        self.refreshStock()  # Refresh stock
 
     def modelMove(self, axis):
         scale = self.form.modelMoveValue.value()
@@ -983,6 +985,7 @@ class TaskPanel:
             for sel in selection:
                 offset = axis * scale
                 Draft.move(sel.Object, offset)
+        self.refreshStock()  # Refresh stock
 
     def modelRotate(self, axis):
         angle = self.form.modelRotateValue.value()
@@ -994,6 +997,7 @@ class TaskPanel:
             else:
                 for sel in selection:
                     Draft.rotate(sel.Object, angle, sel.Object.Shape.BoundBox.Center, axis)
+        self.refreshStock()  # Refresh stock
 
     def alignSetOrigin(self):
         (obj, by) = self.alignMoveToOrigin()
@@ -1008,6 +1012,7 @@ class TaskPanel:
         placement = FreeCADGui.ActiveDocument.ActiveView.viewPosition()
         placement.Base = placement.Base + by
         FreeCADGui.ActiveDocument.ActiveView.viewPosition(placement, 0)
+        self.refreshStock()  # Refresh stock
 
     def alignMoveToOrigin(self):
         selObject = None
@@ -1025,6 +1030,7 @@ class TaskPanel:
             FreeCADGui.Selection.clearSelection()
             FreeCADGui.Selection.addSelection(selObject, selFeature)
         return (selObject, p)
+        self.refreshStock()  # Refresh stock
 
     def updateStockEditor(self, index, force=False):
 
@@ -1093,6 +1099,7 @@ class TaskPanel:
             bbb = sel.Object.Shape.BoundBox
             by = bbs.Center - bbb.Center
             Draft.move(sel.Object, by)
+        self.refreshStock()  # Refresh stock
 
     def alignCenterInStockXY(self):
         bbs = self.obj.Stock.Shape.BoundBox
@@ -1101,6 +1108,7 @@ class TaskPanel:
             by = bbs.Center - bbb.Center
             by.z = 0
             Draft.move(sel.Object, by)
+        self.refreshStock()  # Refresh stock
 
     def updateSelection(self):
         # Remove Job object if present in Selection: source of phantom paths

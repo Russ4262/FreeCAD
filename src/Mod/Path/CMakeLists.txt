@@ -25,6 +25,8 @@ INSTALL(
 
 SET(PathScripts_SRCS
     PathCommands.py
+    PathScripts/PathAdaptive.py
+    PathScripts/PathAdaptiveGui.py
     PathScripts/PathAreaOp.py
     PathScripts/PathArray.py
     PathScripts/PathCircularHoleBase.py
@@ -90,6 +92,8 @@ SET(PathScripts_SRCS
     PathScripts/PathProfileEdgesGui.py
     PathScripts/PathProfileFaces.py
     PathScripts/PathProfileFacesGui.py
+    PathScripts/PathRotate.py
+    PathScripts/PathRotateGui.py
     PathScripts/PathSanity.py
     PathScripts/PathSelection.py
     PathScripts/PathSetupSheet.py
@@ -97,6 +101,7 @@ SET(PathScripts_SRCS
     PathScripts/PathSetupSheetOpPrototype.py
     PathScripts/PathSetupSheetOpPrototypeGui.py
     PathScripts/PathSimpleCopy.py
+    PathScripts/PathSimulatorGui.py
     PathScripts/PathStock.py
     PathScripts/PathStop.py
     PathScripts/PathSurface.py
@@ -110,15 +115,14 @@ SET(PathScripts_SRCS
     PathScripts/PathToolController.py
     PathScripts/PathToolControllerGui.py
     PathScripts/PathToolEdit.py
-    PathScripts/PathToolLibraryManager.py
     PathScripts/PathToolLibraryEditor.py
+    PathScripts/PathToolLibraryManager.py
     PathScripts/PathUtil.py
     PathScripts/PathUtils.py
     PathScripts/PathUtilsGui.py
-    PathScripts/PathSimulatorGui.py
+    PathScripts/PathWaterline.py
+    PathScripts/PathWaterlineGui.py
     PathScripts/PostUtils.py
-    PathScripts/PathAdaptiveGui.py
-    PathScripts/PathAdaptive.py
     PathScripts/__init__.py
 )
 
@@ -188,8 +192,8 @@ SET(PathTests_SRCS
     PathTests/boxtest.fcstd
     PathTests/test_centroid_00.ngc
     PathTests/test_geomop.fcstd
-    PathTests/test_linuxcnc_00.ngc
     PathTests/test_holes00.fcstd
+    PathTests/test_linuxcnc_00.ngc
 )
 
 SET(PathImages_Ops

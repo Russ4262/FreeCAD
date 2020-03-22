@@ -424,7 +424,7 @@
     <item>
      <widget class="QToolBox" name="toolBox_2">
       <property name="currentIndex">
-       <number>0</number>
+       <number>1</number>
       </property>
       <widget class="QWidget" name="page_3">
        <property name="geometry">
@@ -1016,13 +1016,6 @@
              </property>
             </widget>
            </item>
-           <item row="0" column="1">
-            <widget class="QLineEdit" name="setupStartDepthExpr">
-             <property name="toolTip">
-              <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Expression set as the StartDepth of a newly created operation.&lt;/p&gt;&lt;p&gt;&lt;br/&gt;&lt;/p&gt;&lt;p&gt;Default: OpStartDepth&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-             </property>
-            </widget>
-           </item>
            <item row="1" column="0">
             <widget class="QLabel" name="label_4">
              <property name="text">
@@ -1048,6 +1041,13 @@
             <widget class="QLineEdit" name="setupStepDownExpr">
              <property name="toolTip">
               <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Expression set as the StepDown of a newly created operation.&lt;/p&gt;&lt;p&gt;&lt;br/&gt;&lt;/p&gt;&lt;p&gt;Default: OpToolDiameter&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="1">
+            <widget class="QLineEdit" name="setupStartDepthExpr">
+             <property name="toolTip">
+              <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Expression set as the StartDepth of a newly created operation.&lt;/p&gt;&lt;p&gt;&lt;br/&gt;&lt;/p&gt;&lt;p&gt;Default: OpStartDepth&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
              </property>
             </widget>
            </item>
@@ -1089,7 +1089,7 @@
             </widget>
            </item>
            <item row="1" column="3">
-            <widget class="Gui::QuantitySpinBox" name="setupClearanceHeightOffs" native="true">
+            <widget class="Gui::QuantitySpinBox" name="setupClearanceHeightOffs">
              <property name="toolTip">
               <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;ClearanceHeightOffset - can be used by expressions to set the default ClearanceHeight for new operations.&lt;/p&gt;&lt;p&gt;&lt;br/&gt;&lt;/p&gt;&lt;p&gt;Default: &amp;quot;3 mm&amp;quot;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
              </property>
@@ -1116,7 +1116,7 @@
             </widget>
            </item>
            <item row="3" column="3">
-            <widget class="Gui::QuantitySpinBox" name="setupSafeHeightOffs" native="true">
+            <widget class="Gui::QuantitySpinBox" name="setupSafeHeightOffs">
              <property name="toolTip">
               <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;SafeHeightOffset can be for expressions to set the SafeHeight for new operations.&lt;/p&gt;&lt;p&gt;&lt;br/&gt;&lt;/p&gt;&lt;p&gt;Default: &amp;quot;5 mm&amp;quot;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
              </property>
@@ -1145,6 +1145,53 @@
          </widget>
         </item>
         <item row="3" column="0">
+        <item>
+         <widget class="QGroupBox" name="groupBox_9">
+          <property name="title">
+           <string>Rotation</string>
+          </property>
+          <layout class="QFormLayout" name="formLayout_5">
+           <item row="0" column="1">
+            <widget class="QComboBox" name="setupEnableRotation">
+             <property name="maxVisibleItems">
+              <number>5</number>
+             </property>
+             <property name="maxCount">
+              <number>10</number>
+             </property>
+             <item>
+              <property name="text">
+               <string>Off</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>A(x)</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>B(y)</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>A &amp; B</string>
+              </property>
+             </item>
+            </widget>
+           </item>
+           <item row="0" column="0">
+            <widget class="QLabel" name="setupEnableRotationLabel">
+             <property name="text">
+              <string>Enable Rotation</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
          <spacer name="verticalSpacer_5">
           <property name="orientation">
            <enum>Qt::Vertical</enum>
@@ -1303,7 +1350,7 @@
             </widget>
            </item>
            <item row="0" column="1">
-            <widget class="Gui::QuantitySpinBox" name="setupRapidHorizontal" native="true">
+            <widget class="Gui::QuantitySpinBox" name="setupRapidHorizontal">
              <property name="sizePolicy">
               <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
                <horstretch>0</horstretch>
@@ -1323,7 +1370,7 @@
             </widget>
            </item>
            <item row="1" column="1">
-            <widget class="Gui::QuantitySpinBox" name="setupRapidVertical" native="true">
+            <widget class="Gui::QuantitySpinBox" name="setupRapidVertical">
              <property name="sizePolicy">
               <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
                <horstretch>0</horstretch>
@@ -1508,14 +1555,14 @@
  </widget>
  <customwidgets>
   <customwidget>
+   <class>Gui::QuantitySpinBox</class>
+   <extends>QDoubleSpinBox</extends>
+   <header>gui_quantityspinbox.h</header>
+  </customwidget>
+  <customwidget>
    <class>Gui::InputField</class>
    <extends>QLineEdit</extends>
    <header>Gui/InputField.h</header>
-  </customwidget>
-  <customwidget>
-   <class>Gui::QuantitySpinBox</class>
-   <extends>QWidget</extends>
-   <header>Gui/QuantitySpinBox.h</header>
   </customwidget>
  </customwidgets>
  <tabstops>

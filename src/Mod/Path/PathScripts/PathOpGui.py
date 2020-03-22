@@ -471,7 +471,6 @@ class TaskPanelBaseGeometryPage(TaskPanelPage):
                 return False
         return True
 
-
     def addBaseGeometry(self, selection):
         PathLog.track(selection)
         if self.selectionSupportedAsBaseGeometry(selection, False):
@@ -823,6 +822,69 @@ class TaskPanelDepthsPage(TaskPanelPage):
             self.form.finalDepthSet.setEnabled(False)
 
 
+class TaskPanelRotationPage(TaskPanelPage):
+    '''Page controller for rotation.'''
+    def getForm(self):
+        return FreeCADGui.PySideUic.loadUi(":/panels/PageRotationEdit.ui")
+
+    def initPage(self, obj):
+        self.enableRotation = PathGui.QComboBox(self.form.enableRotation, obj, 'EnableRotation') # QComboBox
+        self.indexingMode = PathGui.QComboBox(self.form.indexingMode, obj, 'IndexingMode')
+        self.rotationAxis = PathGui.QComboBox(self.form.rotationAxis, obj, 'RotationAxis')
+        self.startIndex = PathGui.QuantitySpinBox(self.form.startIndex, obj, 'StartIndex') # QSpinBox or QDoubleSpinBox
+        self.stopIndex = PathGui.QuantitySpinBox(self.form.stopIndex, obj, 'StopIndex')
+        self.fixedIndex = PathGui.QuantitySpinBox(self.form.fixedIndex, obj, 'FixedIndex')
+        self.cutterTilt = PathGui.QuantitySpinBox(self.form.cutterTilt, obj, 'CutterTilt')
+        self.reverseDirection = PathGui.QCheckBox(self.form.reverseDirection, obj, 'ReverseDirection') # QCheckBox
+        self.altDepthCalc = PathGui.QCheckBox(self.form.altDepthCalc, obj, 'AltDepthCalc')
+
+    def getTitle(self, obj):
+        return translate("Path", "Rotation")
+
+    def getFields(self, obj):
+        self.enableRotation.updateProperty()
+        self.indexingMode.updateProperty()
+        self.rotationAxis.updateProperty()
+        self.startIndex.updateProperty()
+        self.stopIndex.updateProperty()
+        self.fixedIndex.updateProperty()
+        self.cutterTilt.updateProperty()
+        self.reverseDirection.updateProperty()
+        self.altDepthCalc.updateProperty()
+
+    def setFields(self,  obj):
+        self.enableRotation.updateComboBox() # QComboBox
+        self.indexingMode.updateComboBox()
+        self.rotationAxis.updateComboBox()
+
+        self.startIndex.updateSpinBox() # QSpinBox
+        self.stopIndex.updateSpinBox()
+        self.fixedIndex.updateSpinBox()
+        self.cutterTilt.updateSpinBox()
+
+        self.reverseDirection.updateCheckBox() # QCheckBox
+        self.altDepthCalc.updateCheckBox()
+
+    def getSignalsForUpdate(self, obj):
+        signals = []
+        signals.append(self.form.enableRotation.currentIndexChanged) # QComboBox
+        signals.append(self.form.indexingMode.currentIndexChanged)
+        signals.append(self.form.rotationAxis.currentIndexChanged)
+    
+        signals.append(self.form.startIndex.editingFinished) # QSpinBox
+        signals.append(self.form.stopIndex.editingFinished)
+        signals.append(self.form.fixedIndex.editingFinished)
+        signals.append(self.form.cutterTilt.editingFinished)
+
+        signals.append(self.form.reverseDirection.stateChanged) # QCheckBox
+        signals.append(self.form.altDepthCalc.stateChanged)
+        return signals
+
+    def pageUpdateData(self, obj, prop):
+        if prop in ['EnableRotation', 'IndexingMode', 'RotationAxis', 'StartIndex', 'StopIndex', 'FixedIndex', 'CutterTilt', 'ReverseDirection', 'AltDepthCalc']:
+            self.setFields(obj)
+
+
 class TaskPanel(object):
     '''
     Generic TaskPanel implementation handling the standard Path operation layout.
@@ -874,6 +936,12 @@ class TaskPanel(object):
                 self.featurePages.append(opPage.taskPanelHeightsPage(obj, features))
             else:
                 self.featurePages.append(TaskPanelHeightsPage(obj, features))
+
+        if PathOp.FeatureRotation & features:
+            if hasattr(opPage, 'taskPanelRotationPage'):
+                self.featurePages.append(opPage.taskPanelRotationPage(obj, features))
+            else:
+                self.featurePages.append(TaskPanelRotationPage(obj, features))
 
         self.featurePages.append(opPage)
 

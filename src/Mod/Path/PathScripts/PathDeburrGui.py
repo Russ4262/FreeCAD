@@ -72,7 +72,7 @@ class TaskPanelOpPage(PathOpGui.TaskPanelPage):
             obj.Join = 'Round'
         elif self.form.joinMiter.isChecked():
             obj.Join = 'Miter'
-		
+
         if obj.Direction != str(self.form.direction.currentText()):
             obj.Direction = str(self.form.direction.currentText())
 

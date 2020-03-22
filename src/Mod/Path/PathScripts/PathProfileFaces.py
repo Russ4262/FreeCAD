@@ -59,8 +59,8 @@ class ObjectProfile(PathProfileBase.ObjectProfile):
     def areaOpFeatures(self, obj):
         '''baseObject() ... returns super of receiver
         Used to call base implementation in overwritten functions.'''
-        # return PathOp.FeatureBaseFaces | PathOp.FeatureBasePanels | PathOp.FeatureRotation
-        return PathOp.FeatureBaseFaces | PathOp.FeatureBasePanels
+        return PathOp.FeatureBaseFaces | PathOp.FeatureBasePanels | PathOp.FeatureRotation
+        # return PathOp.FeatureBaseFaces | PathOp.FeatureBasePanels
 
     def initAreaOp(self, obj):
         '''initAreaOp(obj) ... adds properties for hole, circle and perimeter processing.'''

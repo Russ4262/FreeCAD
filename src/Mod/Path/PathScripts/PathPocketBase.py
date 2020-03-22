@@ -33,6 +33,10 @@ __title__ = "Base Path Pocket Operation"
 __author__ = "sliptonic (Brad Collette)"
 __url__ = "http://www.freecadweb.org"
 __doc__ = "Base class and implementation for Path pocket operations."
+__contributors__ = "russ4262 (Russell Johnson)"
+__created__ = "2017"
+__scriptVersion__ = "1a testing"
+__lastModified__ = "2019-06-04 12:12 CST"
 
 PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 # PathLog.trackModule(PathLog.thisModule())
@@ -68,6 +72,7 @@ class ObjectPocket(PathAreaOp.ObjectOp):
         '''initAreaOp(obj) ... create pocket specific properties.
         Do not overwrite, implement initPocketOp(obj) instead.'''
         PathLog.track()
+        PathLog.debug("PathPocketBase.py - ObjectPocket()::initAreaOp()")
 
         # Pocket Properties
         obj.addProperty("App::PropertyEnumeration", "CutMode", "Pocket", QtCore.QT_TRANSLATE_NOOP("App::Property", "The direction that the toolpath should go around the part ClockWise (CW) or CounterClockWise (CCW)"))
@@ -138,7 +143,10 @@ def SetupProperties():
     setup = PathAreaOp.SetupProperties()
     setup.append('CutMode')
     setup.append('ExtraOffset')
+    setup.append('StartAt')
     setup.append('StepOver')
     setup.append('ZigZagAngle')
     setup.append('OffsetPattern')
+    setup.append('MinTravel')
+    setup.append('KeepToolDown')
     return setup

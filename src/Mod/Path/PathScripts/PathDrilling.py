@@ -40,6 +40,7 @@ import PathScripts.PathOp as PathOp
 import PathScripts.PathUtils as PathUtils
 
 from PySide import QtCore
+import math
 
 __title__ = "Path Drilling Operation"
 __author__ = "sliptonic (Brad Collette)"
@@ -60,8 +61,7 @@ class ObjectDrilling(PathCircularHoleBase.ObjectOp):
 
     def circularHoleFeatures(self, obj):
         '''circularHoleFeatures(obj) ... drilling works on anything, turn on all Base geometries and Locations.'''
-        # return PathOp.FeatureBaseGeometry | PathOp.FeatureLocations | PathOp.FeatureRotation
-        return PathOp.FeatureBaseGeometry | PathOp.FeatureLocations | PathOp.FeatureCoolant
+        return PathOp.FeatureBaseGeometry | PathOp.FeatureLocations | PathOp.FeatureCoolant | PathOp.FeatureRotation
 
     def initCircularHoleOperation(self, obj):
         '''initCircularHoleOperation(obj) ... add drilling specific properties to obj.'''
@@ -221,7 +221,6 @@ def SetupProperties():
     setup.append("InverseAngle")
     setup.append("AttemptInverseAngle")
     return setup
-
 
 def Create(name, obj=None):
     '''Create(name) ... Creates and returns a Drilling operation.'''

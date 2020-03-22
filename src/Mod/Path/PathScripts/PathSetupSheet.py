@@ -55,8 +55,9 @@ class Template:
     StartDepthExpression = 'StartDepthExpression'
     FinalDepthExpression = 'FinalDepthExpression'
     StepDownExpression = 'StepDownExpression'
+    SetupEnableRotation = 'SetupEnableRotation'
 
-    All = [HorizRapid, VertRapid, CoolantMode, SafeHeightOffset, SafeHeightExpression, ClearanceHeightOffset, ClearanceHeightExpression, StartDepthExpression, FinalDepthExpression, StepDownExpression]
+    All = [HorizRapid, VertRapid, CoolantMode, SafeHeightOffset, SafeHeightExpression, ClearanceHeightOffset, ClearanceHeightExpression, StartDepthExpression, FinalDepthExpression, StepDownExpression, SetupEnableRotation]
 
 
 def _traverseTemplateAttributes(attrs, codec):
@@ -89,6 +90,7 @@ class SetupSheet:
     DefaultStartDepthExpression = 'OpStartDepth'
     DefaultFinalDepthExpression = 'OpFinalDepth'
     DefaultStepDownExpression   = 'OpToolDiameter'
+    DefaultSetupEnableRotation   = 'Off'
 
     DefaultCoolantModes = ['None', 'Flood', 'Mist'] 
    
@@ -108,6 +110,10 @@ class SetupSheet:
         obj.addProperty('App::PropertyString', 'StartDepthExpression', 'OperationDepths', translate('PathSetupSheet', 'Expression used for StartDepth of new operations.'))
         obj.addProperty('App::PropertyString', 'FinalDepthExpression', 'OperationDepths', translate('PathSetupSheet', 'Expression used for FinalDepth of new operations.'))
         obj.addProperty('App::PropertyString', 'StepDownExpression',   'OperationDepths', translate('PathSetupSheet', 'Expression used for StepDown of new operations.'))
+        
+        # obj.addProperty('App::PropertyString', 'SetupEnableRotation',   'Rotation', translate('PathSetupSheet', 'Default value for EnableRotation of new operations.'))
+        obj.addProperty('App::PropertyEnumeration', 'SetupEnableRotation',   'Rotation', translate('PathSetupSheet', 'Default value for EnableRotation of new operations.'))
+        obj.SetupEnableRotation = ['Off', 'A(x)', 'B(y)', 'A & B']
 
         obj.SafeHeightOffset          = self.decodeAttributeString(self.DefaultSafeHeightOffset)
         obj.ClearanceHeightOffset     = self.decodeAttributeString(self.DefaultClearanceHeightOffset)
@@ -117,6 +123,8 @@ class SetupSheet:
         obj.StartDepthExpression = self.decodeAttributeString(self.DefaultStartDepthExpression)
         obj.FinalDepthExpression = self.decodeAttributeString(self.DefaultFinalDepthExpression)
         obj.StepDownExpression   = self.decodeAttributeString(self.DefaultStepDownExpression)
+
+        obj.SetupEnableRotation   = self.decodeAttributeString(self.DefaultSetupEnableRotation)
 
         obj.CoolantModes = self.DefaultCoolantModes
         obj.CoolantMode = self.DefaultCoolantModes
@@ -156,6 +164,11 @@ class SetupSheet:
             return False
         return True
 
+    def hasDefaultRotation(self):
+        if self.obj.SetupEnableRotation != self.SetupEnableRotation:
+            return False
+        return True
+
     def setFromTemplate(self, attrs):
         '''setFromTemplate(attrs) ... sets the default values from the given dictionary.'''
         for name in Template.All:
@@ -175,7 +188,7 @@ class SetupSheet:
                         prop.setupProperty(self.obj, propertyName, propertyGroup, prop.valueFromString(value))
 
 
-    def templateAttributes(self, includeRapids=True, includeCoolantMode=True, includeHeights=True, includeDepths=True, includeOps=None):
+    def templateAttributes(self, includeRapids=True, includeCoolantMode=True, includeHeights=True, includeDepths=True, includeOps=None, includeRotation=True):
         '''templateAttributes(includeRapids, includeHeights, includeDepths) ... answers a dictionary with the default values.'''
         attrs = {}
 
@@ -206,6 +219,9 @@ class SetupSheet:
                     if hasattr(self.obj, prop):
                         settings[propName] = PathUtil.getPropertyValueString(self.obj, prop)
                 attrs[opName] = settings
+
+        if includeRotation:
+            attrs[Template.SetupEnableRotation] = self.obj.SetupEnableRotation
 
         return attrs
 

@@ -260,7 +260,7 @@ class ObjectPocket(PathPocketBase.ObjectPocket):
     '''Proxy object for Pocket operation.'''
 
     def areaOpFeatures(self, obj):
-        return super(ObjectPocket, self).areaOpFeatures(obj) | PathOp.FeatureLocations
+        return super(ObjectPocket, self).areaOpFeatures(obj) | PathOp.FeatureLocations | PathOp.FeatureRotation
 
     def initPocketOp(self, obj):
         '''initPocketOp(obj) ... setup receiver'''
