@@ -107,17 +107,18 @@ class TaskPanelOpPage(PathOpGui.TaskPanelPage):
         return signals
 
     def updateVisibility(self):
+        # Set static and defaults
+        self.form.boundBoxExtraOffsetX.setEnabled(False)
+        self.form.boundBoxExtraOffsetY.setEnabled(False)
+        self.form.dropCutterDirSelect.setEnabled(False)
+        # Set dynamic
         if self.form.algorithmSelect.currentText() == "OCL Dropcutter":
-            self.form.boundBoxExtraOffsetX.setEnabled(True)
-            self.form.boundBoxExtraOffsetY.setEnabled(True)
             self.form.boundBoxSelect.setEnabled(True)
-            self.form.dropCutterDirSelect.setEnabled(True)
+            if obj.ScanType == 'Rotational':
+                self.form.dropCutterDirSelect.setEnabled(True)
             self.form.stepOver.setEnabled(True)
         else:
-            self.form.boundBoxExtraOffsetX.setEnabled(False)
-            self.form.boundBoxExtraOffsetY.setEnabled(False)
             self.form.boundBoxSelect.setEnabled(False)
-            self.form.dropCutterDirSelect.setEnabled(False)
             self.form.stepOver.setEnabled(False)
 
     def registerSignalHandlers(self, obj):
