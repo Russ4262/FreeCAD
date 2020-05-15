@@ -31,15 +31,21 @@ import PathScripts.PathStock as PathStock
 import PathScripts.PathToolController as PathToolController
 import PathScripts.PathUtil as PathUtil
 import json
-import time
 
 # lazily loaded modules
 from lazy_loader.lazy_loader import LazyLoader
 ArchPanel = LazyLoader('ArchPanel', globals(), 'ArchPanel')
 Draft = LazyLoader('Draft', globals(), 'Draft')
+math = LazyLoader('math', globals(), 'math')
 
 from PathScripts.PathPostProcessor import PostProcessor
 from PySide import QtCore
+
+__title__ = "Base class for all Path Jobs."
+__author__ = "Yorik van Havre <yorik@uncreated.net>"
+__url__ = "http://www.freecadweb.org"
+__doc__ = "Base class and properties implementation for all Path Jobs."
+__contributors__ = ""
 
 PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 
@@ -119,6 +125,11 @@ class ObjectJob:
         obj.OrderOutputBy = ['Fixture', 'Tool', 'Operation']
         obj.Fixtures = ['G54']
 
+        obj.addProperty("App::PropertyEnumeration", "EnableRotation", "Rotation", QtCore.QT_TRANSLATE_NOOP("App::Property", "Enable rotation to gain access to pockets/areas not normal to Z axis."))
+        obj.EnableRotation = ['Off', 'A(x)', 'B(y)', 'A & B']
+        obj.addProperty("App::PropertyBool", "ResetModelOrientation", "Rotation", QtCore.QT_TRANSLATE_NOOP("PathJob", "Resets the job model(s) to original orientation."))
+        obj.ResetModelOrientation = False
+
         obj.PostProcessorOutputFile = PathPreferences.defaultOutputFile()
         obj.PostProcessor = postProcessors = PathPreferences.allEnabledPostProcessors()
         defaultPostProcessor = PathPreferences.defaultPostProcessor()
@@ -141,6 +152,7 @@ class ObjectJob:
 
         self.setupSetupSheet(obj)
         self.setupBaseModel(obj, models)
+        self.setupRotation(obj)
 
         self.tooltip = None
         self.tooltipArgs = None
@@ -173,7 +185,11 @@ class ObjectJob:
             if model.ViewObject:
                 model.ViewObject.Visibility = False
             if models:
-                model.addObjects([createModelResourceClone(obj, base) for base in models])
+                for base in models:
+                    model.addObject(createModelResourceClone(obj, base))
+                    clone = FreeCAD.ActiveDocument.ActiveObject
+                    self.setupInitialClonePlacement(clone)
+                # model.addObjects([createModelResourceClone(obj, base) for base in models])
             obj.Model = model
 
         if hasattr(obj, 'Base'):
@@ -255,6 +271,8 @@ class ObjectJob:
         self.setupBaseModel(obj)
         self.fixupOperations(obj)
         self.setupSetupSheet(obj)
+        self.setupRotation(obj)
+        self.updateModelProperties(obj)
         obj.setEditorMode('Operations', 2)  # hide
         obj.setEditorMode('Placement', 2)
 
@@ -267,6 +285,25 @@ class ObjectJob:
             processor = PostProcessor.load(obj.PostProcessor)
             self.tooltip = processor.tooltip
             self.tooltipArgs = processor.tooltipArgs
+        elif prop == 'ResetModelOrientation' and obj.ResetModelOrientation is True:
+            if len(obj.Model.Group) > 0:
+                for mdl in obj.Model.Group:
+                    mdl.Placement.Base = mdl.InitBase
+                    mdl.Placement.Rotation = FreeCAD.Rotation(mdl.InitAxis, mdl.InitAngle)
+                    mdl.recompute()
+                    mdl.purgeTouched()
+            if obj.Stock:
+                obj.Stock.Placement.Base = obj.Stock.InitBase
+                obj.Stock.Placement.Rotation = FreeCAD.Rotation(obj.Stock.InitAxis, obj.Stock.InitAngle)
+                obj.Stock.purgeTouched()
+            obj.ResetModelOrientation = False
+        elif prop == 'EnableRotation':
+            if len(obj.Operations.Group) > 0:
+                msg = "Consider recomputing {}'s operations due to changing '{}.EnableRotation' property.".format(obj.Label, obj.Name)
+                PathLog.error(translate("Path", msg))
+                for op in obj.Operations.Group:
+                    if hasattr(op, 'EnableRotation'):
+                        op.EnableRotation = obj.EnableRotation
 
     def baseObject(self, obj, base):
         '''Return the base object, not its clone.'''
@@ -299,7 +336,6 @@ class ObjectJob:
                 attrs = self.setupSheet.decodeTemplateAttributes(attrs)
                 if attrs.get(JobTemplate.SetupSheet):
                     self.setupSheet.setFromTemplate(attrs[JobTemplate.SetupSheet])
-
                 if attrs.get(JobTemplate.GeometryTolerance):
                     obj.GeometryTolerance = float(attrs.get(JobTemplate.GeometryTolerance))
                 if attrs.get(JobTemplate.PostProcessor):
@@ -318,6 +354,11 @@ class ObjectJob:
                         tcs.append(PathToolController.FromTemplate(tc))
                 if attrs.get(JobTemplate.Stock):
                     obj.Stock = PathStock.CreateFromTemplate(obj, attrs.get(JobTemplate.Stock))
+                if hasattr(JobTemplate, 'EnableRotation'):
+                    if attrs.get(JobTemplate.EnableRotation):
+                        obj.EnableRotation = attrs.get(JobTemplate.EnableRotation)
+                else:
+                    self.setupRotation(obj)
 
                 PathLog.debug("setting tool controllers (%d)" % len(tcs))
                 obj.ToolController = tcs
@@ -338,6 +379,7 @@ class ObjectJob:
         attrs[JobTemplate.GeometryTolerance] = str(obj.GeometryTolerance.Value)
         if obj.Description:
             attrs[JobTemplate.Description] = obj.Description
+        attrs[JobTemplate.EnableRotation] = obj.EnableRotation.Value
         return attrs
 
     def __getstate__(self):
@@ -430,6 +472,37 @@ class ObjectJob:
             self.obj.Operations.Path.Center = center
             for op in self.allOperations():
                 op.Path.Center = center
+
+    def setupRotation(self, obj):
+        if not hasattr(obj, 'EnableRotation'):
+            obj.addProperty("App::PropertyEnumeration", "EnableRotation", "Rotation", QtCore.QT_TRANSLATE_NOOP("App::Property", "Enable rotation to gain access to pockets/areas not normal to Z axis."))
+            obj.EnableRotation = ['Off', 'A(x)', 'B(y)', 'A & B']
+
+    def setupInitialClonePlacement(self, clone):
+        if not hasattr(clone, 'InitBase'):
+            clone.addProperty('App::PropertyVectorDistance', 'InitBase',  'InitialPlacement', translate('PathSetupSheet', 'Initial base.Placement.Base values for model.'))
+        if not hasattr(clone, 'InitAxis'):
+            clone.addProperty('App::PropertyVectorDistance', 'InitAxis',  'InitialPlacement', translate('PathSetupSheet', 'Initial base.Placement.Rotation.Axis values for model.'))
+        if not hasattr(clone, 'InitAngle'):
+            clone.addProperty('App::PropertyFloat', 'InitAngle',  'InitialPlacement', translate('PathSetupSheet', 'Initial base.Placement.Rotation.Angle value for model.'))
+        clone.setEditorMode('InitBase', 0)  # visible, read & write permission
+        clone.setEditorMode('InitAxis', 0)
+        clone.setEditorMode('InitAngle', 0)
+        clone.InitBase.x = clone.Placement.Base.x
+        clone.InitBase.y = clone.Placement.Base.y
+        clone.InitBase.z = clone.Placement.Base.z
+        clone.InitAxis.x = clone.Placement.Rotation.Axis.x
+        clone.InitAxis.y = clone.Placement.Rotation.Axis.y
+        clone.InitAxis.z = clone.Placement.Rotation.Axis.z
+        clone.InitAngle = math.degrees(clone.Placement.Rotation.Angle)
+        clone.setEditorMode('InitBase', 1)  # visible, read-only permission
+        clone.setEditorMode('InitAxis', 1)
+        clone.setEditorMode('InitAngle', 1)
+
+    def updateModelProperties(self, obj):
+        for m in obj.Model.Group:
+            if not hasattr(m, 'InitBase'):
+                setupInitialClonePlacement(self, m)
 
     @classmethod
     def baseCandidates(cls):
