@@ -126,13 +126,31 @@ class ObjectOp(object):
     def __init__(self, obj, name):
         PathLog.track()
 
+        # members being set later
+        self.commandlist = None
+        self.job = None
+        self.model = None
+        self.radius = None
+        self.stock = None
+        self.tool = None
+        self.depthparams = None
+        self.horizFeed = None
+        self.horizRapid = None
+        self.vertFeed = None
+        self.vertRapid = None
+        self.axialFeed = None
+        self.axialRapid = None
+        self.addNewProps = None
+
+        features = self.opFeatures(obj)  # Get features requested by the operation
+        job = PathUtils.addToJob(obj)  # Some properties are dependent on Job settings
+
+        # Add properties based on operation's features
         obj.addProperty("App::PropertyBool", "Active", "Path", QtCore.QT_TRANSLATE_NOOP("PathOp", "Make False, to prevent operation from generating code"))
         obj.addProperty("App::PropertyString", "Comment", "Path", QtCore.QT_TRANSLATE_NOOP("PathOp", "An optional comment for this Operation"))
         obj.addProperty("App::PropertyString", "UserLabel", "Path", QtCore.QT_TRANSLATE_NOOP("PathOp", "User Assigned Label"))
         obj.addProperty("App::PropertyString", "CycleTime", "Path", QtCore.QT_TRANSLATE_NOOP("PathOp", "Operations Cycle Time Estimation"))
         obj.setEditorMode('CycleTime', 1)  # read-only
-
-        features = self.opFeatures(obj)
 
         if FeatureBaseGeometry & features:
             self.addBaseProperty(obj)
@@ -142,6 +160,7 @@ class ObjectOp(object):
 
         if FeatureTool & features:
             obj.addProperty("App::PropertyLink", "ToolController", "Path", QtCore.QT_TRANSLATE_NOOP("PathOp", "The tool controller that will be used to calculate the path"))
+            obj.addProperty('App::PropertyFloat', 'FeedRateFactor', 'Path', QtCore.QT_TRANSLATE_NOOP("PathOp", "Feed rate adjustment factor for the assigned Tool Controller."))
             self.addOpValues(obj, ['tooldia'])
 
         if FeatureCoolant & features:
@@ -174,70 +193,58 @@ class ObjectOp(object):
             obj.addProperty("App::PropertyVectorDistance", "StartPoint", "Start Point", QtCore.QT_TRANSLATE_NOOP("PathOp", "The start point of this path"))
             obj.addProperty("App::PropertyBool", "UseStartPoint", "Start Point", QtCore.QT_TRANSLATE_NOOP("PathOp", "Make True, if specifying a Start Point"))
 
-        if FeatureFixedRotation & features:
-            if not hasattr(obj, 'EnableRotation'):
-                obj.addProperty("App::PropertyEnumeration", "EnableRotation", "Rotation", QtCore.QT_TRANSLATE_NOOP("App::Property", "Enable rotation to gain access to pockets/areas not normal to Z axis."))
-                obj.EnableRotation = ['Off', 'A(x)', 'B(y)', 'A & B']
-            obj.addProperty('App::PropertyVectorDistance', 'CustomPlaneBase', 'FixedIndexRotation', translate('Path', 'Initial base.Placement.Base values for model.'))
-            obj.addProperty('App::PropertyVector', 'CustomPlaneAxis', 'FixedIndexRotation', translate('Path', 'Initial base.Placement.Rotation.Axis values for model.'))
-            obj.addProperty('App::PropertyFloat', 'CustomPlaneAngle', 'FixedIndexRotation', translate('Path', 'Initial base.Placement.Rotation.Angle value for model.'))
-            obj.addProperty('App::PropertyEnumeration', 'MillIndexAxis', 'FixedIndexRotation', translate('Path', 'Axis of rotation on the mill machine (read-only).'))
-            obj.addProperty('App::PropertyBool', 'InvertIndexRotation', 'FixedIndexRotation', translate('Path', 'Invert the angle of the fixed index.'))
-            obj.addProperty('App::PropertyBool', 'OppositeIndexAngle', 'FixedIndexRotation', translate('Path', 'Reverse the angle of the fixed index.'))
-            obj.addProperty('App::PropertyInteger', 'FaceOnReferenceObject', 'FixedIndexRotation', translate('Path', 'Face number on FixedIndexReference used to determining the fixed index.'))
-            obj.addProperty('App::PropertyEnumeration', 'FixedIndexReference', 'FixedIndexRotation', translate('Path', 'Choose a working plane reference method or object.'))
-            obj.addProperty('App::PropertyFloat', 'VerticalIndexOffset', 'FixedIndexRotation', translate('Path', 'Vertical angle offest to apply to selected working plane [+/- 360 degrees].'))
-            obj.addProperty('App::PropertyEnumeration', 'ResetIndexTo', 'FixedIndexRotation', translate('Path', 'Reset model to selected orientation after operation execution.'))
-            obj.addProperty('App::PropertyBool', 'VisualizeFixedIndex', 'FixedIndexRotation', translate('Path', 'Display working plane in viewport.'))
+        # Only add properties to operation if EnableRotation set at Job level
+        canDoRotation = False
+        if hasattr(job, 'EnableRotation'):
+            canDoRotation = job.EnableRotation
+        if canDoRotation:
+            if FeatureFixedRotation & features:
+                if not hasattr(obj, 'EnableRotation'):
+                    obj.addProperty("App::PropertyEnumeration", "EnableRotation", "Rotation", QtCore.QT_TRANSLATE_NOOP("App::Property", "Enable rotation to gain access to pockets/areas not normal to Z axis."))
+                    obj.EnableRotation = ['Off', 'A(x)', 'B(y)', 'A & B']
+                obj.addProperty('App::PropertyVectorDistance', 'CustomPlaneBase', 'FixedIndexRotation', QtCore.QT_TRANSLATE_NOOP('Path', 'Initial base.Placement.Base values for model.'))
+                obj.addProperty('App::PropertyVector', 'CustomPlaneAxis', 'FixedIndexRotation', QtCore.QT_TRANSLATE_NOOP('Path', 'Initial base.Placement.Rotation.Axis values for model.'))
+                obj.addProperty('App::PropertyFloat', 'CustomPlaneAngle', 'FixedIndexRotation', QtCore.QT_TRANSLATE_NOOP('Path', 'Initial base.Placement.Rotation.Angle value for model.'))
+                obj.addProperty('App::PropertyEnumeration', 'MillIndexAxis', 'FixedIndexRotation', QtCore.QT_TRANSLATE_NOOP('Path', 'Axis of rotation on the mill machine (read-only).'))
+                obj.addProperty('App::PropertyBool', 'InvertIndexRotation', 'FixedIndexRotation', QtCore.QT_TRANSLATE_NOOP('Path', 'Invert the angle of the fixed index.'))
+                obj.addProperty('App::PropertyBool', 'OppositeIndexAngle', 'FixedIndexRotation', QtCore.QT_TRANSLATE_NOOP('Path', 'Reverse the angle of the fixed index.'))
+                obj.addProperty('App::PropertyInteger', 'FaceOnReferenceObject', 'FixedIndexRotation', QtCore.QT_TRANSLATE_NOOP('Path', 'Face number on FixedIndexReference used to determining the fixed index.'))
+                obj.addProperty('App::PropertyEnumeration', 'FixedIndexReference', 'FixedIndexRotation', QtCore.QT_TRANSLATE_NOOP('Path', 'Choose a working plane reference method or object.'))
+                obj.addProperty('App::PropertyFloat', 'VerticalIndexOffset', 'FixedIndexRotation', QtCore.QT_TRANSLATE_NOOP('Path', 'Vertical angle offest to apply to selected working plane [+/- 360 degrees].'))
+                obj.addProperty('App::PropertyEnumeration', 'ResetIndexTo', 'FixedIndexRotation', QtCore.QT_TRANSLATE_NOOP('Path', 'Reset model to selected orientation after operation execution.'))
+                obj.addProperty('App::PropertyBool', 'VisualizeFixedIndex', 'FixedIndexRotation', QtCore.QT_TRANSLATE_NOOP('Path', 'Display working plane in viewport.'))
 
-            WPBO = []
-            for O in FreeCAD.ActiveDocument.Objects:
-                if O.isDerivedFrom('PartDesign::Body') and not hasattr(O, 'InitBase'):
-                    WPBO.append('__' + O.Name)
-                # elif O.isDerivedFrom('Part::FeaturePython') and not hasattr(O, 'InitBase'):
-                #    WPBO.append('__' + O.Name)
-                elif O.isDerivedFrom('Part::Feature') and not hasattr(O, 'InitBase'):
-                    WPBO.append('__' + O.Name)
-            WPBO.sort()
-            obj.FixedIndexReference = ['None', 'Previous', 'Custom Plane', 'First Base Geometry'] + WPBO
-            obj.ResetIndexTo = ['Initial', 'Previous', 'None']
-            obj.MillIndexAxis = ['A', 'B', 'C']
+                WPBO = []
+                for O in FreeCAD.ActiveDocument.Objects:
+                    if O.isDerivedFrom('PartDesign::Body') and not hasattr(O, 'InitBase'):
+                        WPBO.append('__' + O.Name)
+                    # elif O.isDerivedFrom('Part::FeaturePython') and not hasattr(O, 'InitBase'):
+                    #    WPBO.append('__' + O.Name)
+                    elif O.isDerivedFrom('Part::Feature') and not hasattr(O, 'InitBase'):
+                        WPBO.append('__' + O.Name)
+                WPBO.sort()
+                obj.FixedIndexReference = ['None', 'Previous', 'Custom Plane', 'First Base Geometry'] + WPBO
+                obj.ResetIndexTo = ['Initial', 'Previous', 'None']
+                obj.MillIndexAxis = ['A', 'B', 'C']
 
-        if FeatureRotation & features:
-            if not hasattr(obj, 'EnableRotation'):
-                obj.addProperty("App::PropertyEnumeration", "EnableRotation", "Rotation", QtCore.QT_TRANSLATE_NOOP("App::Property", "Enable rotation to gain access to pockets/areas not normal to Z axis."))
-                obj.EnableRotation = ['Off', 'A(x)', 'B(y)', 'A & B']
-            obj.addProperty('App::PropertyBool', 'ReverseDirection', 'Rotation', QtCore.QT_TRANSLATE_NOOP('App::Property', 'Reverse direction of pocket operation.'))
-            obj.addProperty('App::PropertyBool', 'InverseAngle', 'Rotation', QtCore.QT_TRANSLATE_NOOP('App::Property', 'Inverse the angle. Example: -22.5 -> 22.5 degrees.'))
-            obj.addProperty('App::PropertyBool', 'B_AxisErrorOverride', 'Rotation', QtCore.QT_TRANSLATE_NOOP('App::Property', 'Match B rotations to model (error in FreeCAD rendering).'))
-            obj.addProperty('App::PropertyBool', 'AttemptInverseAngle', 'Rotation', QtCore.QT_TRANSLATE_NOOP('App::Property', 'Attempt the inverse angle for face access if original rotation fails.'))
+            if FeatureRotation & features:
+                if not hasattr(obj, 'EnableRotation'):
+                    obj.addProperty("App::PropertyEnumeration", "EnableRotation", "Rotation", QtCore.QT_TRANSLATE_NOOP("App::Property", "Enable rotation to gain access to pockets/areas not normal to Z axis."))
+                    obj.EnableRotation = ['Off', 'A(x)', 'B(y)', 'A & B']
+                obj.addProperty('App::PropertyBool', 'ReverseDirection', 'Rotation', QtCore.QT_TRANSLATE_NOOP('App::Property', 'Reverse direction of pocket operation.'))
+                obj.addProperty('App::PropertyBool', 'InverseAngle', 'Rotation', QtCore.QT_TRANSLATE_NOOP('App::Property', 'Inverse the angle. Example: -22.5 -> 22.5 degrees.'))
+                obj.addProperty('App::PropertyBool', 'AttemptInverseAngle', 'Rotation', QtCore.QT_TRANSLATE_NOOP('App::Property', 'Attempt the inverse angle for face access if original rotation fails.'))
 
-        # members being set later
-        self.commandlist = None
-        self.job = None
-        self.model = None
-        self.radius = None
-        self.stock = None
-        self.tool = None
-        self.depthparams = None
-        self.horizFeed = None
-        self.horizRapid = None
-        self.vertFeed = None
-        self.vertRapid = None
-        self.axialFeed = None
-        self.axialRapid = None
-        self.addNewProps = None
-
+        # Process operation-specific __init__() related statements
         self.initOperation(obj)
 
         if not hasattr(obj, 'DoNotSetDefaultValues') or not obj.DoNotSetDefaultValues:
-            job = self.setDefaultValues(obj)
-            if job:
+            if self.setDefaultValues(job, obj):
                 job.SetupSheet.Proxy.setOperationProperties(obj, name)
                 obj.recompute()
                 obj.Proxy = self
-        else:
-            self.setEditorModes(obj, features)
+
+        self.setEditorModes(obj, features)
 
     def setEditorModes(self, obj, features):
         '''Editor modes are not preserved during document store/restore, set editor modes for all properties'''
@@ -285,6 +292,9 @@ class ObjectOp(object):
 
         if not hasattr(obj, 'CycleTime'):
             obj.addProperty("App::PropertyString", "CycleTime", "Path", QtCore.QT_TRANSLATE_NOOP("PathOp", "Operations Cycle Time Estimation"))
+
+        if not hasattr(obj, 'FeedRateFactor'):
+            obj.addProperty('App::PropertyFloat', 'FeedRateFactor', 'Path', QtCore.QT_TRANSLATE_NOOP("PathOp", "Feed rate adjustment factor for the assigned Tool Controller."))
 
         self.setEditorModes(obj, features)
         self.opOnDocumentRestored(obj)
@@ -359,11 +369,11 @@ class ObjectOp(object):
 
         if prop == 'FixedIndexReference':
             self.updateFeatureFixedRotationEditorModes(obj, prop)
-        elif prop == 'FeedRatePercentage':
-            if obj.FeedRatePercentage < 1:
-                obj.FeedRatePercentage = 1
-            elif obj.FeedRatePercentage > 200:
-                obj.FeedRatePercentage = 200
+        elif prop == 'FeedRateFactor':
+            if obj.FeedRateFactor < 1:
+                obj.FeedRateFactor = 1
+            elif obj.FeedRateFactor > 200:
+                obj.FeedRateFactor = 200
 
         self.opOnChanged(obj, prop)
 
@@ -374,10 +384,10 @@ class ObjectOp(object):
             return True
         return False
 
-    def setDefaultValues(self, obj):
-        '''setDefaultValues(obj) ... base implementation.
+    def setDefaultValues(self, job, obj):
+        '''setDefaultValues(job, obj) ... base implementation.
         Do not overwrite, overwrite opSetDefaultValues() instead.'''
-        job = PathUtils.addToJob(obj)
+        # job = PathUtils.addToJob(obj)
 
         obj.Active = True
 
@@ -391,7 +401,7 @@ class ObjectOp(object):
             if not obj.ToolController:
                 return None
             obj.OpToolDiameter = obj.ToolController.Tool.Diameter
-            obj.FeedRatePercentage = 100
+            obj.FeedRateFactor = 1.0
 
         if FeatureCoolant & features:
             obj.CoolantMode = job.SetupSheet.CoolantMode
@@ -423,7 +433,10 @@ class ObjectOp(object):
         if FeatureStartPoint & features:
             obj.UseStartPoint = False
 
-        if FeatureFixedRotation & features:
+        canDoRotation = False
+        if hasattr(job, 'EnableRotation'):
+            canDoRotation = job.EnableRotation
+        if FeatureFixedRotation & features and canDoRotation:
             obj.EnableRotation = job.EnableRotation
             obj.CustomPlaneAngle = 0.0
             obj.CustomPlaneAxis = FreeCAD.Vector(0, 0, 0)
@@ -437,16 +450,15 @@ class ObjectOp(object):
             obj.FaceOnReferenceObject = 0
             obj.MillIndexAxis = 'A'
 
-        if FeatureRotation & features:
+        if FeatureRotation & features and canDoRotation:
             obj.EnableRotation = job.EnableRotation
             obj.ReverseDirection = False
             obj.InverseAngle = False
-            obj.B_AxisErrorOverride = False
             obj.AttemptInverseAngle = False
 
         self.opSetDefaultValues(obj, job)
-        self.setEditorModes(obj, features)
-        return job
+        # self.setEditorModes(obj, features)
+        return True
 
     def _setBaseAndStock(self, obj, ignoreErrors=False):
         job = PathUtils.findParentJob(obj)
@@ -1114,8 +1126,8 @@ class ObjectOp(object):
                 PathLog.error(translate("Path", "No Tool Controller is selected. We need a tool to build a Path."))
                 return
             else:
-                self.vertFeed = tc.VertFeed.Value
-                self.horizFeed = tc.HorizFeed.Value
+                self.vertFeed = tc.VertFeed.Value * abs(obj.FeedRateFactor) if hasattr(obj, 'FeedRateFactor') else tc.VertFeed.Value
+                self.horizFeed = tc.HorizFeed.Value * abs(obj.FeedRateFactor) if hasattr(obj, 'FeedRateFactor') else tc.HorizFeed.Value
                 self.axialFeed = 0.0
                 self.vertRapid = tc.VertRapid.Value
                 self.horizRapid = tc.HorizRapid.Value
