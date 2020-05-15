@@ -34,11 +34,13 @@ from lazy_loader.lazy_loader import LazyLoader
 Part = LazyLoader('Part', globals(), 'Part')
 
 PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
-#PathLog.trackModule(PathLog.thisModule())
+# PathLog.trackModule(PathLog.thisModule())
+
 
 # Qt translation handling
 def translate(context, text, disambig=None):
     return QtCore.QCoreApplication.translate(context, text, disambig)
+
 
 class StockType:
     # pylint: disable=no-init
@@ -66,6 +68,7 @@ class StockType:
             return cls.CreateCylinder
         return cls.Unknown
 
+
 def shapeBoundBox(obj):
     PathLog.track(type(obj))
     if list == type(obj) and obj:
@@ -87,10 +90,12 @@ def shapeBoundBox(obj):
         PathLog.error(translate('PathStock', "Invalid base object %s - no shape found") % obj.Name)
     return None
 
+
 class Stock(object):
     def onDocumentRestored(self, obj):
         if hasattr(obj, 'StockType'):
             obj.setEditorMode('StockType', 2) # hide
+
 
 class StockFromBase(Stock):
 
@@ -103,14 +108,17 @@ class StockFromBase(Stock):
         obj.addProperty("App::PropertyDistance", "ExtYpos", "Stock", QtCore.QT_TRANSLATE_NOOP("PathStock", "Extra allowance from part bound box in positive Y direction"))
         obj.addProperty("App::PropertyDistance", "ExtZneg", "Stock", QtCore.QT_TRANSLATE_NOOP("PathStock", "Extra allowance from part bound box in negative Z direction"))
         obj.addProperty("App::PropertyDistance", "ExtZpos", "Stock", QtCore.QT_TRANSLATE_NOOP("PathStock", "Extra allowance from part bound box in positive Z direction"))
+        obj.addProperty('App::PropertyVectorDistance', 'InitBase',  'InitialPlacement', translate('PathSetupSheet', 'Initial base.Placement.Base values for model.'))
+        obj.addProperty('App::PropertyVectorDistance', 'InitAxis',  'InitialPlacement', translate('PathSetupSheet', 'Initial base.Placement.Rotation.Axis values for model.'))
+        obj.addProperty('App::PropertyFloat', 'InitAngle',  'InitialPlacement', translate('PathSetupSheet', 'Initial base.Placement.Rotation.Angle value for model.'))
 
         obj.Base = base
-        obj.ExtXneg= 1.0
-        obj.ExtXpos= 1.0
-        obj.ExtYneg= 1.0
-        obj.ExtYpos= 1.0
-        obj.ExtZneg= 1.0
-        obj.ExtZpos= 1.0
+        obj.ExtXneg = 1.0
+        obj.ExtXpos = 1.0
+        obj.ExtYneg = 1.0
+        obj.ExtYpos = 1.0
+        obj.ExtZneg = 1.0
+        obj.ExtZpos = 1.0
 
         # placement is only tracked on creation
         bb = shapeBoundBox(base.Group) if base else None
@@ -123,16 +131,25 @@ class StockFromBase(Stock):
         # debugging aids
         self.origin = None
         self.length = None
-        self.width  = None
+        self.width = None
         self.height = None
 
     def __getstate__(self):
         return None
+
     def __setstate__(self, state):
         return None
 
     def execute(self, obj):
-        bb = shapeBoundBox(obj.Base.Group) if obj.Base and hasattr(obj.Base, 'Group') else None
+        bb = None
+        if obj.Base and hasattr(obj.Base, 'Group'):
+            # reset each model to initial position
+            for mdl in obj.Base.Group:
+                mdl.Placement.Base = mdl.InitBase
+                mdl.Placement.Rotation = FreeCAD.Rotation(mdl.InitAxis, mdl.InitAngle)
+                mdl.recompute()
+                mdl.purgeTouched()
+            bb = shapeBoundBox(obj.Base.Group)
         PathLog.track(obj.Label, bb)
 
         # Sometimes, when the Base changes it's temporarily not assigned when
@@ -146,6 +163,7 @@ class StockFromBase(Stock):
 
             shape = Part.makeBox(self.length, self.width, self.height, self.origin)
             shape.Placement = obj.Placement
+            setInitProps(obj)
             obj.Shape = shape
 
     def onChanged(self, obj, prop):
@@ -160,15 +178,19 @@ class StockCreateBox(Stock):
         obj.addProperty('App::PropertyLength', 'Length', 'Stock', QtCore.QT_TRANSLATE_NOOP("PathStock", "Length of this stock box"))
         obj.addProperty('App::PropertyLength', 'Width', 'Stock', QtCore.QT_TRANSLATE_NOOP("PathStock", "Width of this stock box"))
         obj.addProperty('App::PropertyLength', 'Height', 'Stock', QtCore.QT_TRANSLATE_NOOP("PathStock", "Height of this stock box"))
+        obj.addProperty('App::PropertyVectorDistance', 'InitBase',  'InitialPlacement', translate('PathSetupSheet', 'Initial base.Placement.Base values for model.'))
+        obj.addProperty('App::PropertyVectorDistance', 'InitAxis',  'InitialPlacement', translate('PathSetupSheet', 'Initial base.Placement.Rotation.Axis values for model.'))
+        obj.addProperty('App::PropertyFloat', 'InitAngle',  'InitialPlacement', translate('PathSetupSheet', 'Initial base.Placement.Rotation.Angle value for model.'))
 
         obj.Length = 10
-        obj.Width  = 10
+        obj.Width = 10
         obj.Height = 10
 
         obj.Proxy = self
 
     def __getstate__(self):
         return None
+
     def __setstate__(self, state):
         return None
 
@@ -182,11 +204,13 @@ class StockCreateBox(Stock):
 
         shape = Part.makeBox(obj.Length, obj.Width, obj.Height)
         shape.Placement = obj.Placement
+        setInitProps(obj)
         obj.Shape = shape
 
     def onChanged(self, obj, prop):
         if prop in ['Length', 'Width', 'Height'] and not 'Restore' in obj.State:
             self.execute(obj)
+
 
 class StockCreateCylinder(Stock):
     MinExtent = 0.001
@@ -194,6 +218,9 @@ class StockCreateCylinder(Stock):
     def __init__(self, obj):
         obj.addProperty('App::PropertyLength', 'Radius', 'Stock', QtCore.QT_TRANSLATE_NOOP("PathStock", "Radius of this stock cylinder"))
         obj.addProperty('App::PropertyLength', 'Height', 'Stock', QtCore.QT_TRANSLATE_NOOP("PathStock", "Height of this stock cylinder"))
+        obj.addProperty('App::PropertyVectorDistance', 'InitBase',  'InitialPlacement', translate('PathSetupSheet', 'Initial base.Placement.Base values for model.'))
+        obj.addProperty('App::PropertyVectorDistance', 'InitAxis',  'InitialPlacement', translate('PathSetupSheet', 'Initial base.Placement.Rotation.Axis values for model.'))
+        obj.addProperty('App::PropertyFloat', 'InitAngle',  'InitialPlacement', translate('PathSetupSheet', 'Initial base.Placement.Rotation.Angle value for model.'))
 
         obj.Radius = 2
         obj.Height = 10
@@ -202,6 +229,7 @@ class StockCreateCylinder(Stock):
 
     def __getstate__(self):
         return None
+
     def __setstate__(self, state):
         return None
 
@@ -213,11 +241,23 @@ class StockCreateCylinder(Stock):
 
         shape = Part.makeCylinder(obj.Radius, obj.Height)
         shape.Placement = obj.Placement
+        setInitProps(obj)
         obj.Shape = shape
 
     def onChanged(self, obj, prop):
         if prop in ['Radius', 'Height'] and not 'Restore' in obj.State:
             self.execute(obj)
+
+
+def setInitProps(obj):
+    obj.InitBase.x = obj.Placement.Base.x
+    obj.InitBase.y = obj.Placement.Base.y
+    obj.InitBase.z = obj.Placement.Base.z
+    obj.InitAxis.x = obj.Placement.Rotation.Axis.x
+    obj.InitAxis.y = obj.Placement.Rotation.Axis.y
+    obj.InitAxis.z = obj.Placement.Rotation.Axis.z
+    obj.InitAngle = math.degrees(obj.Placement.Rotation.Angle)
+
 
 def SetupStockObject(obj, stockType):
     PathLog.track(obj.Label, stockType)
@@ -267,6 +307,7 @@ def CreateFromBase(job, neg=None, pos=None, placement=None):
     obj.purgeTouched()
     return obj
 
+
 def CreateBox(job, extent=None, placement=None):
     base = _getBase(job)
     obj = FreeCAD.ActiveDocument.addObject('Part::FeaturePython', 'Stock')
@@ -292,6 +333,7 @@ def CreateBox(job, extent=None, placement=None):
     SetupStockObject(obj, StockType.CreateBox)
     return obj
 
+
 def CreateCylinder(job, radius=None, height=None, placement=None):
     base = _getBase(job)
     obj = FreeCAD.ActiveDocument.addObject('Part::FeaturePython', 'Stock')
@@ -316,6 +358,7 @@ def CreateCylinder(job, radius=None, height=None, placement=None):
 
     SetupStockObject(obj, StockType.CreateCylinder)
     return obj
+
 
 def TemplateAttributes(stock, includeExtent=True, includePlacement=True):
     attrs = {}
@@ -353,6 +396,7 @@ def TemplateAttributes(stock, includeExtent=True, includePlacement=True):
 
     return attrs
 
+
 def CreateFromTemplate(job, template):
     if template.get('version') and 1 == int(template['version']):
         stockType = template.get('create')
@@ -365,6 +409,7 @@ def CreateFromTemplate(job, template):
             rotY = template.get('rotY')
             rotZ = template.get('rotZ')
             rotW = template.get('rotW')
+
             if posX is not None and posY is not None and posZ is not None and rotX is not None and rotY is not None and rotZ is not None and rotW is not None:
                 pos = FreeCAD.Vector(float(posX), float(posY), float(posZ)) 
                 rot = FreeCAD.Rotation(float(rotX), float(rotY), float(rotZ), float(rotW))
