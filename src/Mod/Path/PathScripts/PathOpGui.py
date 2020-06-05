@@ -22,9 +22,6 @@
 
 import FreeCAD
 import FreeCADGui
-import PathScripts.PathGeom as PathGeom
-import PathScripts.PathGetPoint as PathGetPoint
-import PathScripts.PathGui as PathGui
 import PathScripts.PathLog as PathLog
 import PathScripts.PathOp as PathOp
 import PathScripts.PathPreferences as PathPreferences
@@ -33,8 +30,30 @@ import PathScripts.PathSetupSheet as PathSetupSheet
 import PathScripts.PathUtil as PathUtil
 import PathScripts.PathUtils as PathUtils
 import importlib
-
 from PySide import QtCore, QtGui
+
+# lazily loaded modules
+from lazy_loader.lazy_loader import LazyLoader
+BaseGeometryTaskPanel = LazyLoader(
+    'PathScripts.Features.BaseGeometryTaskPanel',
+    globals(),
+    'PathScripts.Features.BaseGeometryTaskPanel'
+    )
+BaseLocationTaskPanel = LazyLoader(
+    'PathScripts.Features.BaseLocationTaskPanel',
+    globals(),
+    'PathScripts.Features.BaseLocationTaskPanel'
+    )
+HeightsTaskPanel = LazyLoader(
+    'PathScripts.Features.HeightsTaskPanel',
+    globals(),
+    'PathScripts.Features.HeightsTaskPanel'
+    )
+DepthsTaskPanel = LazyLoader(
+    'PathScripts.Features.DepthsTaskPanel',
+    globals(),
+    'PathScripts.Features.DepthsTaskPanel'
+    )
 
 __title__ = "Path Operation UI base classes"
 __author__ = "sliptonic (Brad Collette)"
@@ -421,549 +440,6 @@ class TaskPanelPage(object):
                             break
 
 
-class TaskPanelBaseGeometryPage(TaskPanelPage):
-    '''Page controller for the base geometry.'''
-    DataObject = QtCore.Qt.ItemDataRole.UserRole
-    DataObjectSub = QtCore.Qt.ItemDataRole.UserRole + 1
-
-    def __init__(self, obj, features):
-        super(TaskPanelBaseGeometryPage, self).__init__(obj, features)
-
-        self.panelTitle = 'Base Geometry'
-        self.OpIcon = ":/icons/Path-BaseGeometry.svg"
-        self.setIcon(self.OpIcon)
-
-    def getForm(self):
-        panel = FreeCADGui.PySideUic.loadUi(":/panels/PageBaseGeometryEdit.ui")
-        self.modifyPanel(panel)
-        return panel
-
-    def modifyPanel(self, panel):
-        '''modifyPanel(self, panel) ...
-        Helper method to modify the current form immediately after
-        it is loaded.'''
-        # Determine if Job operations are available with Base Geometry
-        availableOps = list()
-        ops = self.job.Operations.Group
-        for op in ops:
-            if hasattr(op, 'Base') and isinstance(op.Base, list):
-                if len(op.Base) > 0:
-                    availableOps.append(op.Label)
-
-        # Load available operations into combobox
-        if len(availableOps) > 0:
-            # Populate the operations list
-            panel.geometryImportList.blockSignals(True)
-            panel.geometryImportList.clear()
-            availableOps.sort()
-            for opLbl in availableOps:
-                panel.geometryImportList.addItem(opLbl)
-            panel.geometryImportList.blockSignals(False)
-        else:
-            panel.geometryImportList.hide()
-            panel.geometryImportButton.hide()
-
-    def getTitle(self, obj):
-        return translate("PathOp", "Base Geometry")
-
-    def getFields(self, obj):
-        pass
-
-    def setFields(self, obj):
-        self.form.baseList.blockSignals(True)
-        self.form.baseList.clear()
-        for base in self.obj.Base:
-            for sub in base[1]:
-                item = QtGui.QListWidgetItem("%s.%s" % (base[0].Label, sub))
-                item.setData(self.DataObject, base[0])
-                item.setData(self.DataObjectSub, sub)
-                self.form.baseList.addItem(item)
-        self.form.baseList.blockSignals(False)
-        self.resizeBaseList()
-
-    def itemActivated(self):
-        FreeCADGui.Selection.clearSelection()
-        for item in self.form.baseList.selectedItems():
-            obj = item.data(self.DataObject)
-            sub = item.data(self.DataObjectSub)
-            if sub:
-                FreeCADGui.Selection.addSelection(obj, sub)
-            else:
-                FreeCADGui.Selection.addSelection(obj)
-        # FreeCADGui.updateGui()
-
-    def supportsVertexes(self):
-        return self.features & PathOp.FeatureBaseVertexes
-
-    def supportsEdges(self):
-        return self.features & PathOp.FeatureBaseEdges
-
-    def supportsFaces(self):
-        return self.features & PathOp.FeatureBaseFaces
-
-    def supportsPanels(self):
-        return self.features & PathOp.FeatureBasePanels
-
-    def featureName(self):
-        if self.supportsEdges() and self.supportsFaces():
-            return 'features'
-        if self.supportsFaces():
-            return 'faces'
-        if self.supportsEdges():
-            return 'edges'
-        return 'nothing'
-
-    def selectionSupportedAsBaseGeometry(self, selection, ignoreErrors):
-        if len(selection) != 1:
-            if not ignoreErrors:
-                msg = translate("PathProject", "Please select %s from a single solid" % self.featureName())
-                FreeCAD.Console.PrintError(msg + '\n')
-                PathLog.debug(msg)
-            return False
-        sel = selection[0]
-        if sel.HasSubObjects:
-            if not self.supportsVertexes() and selection[0].SubObjects[0].ShapeType == "Vertex":
-                if not ignoreErrors:
-                    PathLog.error(translate("PathProject", "Vertexes are not supported"))
-                return False
-            if not self.supportsEdges() and selection[0].SubObjects[0].ShapeType == "Edge":
-                if not ignoreErrors:
-                    PathLog.error(translate("PathProject", "Edges are not supported"))
-                return False
-            if not self.supportsFaces() and selection[0].SubObjects[0].ShapeType == "Face":
-                if not ignoreErrors:
-                    PathLog.error(translate("PathProject", "Faces are not supported"))
-                return False
-        else:
-            if not self.supportsPanels() or not 'Panel' in sel.Object.Name:
-                if not ignoreErrors:
-                    PathLog.error(translate("PathProject", "Please select %s of a solid" % self.featureName()))
-                return False
-        return True
-
-    def addBaseGeometry(self, selection):
-        PathLog.track(selection)
-        if self.selectionSupportedAsBaseGeometry(selection, False):
-            sel = selection[0]
-            for sub in sel.SubElementNames:
-                self.obj.Proxy.addBase(self.obj, sel.Object, sub)
-            return True
-        return False
-
-    def addBase(self):
-        if self.addBaseGeometry(FreeCADGui.Selection.getSelectionEx()):
-            # self.obj.Proxy.execute(self.obj)
-            self.setFields(self.obj)
-            self.setDirty()
-            self.updatePanelVisibility('Operation', self.obj)
-
-    def deleteBase(self):
-        PathLog.track()
-        selected = self.form.baseList.selectedItems()
-        for item in selected:
-            self.form.baseList.takeItem(self.form.baseList.row(item))
-            self.setDirty()
-        self.updateBase()
-        self.updatePanelVisibility('Operation', self.obj)
-        self.resizeBaseList()
-
-    def updateBase(self):
-        newlist = []
-        for i in range(self.form.baseList.count()):
-            item = self.form.baseList.item(i)
-            obj = item.data(self.DataObject)
-            sub = item.data(self.DataObjectSub)
-            if sub:
-                base = (obj, str(sub))
-                newlist.append(base)
-        PathLog.debug("Setting new base: %s -> %s" % (self.obj.Base, newlist))
-        self.obj.Base = newlist
-
-        # self.obj.Proxy.execute(self.obj)
-        # FreeCAD.ActiveDocument.recompute()
-
-    def clearBase(self):
-        self.obj.Base = []
-        self.setDirty()
-        self.updatePanelVisibility('Operation', self.obj)
-        self.resizeBaseList()
-
-    def importBaseGeometry(self):
-        opLabel = str(self.form.geometryImportList.currentText())
-        ops = FreeCAD.ActiveDocument.getObjectsByLabel(opLabel)
-        if ops.__len__() > 1:
-            msg = translate('PathOpGui', 'Mulitiple operations are labeled as')
-            msg += " {}\n".format(opLabel)
-            FreeCAD.Console.PrintWarning(msg)
-        for (base, subList) in ops[0].Base:
-            FreeCADGui.Selection.addSelection(base, subList)
-        self.addBase()
-
-    def registerSignalHandlers(self, obj):
-        self.form.baseList.itemSelectionChanged.connect(self.itemActivated)
-        self.form.addBase.clicked.connect(self.addBase)
-        self.form.deleteBase.clicked.connect(self.deleteBase)
-        self.form.clearBase.clicked.connect(self.clearBase)
-        self.form.geometryImportButton.clicked.connect(self.importBaseGeometry)
-
-    def pageUpdateData(self, obj, prop):
-        if prop in ['Base']:
-            self.setFields(obj)
-
-    def updateSelection(self, obj, sel):
-        if self.selectionSupportedAsBaseGeometry(sel, True):
-            self.form.addBase.setEnabled(True)
-        else:
-            self.form.addBase.setEnabled(False)
-
-    def resizeBaseList(self):
-        # Set base geometry list window to resize based on contents
-        # Code reference:
-        # https://stackoverflow.com/questions/6337589/qlistwidget-adjust-size-to-content
-        qList = self.form.baseList
-        # qList.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        col = qList.width()  # 300
-        row = (qList.count() + qList.frameWidth()) * 15
-        qList.setFixedSize(col, row)
-
-class TaskPanelBaseLocationPage(TaskPanelPage):
-    '''Page controller for base locations. Uses PathGetPoint.'''
-
-    DataLocation = QtCore.Qt.ItemDataRole.UserRole
-
-    def __init__(self, obj, features):
-        super(TaskPanelBaseLocationPage, self).__init__(obj, features)
-
-        # members initialized later
-        self.editRow = None
-        self.panelTitle = 'Base Location'
-
-    def getForm(self):
-        self.formLoc = FreeCADGui.PySideUic.loadUi(":/panels/PageBaseLocationEdit.ui")
-        if QtCore.qVersion()[0] == '4':
-            self.formLoc.baseList.horizontalHeader().setResizeMode(QtGui.QHeaderView.Stretch)
-        else:
-            self.formLoc.baseList.horizontalHeader().setSectionResizeMode(QtGui.QHeaderView.Stretch)
-        self.getPoint = PathGetPoint.TaskPanel(self.formLoc.addRemoveEdit)
-        return self.formLoc
-
-    def modifyStandardButtons(self, buttonBox):
-        self.getPoint.buttonBox = buttonBox
-
-    def getTitle(self, obj):
-        return translate("PathOp", "Base Location")
-
-    def getFields(self, obj):
-        pass
-
-    def setFields(self, obj):
-        self.formLoc.baseList.blockSignals(True)
-        self.formLoc.baseList.clearContents()
-        self.formLoc.baseList.setRowCount(0)
-        for location in self.obj.Locations:
-            self.formLoc.baseList.insertRow(self.formLoc.baseList.rowCount())
-
-            item = QtGui.QTableWidgetItem("%.2f" % location.x)
-            item.setData(self.DataLocation, location.x)
-            self.formLoc.baseList.setItem(self.formLoc.baseList.rowCount()-1, 0, item)
-
-            item = QtGui.QTableWidgetItem("%.2f" % location.y)
-            item.setData(self.DataLocation, location.y)
-            self.formLoc.baseList.setItem(self.formLoc.baseList.rowCount()-1, 1, item)
-        self.formLoc.baseList.resizeColumnToContents(0)
-        self.formLoc.baseList.blockSignals(False)
-        self.itemActivated()
-
-    def removeLocation(self):
-        deletedRows = []
-        selected = self.formLoc.baseList.selectedItems()
-        for item in selected:
-            row = self.formLoc.baseList.row(item)
-            if row not in deletedRows:
-                deletedRows.append(row)
-                self.formLoc.baseList.removeRow(row)
-        self.updateLocations()
-        FreeCAD.ActiveDocument.recompute()
-
-    def updateLocations(self):
-        PathLog.track()
-        locations = []
-        for i in range(self.formLoc.baseList.rowCount()):
-            x = self.formLoc.baseList.item(i, 0).data(self.DataLocation)
-            y = self.formLoc.baseList.item(i, 1).data(self.DataLocation)
-            location = FreeCAD.Vector(x, y, 0)
-            locations.append(location)
-        self.obj.Locations = locations
-
-    def addLocation(self):
-        self.getPoint.getPoint(self.addLocationAt)
-
-    def addLocationAt(self, point, obj):
-        # pylint: disable=unused-argument
-        if point:
-            locations = self.obj.Locations
-            locations.append(point)
-            self.obj.Locations = locations
-            FreeCAD.ActiveDocument.recompute()
-
-    def editLocation(self):
-        selected = self.formLoc.baseList.selectedItems()
-        if selected:
-            row = self.formLoc.baseList.row(selected[0])
-            self.editRow = row
-            x = self.formLoc.baseList.item(row, 0).data(self.DataLocation)
-            y = self.formLoc.baseList.item(row, 1).data(self.DataLocation)
-            start = FreeCAD.Vector(x, y, 0)
-            self.getPoint.getPoint(self.editLocationAt, start)
-
-    def editLocationAt(self, point, obj):
-        # pylint: disable=unused-argument
-        if point:
-            self.formLoc.baseList.item(self.editRow, 0).setData(self.DataLocation, point.x)
-            self.formLoc.baseList.item(self.editRow, 1).setData(self.DataLocation, point.y)
-            self.updateLocations()
-            FreeCAD.ActiveDocument.recompute()
-
-    def itemActivated(self):
-        if self.formLoc.baseList.selectedItems():
-            self.form.removeLocation.setEnabled(True)
-            self.form.editLocation.setEnabled(True)
-        else:
-            self.form.removeLocation.setEnabled(False)
-            self.form.editLocation.setEnabled(False)
-
-    def registerSignalHandlers(self, obj):
-        self.form.baseList.itemSelectionChanged.connect(self.itemActivated)
-        self.formLoc.addLocation.clicked.connect(self.addLocation)
-        self.formLoc.removeLocation.clicked.connect(self.removeLocation)
-        self.formLoc.editLocation.clicked.connect(self.editLocation)
-
-    def pageUpdateData(self, obj, prop):
-        if prop in ['Locations']:
-            self.setFields(obj)
-
-
-class TaskPanelHeightsPage(TaskPanelPage):
-    '''Page controller for heights.'''
-
-    def __init__(self, obj, features):
-        super(TaskPanelHeightsPage, self).__init__(obj, features)
-
-        # members initialized later
-        self.clearanceHeight = None
-        self.safeHeight = None
-        self.panelTitle = 'Heights'
-        self.OpIcon = ":/icons/Path-Heights.svg"
-        self.setIcon(self.OpIcon)
-
-    def getForm(self):
-        return FreeCADGui.PySideUic.loadUi(":/panels/PageHeightsEdit.ui")
-
-    def initPage(self, obj):
-        self.safeHeight = PathGui.QuantitySpinBox(self.form.safeHeight, obj, 'SafeHeight')
-        self.clearanceHeight = PathGui.QuantitySpinBox(self.form.clearanceHeight, obj, 'ClearanceHeight')
-
-    def getTitle(self, obj):
-        return translate("Path", "Heights")
-
-    def getFields(self, obj):
-        self.safeHeight.updateProperty()
-        self.clearanceHeight.updateProperty()
-
-    def setFields(self, obj):
-        self.safeHeight.updateSpinBox()
-        self.clearanceHeight.updateSpinBox()
-
-    def getSignalsForUpdate(self, obj):
-        signals = []
-        signals.append(self.form.safeHeight.editingFinished)
-        signals.append(self.form.clearanceHeight.editingFinished)
-        return signals
-
-    def pageUpdateData(self, obj, prop):
-        if prop in ['SafeHeight', 'ClearanceHeight']:
-            self.setFields(obj)
-
-
-class TaskPanelDepthsPage(TaskPanelPage):
-    '''Page controller for depths.'''
-
-    def __init__(self, obj, features):
-        super(TaskPanelDepthsPage, self).__init__(obj, features)
-
-        # members initialized later
-        self.startDepth = None
-        self.finalDepth = None
-        self.finishDepth = None
-        self.stepDown = None
-        self.panelTitle = 'Depths'
-        self.OpIcon = ":/icons/Path-Depths.svg"
-        self.setIcon(self.OpIcon)
-
-    def getForm(self):
-        return FreeCADGui.PySideUic.loadUi(":/panels/PageDepthsEdit.ui")
-
-    def haveStartDepth(self):
-        return PathOp.FeatureDepths & self.features
-
-    def haveFinalDepth(self):
-        return PathOp.FeatureDepths & self.features and not PathOp.FeatureNoFinalDepth & self.features
-
-    def haveFinishDepth(self):
-        return PathOp.FeatureDepths & self.features and PathOp.FeatureFinishDepth & self.features
-
-    def haveStepDown(self):
-        return PathOp.FeatureStepDown & self. features
-
-    def initPage(self, obj):
-
-        if self.haveStartDepth():
-            self.startDepth = PathGui.QuantitySpinBox(self.form.startDepth, obj, 'StartDepth')
-        else:
-            self.form.startDepth.hide()
-            self.form.startDepthLabel.hide()
-            self.form.startDepthSet.hide()
-
-        if self.haveFinalDepth():
-            self.finalDepth = PathGui.QuantitySpinBox(self.form.finalDepth, obj, 'FinalDepth')
-        else:
-            if self.haveStartDepth():
-                self.form.finalDepth.setEnabled(False)
-                self.form.finalDepth.setToolTip(translate('PathOp', 'FinalDepth cannot be modified for this operation.\nIf it is necessary to set the FinalDepth manually please select a different operation.'))
-            else:
-                self.form.finalDepth.hide()
-                self.form.finalDepthLabel.hide()
-            self.form.finalDepthSet.hide()
-
-        if self.haveStepDown():
-            self.stepDown = PathGui.QuantitySpinBox(self.form.stepDown, obj, 'StepDown')
-        else:
-            self.form.stepDown.hide()
-            self.form.stepDownLabel.hide()
-
-        if self.haveFinishDepth():
-            self.finishDepth = PathGui.QuantitySpinBox(self.form.finishDepth, obj, 'FinishDepth')
-        else:
-            self.form.finishDepth.hide()
-            self.form.finishDepthLabel.hide()
-
-    def getTitle(self, obj):
-        return translate("PathOp", "Depths")
-
-    def getFields(self, obj):
-        if self.haveStartDepth():
-            self.startDepth.updateProperty()
-        if self.haveFinalDepth():
-            self.finalDepth.updateProperty()
-        if self.haveStepDown():
-            self.stepDown.updateProperty()
-        if self.haveFinishDepth():
-            self.finishDepth.updateProperty()
-
-    def setFields(self, obj):
-        if self.haveStartDepth():
-            self.startDepth.updateSpinBox()
-        if self.haveFinalDepth():
-            self.finalDepth.updateSpinBox()
-        if self.haveStepDown():
-            self.stepDown.updateSpinBox()
-        if self.haveFinishDepth():
-            self.finishDepth.updateSpinBox()
-        self.updateSelection(obj, FreeCADGui.Selection.getSelectionEx())
-
-    def getSignalsForUpdate(self, obj):
-        signals = []
-        if self.haveStartDepth():
-            signals.append(self.form.startDepth.editingFinished)
-        if self.haveFinalDepth():
-            signals.append(self.form.finalDepth.editingFinished)
-        if self.haveStepDown():
-            signals.append(self.form.stepDown.editingFinished)
-        if self.haveFinishDepth():
-            signals.append(self.form.finishDepth.editingFinished)
-        return signals
-
-    def registerSignalHandlers(self, obj):
-        if self.haveStartDepth():
-            self.form.startDepthSet.clicked.connect(lambda: self.depthSet(obj, self.startDepth, 'StartDepth'))
-        if self.haveFinalDepth():
-            self.form.finalDepthSet.clicked.connect(lambda: self.depthSet(obj, self.finalDepth, 'FinalDepth'))
-
-    def pageUpdateData(self, obj, prop):
-        if prop in ['StartDepth', 'FinalDepth', 'StepDown', 'FinishDepth']:
-            self.setFields(obj)
-
-    def depthSet(self, obj, spinbox, prop):
-        z = self.selectionZLevel(FreeCADGui.Selection.getSelectionEx())
-        if z is not None:
-            PathLog.debug("depthSet(%s, %s, %.2f)" % (obj.Label, prop, z))
-            if spinbox.expression():
-                obj.setExpression(prop, None)
-                self.setDirty()
-            spinbox.updateSpinBox(FreeCAD.Units.Quantity(z, FreeCAD.Units.Length))
-            if spinbox.updateProperty():
-                self.setDirty()
-        else:
-            PathLog.info("depthSet(-)")
-
-    def selectionZLevel(self, sel):
-        if len(sel) == 1 and len(sel[0].SubObjects) == 1:
-            sub = sel[0].SubObjects[0]
-            if 'Vertex' == sub.ShapeType:
-                return sub.Z
-            if PathGeom.isHorizontal(sub):
-                if 'Edge' == sub.ShapeType:
-                    return sub.Vertexes[0].Z
-                if 'Face' == sub.ShapeType:
-                    return sub.BoundBox.ZMax
-        return None
-
-    def updateSelection(self, obj, sel):
-        if self.selectionZLevel(sel) is not None:
-            self.form.startDepthSet.setEnabled(True)
-            self.form.finalDepthSet.setEnabled(True)
-        else:
-            self.form.startDepthSet.setEnabled(False)
-            self.form.finalDepthSet.setEnabled(False)
-
-class TaskPanelDiametersPage(TaskPanelPage):
-    '''Page controller for diameters.'''
-
-    def __init__(self, obj, features):
-        super(TaskPanelDiametersPage, self).__init__(obj, features)
-
-        # members initialized later
-        self.clearanceHeight = None
-        self.safeHeight = None
-
-    def getForm(self):
-        return FreeCADGui.PySideUic.loadUi(":/panels/PageDiametersEdit.ui")
-
-    def initPage(self, obj):
-        self.minDiameter = PathGui.QuantitySpinBox(self.form.minDiameter, obj, 'MinDiameter')
-        self.maxDiameter = PathGui.QuantitySpinBox(self.form.maxDiameter, obj, 'MaxDiameter')
-
-    def getTitle(self, obj):
-        return translate("Path", "Diameters")
-
-    def getFields(self, obj):
-        self.minDiameter.updateProperty()
-        self.maxDiameter.updateProperty()
-
-    def setFields(self,  obj):
-        self.minDiameter.updateSpinBox()
-        self.maxDiameter.updateSpinBox()
-
-    def getSignalsForUpdate(self, obj):
-        signals = []
-        signals.append(self.form.minDiameter.editingFinished)
-        signals.append(self.form.maxDiameter.editingFinished)
-        return signals
-
-    def pageUpdateData(self, obj, prop):
-        if prop in ['MinDiameter', 'MaxDiameter']:
-            self.setFields(obj)
-
 class TaskPanel(object):
     '''
     Generic TaskPanel implementation handling the standard Path operation layout.
@@ -998,25 +474,25 @@ class TaskPanel(object):
             if hasattr(opPage, 'taskPanelBaseGeometryPage'):
                 self.featurePages.append(opPage.taskPanelBaseGeometryPage(obj, features))
             else:
-                self.featurePages.append(TaskPanelBaseGeometryPage(obj, features))
+                self.featurePages.append(BaseGeometryTaskPanel.TaskPanelBaseGeometryPage(obj, features))
 
         if PathOp.FeatureLocations & features:
             if hasattr(opPage, 'taskPanelBaseLocationPage'):
                 self.featurePages.append(opPage.taskPanelBaseLocationPage(obj, features))
             else:
-                self.featurePages.append(TaskPanelBaseLocationPage(obj, features))
+                self.featurePages.append(BaseLocationTaskPanel.TaskPanelBaseLocationPage(obj, features))
 
         if PathOp.FeatureDepths & features or PathOp.FeatureStepDown & features:
             if hasattr(opPage, 'taskPanelDepthsPage'):
                 self.featurePages.append(opPage.taskPanelDepthsPage(obj, features))
             else:
-                self.featurePages.append(TaskPanelDepthsPage(obj, features))
+                self.featurePages.append(DepthsTaskPanel.TaskPanelDepthsPage(obj, features))
 
         if PathOp.FeatureHeights & features:
             if hasattr(opPage, 'taskPanelHeightsPage'):
                 self.featurePages.append(opPage.taskPanelHeightsPage(obj, features))
             else:
-                self.featurePages.append(TaskPanelHeightsPage(obj, features))
+                self.featurePages.append(HeightsTaskPanel.TaskPanelHeightsPage(obj, features))
 
         if PathOp.FeatureDiameters & features:
             if hasattr(opPage, 'taskPanelDiametersPage'):

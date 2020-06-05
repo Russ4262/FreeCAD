@@ -26,6 +26,7 @@ import PathScripts.PathEngrave as PathEngrave
 import PathScripts.PathLog as PathLog
 import PathScripts.PathOpGui as PathOpGui
 import PathScripts.PathUtils as PathUtils
+import PathScripts.Features.BaseGeometryTaskPanel as BaseGeometryTaskPanel
 
 from PySide import QtCore, QtGui
 
@@ -40,7 +41,7 @@ PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 def translate(context, text, disambig=None):
     return QtCore.QCoreApplication.translate(context, text, disambig)
 
-class TaskPanelBaseGeometryPage(PathOpGui.TaskPanelBaseGeometryPage):
+class TaskPanelBaseGeometryPage(BaseGeometryTaskPanel.TaskPanelBaseGeometryPage):
     '''Enhanced base geometry page to also allow special base objects.'''
 
     def super(self):

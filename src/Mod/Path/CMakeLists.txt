@@ -133,6 +133,14 @@ SET(PathScripts_SRCS
     PathScripts/__init__.py
 )
 
+SET(PathScripts_Features_SRCS
+    PathScripts/Features/__init__.py
+    PathScripts/Features/BaseGeometryTaskPanel.py
+    PathScripts/Features/BaseLocationTaskPanel.py
+    PathScripts/Features/DepthsTaskPanel.py
+    PathScripts/Features/HeightsTaskPanel.py
+)
+
 SET(PathScripts_post_SRCS
     PathScripts/post/__init__.py
     PathScripts/post/centroid_post.py
@@ -224,6 +232,7 @@ SET(Path_Images
 SET(all_files
     ${PathScripts_SRCS}
     ${PathScripts_post_SRCS}
+    ${PathScripts_Features_SRCS}
     ${Tools_Bit_SRCS}
     ${Tools_Library_SRCS}
     ${Tools_Shape_SRCS}
@@ -251,6 +260,13 @@ INSTALL(
         ${PathScripts_SRCS}
     DESTINATION
         Mod/Path/PathScripts
+)
+
+INSTALL(
+    FILES
+        ${PathScripts_Features_SRCS}
+    DESTINATION
+        Mod/Path/PathScripts/Features
 )
 
 INSTALL(
