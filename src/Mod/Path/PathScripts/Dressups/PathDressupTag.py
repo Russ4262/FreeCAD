@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
+
 # ***************************************************************************
+# *                                                                         *
 # *   Copyright (c) 2017 sliptonic <shopinthewoods@gmail.com>               *
 # *                                                                         *
 # *   This program is free software; you can redistribute it and/or modify  *
@@ -19,9 +21,8 @@
 # *   USA                                                                   *
 # *                                                                         *
 # ***************************************************************************
-
 import FreeCAD
-import PathScripts.PathDressup as PathDressup
+import PathScripts.Dressups.PathDressup as PathDressup
 import PathScripts.PathGeom as PathGeom
 import PathScripts.PathLog as PathLog
 import PathScripts.PathUtils as PathUtils
@@ -32,7 +33,7 @@ from lazy_loader.lazy_loader import LazyLoader
 DraftGeomUtils = LazyLoader('DraftGeomUtils', globals(), 'DraftGeomUtils')
 Part = LazyLoader('Part', globals(), 'Part')
 
-from PathScripts.PathDressupTagPreferences import HoldingTagPreferences
+from PathScripts.Dressups.PathDressupTagPreferences import HoldingTagPreferences
 from PySide import QtCore
 
 PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())

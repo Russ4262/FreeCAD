@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
+
 # ***************************************************************************
+# *                                                                         *
 # *   Copyright (c) 2014 Yorik van Havre <yorik@uncreated.net>              *
 # *                                                                         *
 # *   This program is free software; you can redistribute it and/or modify  *
@@ -19,12 +21,11 @@
 # *   USA                                                                   *
 # *                                                                         *
 # ***************************************************************************
-
 from __future__ import print_function
 import FreeCAD
 import math
 import Path
-import PathScripts.PathDressup as PathDressup
+import PathScripts.Dressups.PathDressup as PathDressup
 import PathScripts.PathGeom as PathGeom
 import PathScripts.PathLog as PathLog
 import PathScripts.PathUtil as PathUtil
@@ -421,7 +422,7 @@ class ObjectDressup:
 
     def onDocumentRestored(self, obj):
         obj.setEditorMode('BoneBlacklist', 2)  # hide this one
-
+        
     def __getstate__(self):
         return None
 
@@ -1103,8 +1104,8 @@ class CommandDressupDogbone:
 
         # everything ok!
         FreeCAD.ActiveDocument.openTransaction(translate("Path_DressupDogbone", "Create Dogbone Dress-up"))
-        FreeCADGui.addModule('PathScripts.PathDressupDogbone')
-        FreeCADGui.doCommand("PathScripts.PathDressupDogbone.Create(FreeCAD.ActiveDocument.%s)" % baseObject.Name)
+        FreeCADGui.addModule('PathScripts.Dressups.PathDressupDogbone')
+        FreeCADGui.doCommand("PathScripts.Dressups.PathDressupDogbone.Create(FreeCAD.ActiveDocument.%s)" % baseObject.Name)
         FreeCAD.ActiveDocument.commitTransaction()
         FreeCAD.ActiveDocument.recompute()
 

@@ -94,6 +94,22 @@ SET(PathScripts_SRCS
     PathScripts/PostUtils.py
 )
 
+SET(PathScripts_Dressups_SRCS
+    PathScripts/PathDressup.py
+    PathScripts/PathDressupAxisMap.py
+    PathScripts/PathDressupDogbone.py
+    PathScripts/PathDressupDragknife.py
+    PathScripts/PathDressupHoldingTags.py
+    PathScripts/PathDressupLeadInOut.py
+    PathScripts/PathDressupPathBoundary.py
+    PathScripts/PathDressupPathBoundaryGui.py
+    PathScripts/PathDressupRampEntry.py
+    PathScripts/PathDressupTag.py
+    PathScripts/PathDressupTagGui.py
+    PathScripts/PathDressupTagPreferences.py
+    PathScripts/PathDressupZCorrect.py
+)
+
 SET(PathScripts_Features_SRCS
     PathScripts/Features/__init__.py
     PathScripts/Features/BaseGeometryTaskPanel.py
@@ -236,6 +252,7 @@ SET(Path_Images
 SET(all_files
     ${PathScripts_SRCS}
     ${PathScripts_post_SRCS}
+    ${PathScripts_Dressups_SRCS}
     ${PathScripts_Features_SRCS}
     ${PathScripts_Operations_SRCS}
     ${Tools_Bit_SRCS}
@@ -265,6 +282,13 @@ INSTALL(
         ${PathScripts_SRCS}
     DESTINATION
         Mod/Path/PathScripts
+)
+
+INSTALL(
+    FILES
+        ${PathScripts_Dressups_SRCS}
+    DESTINATION
+        Mod/Path/PathScripts/Dressups
 )
 
 INSTALL(

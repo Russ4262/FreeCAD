@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
+
 # ***************************************************************************
+# *                                                                         *
 # *   Copyright (c) 2017 sliptonic <shopinthewoods@gmail.com>               *
 # *                                                                         *
 # *   This program is free software; you can redistribute it and/or modify  *
@@ -19,12 +21,11 @@
 # *   USA                                                                   *
 # *                                                                         *
 # ***************************************************************************
-
 import FreeCAD
 import FreeCADGui
 import PathScripts.PathGeom as PathGeom
 import PathScripts.PathGetPoint as PathGetPoint
-import PathScripts.PathDressupHoldingTags as PathDressupTag
+import PathScripts.Dressups.PathDressupHoldingTags as PathDressupTag
 import PathScripts.PathLog as PathLog
 import PathScripts.PathPreferences as PathPreferences
 import PathScripts.PathUtils as PathUtils
@@ -556,8 +557,8 @@ class CommandPathDressupTag:
 
         # everything ok!
         FreeCAD.ActiveDocument.openTransaction(translate('Path_DressupTag', 'Create Tag Dress-up'))
-        FreeCADGui.addModule('PathScripts.PathDressupTagGui')
-        FreeCADGui.doCommand("PathScripts.PathDressupTagGui.Create(App.ActiveDocument.%s)" % baseObject.Name)
+        FreeCADGui.addModule('PathScripts.Dressups.PathDressupTagGui')
+        FreeCADGui.doCommand("PathScripts.Dressups.PathDressupTagGui.Create(App.ActiveDocument.%s)" % baseObject.Name)
         FreeCAD.ActiveDocument.commitTransaction()
         FreeCAD.ActiveDocument.recompute()
 

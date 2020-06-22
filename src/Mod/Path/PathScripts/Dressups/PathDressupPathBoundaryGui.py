@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
+
 # ***************************************************************************
+# *                                                                         *
 # *   Copyright (c) 2019 sliptonic <shopinthewoods@gmail.com>               *
 # *                                                                         *
 # *   This program is free software; you can redistribute it and/or modify  *
@@ -19,10 +21,9 @@
 # *   USA                                                                   *
 # *                                                                         *
 # ***************************************************************************
-
 import FreeCAD
 import FreeCADGui
-import PathScripts.PathDressupPathBoundary as PathDressupPathBoundary
+import PathScripts.Dressups.PathDressupPathBoundary as PathDressupPathBoundary
 import PathScripts.PathLog as PathLog
 
 from PySide import QtGui, QtCore
@@ -259,8 +260,8 @@ class CommandPathDressupPathBoundary:
 
         # everything ok!
         FreeCAD.ActiveDocument.openTransaction(translate('Path_DressupPathBoundary', 'Create Path Boundary Dress-up'))
-        FreeCADGui.addModule('PathScripts.PathDressupPathBoundaryGui')
-        FreeCADGui.doCommand("PathScripts.PathDressupPathBoundaryGui.Create(App.ActiveDocument.%s)" % baseObject.Name)
+        FreeCADGui.addModule('PathScripts.Dressups.PathDressupPathBoundaryGui')
+        FreeCADGui.doCommand("PathScripts.Dressups.PathDressupPathBoundaryGui.Create(App.ActiveDocument.%s)" % baseObject.Name)
         FreeCAD.ActiveDocument.commitTransaction()
         FreeCAD.ActiveDocument.recompute()
 

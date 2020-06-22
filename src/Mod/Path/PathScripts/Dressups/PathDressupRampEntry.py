@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
+
 # ***************************************************************************
+# *                                                                         *
 # *   Copyright (c) 2017 Pekka Roivainen <pekkaroi@gmail.com>               *
 # *                                                                         *
 # *   This program is free software; you can redistribute it and/or modify  *
@@ -19,10 +21,9 @@
 # *   USA                                                                   *
 # *                                                                         *
 # ***************************************************************************
-
 import FreeCAD
 import Path
-import PathScripts.PathDressup as PathDressup
+import PathScripts.Dressups.PathDressup as PathDressup
 import PathScripts.PathGeom as PathGeom
 import PathScripts.PathLog as PathLog
 import math
@@ -706,15 +707,15 @@ class CommandPathDressupRampEntry:
 
         # everything ok!
         FreeCAD.ActiveDocument.openTransaction(translate("Create RampEntry Dress-up"))
-        FreeCADGui.addModule("PathScripts.PathDressupRampEntry")
+        FreeCADGui.addModule("PathScripts.Dressups.PathDressupRampEntry")
         FreeCADGui.addModule("PathScripts.PathUtils")
         FreeCADGui.doCommand('obj = FreeCAD.ActiveDocument.addObject("Path::FeaturePython", "RampEntryDressup")')
-        FreeCADGui.doCommand('dbo = PathScripts.PathDressupRampEntry.ObjectDressup(obj)')
+        FreeCADGui.doCommand('dbo = PathScripts.Dressups.PathDressupRampEntry.ObjectDressup(obj)')
         FreeCADGui.doCommand('base = FreeCAD.ActiveDocument.' + selection[0].Name)
         FreeCADGui.doCommand('job = PathScripts.PathUtils.findParentJob(base)')
         FreeCADGui.doCommand('obj.Base = base')
         FreeCADGui.doCommand('job.Proxy.addOperation(obj, base)')
-        FreeCADGui.doCommand('obj.ViewObject.Proxy = PathScripts.PathDressupRampEntry.ViewProviderDressup(obj.ViewObject)')
+        FreeCADGui.doCommand('obj.ViewObject.Proxy = PathScripts.Dressups.PathDressupRampEntry.ViewProviderDressup(obj.ViewObject)')
         FreeCADGui.doCommand('Gui.ActiveDocument.getObject(base.Name).Visibility = False')
         FreeCADGui.doCommand('dbo.setup(obj)')
         FreeCAD.ActiveDocument.commitTransaction()
