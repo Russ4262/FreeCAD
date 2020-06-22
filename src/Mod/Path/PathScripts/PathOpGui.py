@@ -60,7 +60,7 @@ __author__ = "sliptonic (Brad Collette)"
 __url__ = "https://www.freecadweb.org"
 __doc__ = "Base classes and framework for Path operation's UI"
 
-LOGLEVEL = False
+LOGLEVEL = True
 
 if LOGLEVEL:
     PathLog.setLevel(PathLog.Level.DEBUG, PathLog.thisModule())
@@ -71,6 +71,40 @@ else:
 
 def translate(context, text, disambig=None):
     return QtCore.QCoreApplication.translate(context, text, disambig)
+
+
+def getFullModule(mod):
+    FreeCAD.Console.PrintWarning('getFullModule({})\n'.format(mod))
+    Op = 'Operations'
+    Du = 'Dressups'
+    registry = {
+        'Slot': Op,
+        'Surface': Op,
+        'Waterline': Op,
+        'Adaptive': Op,
+        'Drilling': Op,
+        'Helix': Op,
+        'Debur': Op,
+        'Profile': Op,
+        'Pocket': Op,
+        'PocketShape': Op
+    }
+    gui = ''
+    MODS = mod.split('.')
+    lenMODS = len(MODS)
+    lstIdx = lenMODS - 1
+    module = MODS[lstIdx]
+    if module[-3:] == 'Gui':
+        module = module[:-3]
+        gui = 'Gui'
+    key = module[4:]
+    if key in registry:
+        if MODS[1] != registry[key]:
+            MODS.insert(lstIdx, registry[key])
+            lstIdx += 1
+    fullModule = '.'.join(MODS)  # + gui
+    FreeCAD.Console.PrintWarning('getFullModule() {}\n'.format(fullModule))
+    return fullModule
 
 
 class ViewProvider(object):
@@ -85,7 +119,9 @@ class ViewProvider(object):
         self.deleteOnReject = True
         self.OpIcon = ":/icons/%s.svg" % resources.pixmap
         self.OpName = resources.name
-        self.OpPageModule = resources.opPageClass.__module__
+        # self.OpPageModule = resources.opPageClass.__module__
+        self.OpPageModule = getFullModule(resources.opPageClass.__module__)
+        FreeCAD.Console.PrintWarning('self.OpPageModule: {}\n'.format(self.OpPageModule))
         self.OpPageClass = resources.opPageClass.__name__
 
         # initialized later
@@ -162,15 +198,20 @@ class ViewProvider(object):
         state['OpIcon'] = self.OpIcon
         state['OpPageModule'] = self.OpPageModule
         state['OpPageClass'] = self.OpPageClass
+        FreeCAD.Console.PrintWarning('__getstate__() self.OpPageModule: {}\n'.format(self.OpPageModule))
         return state
 
     def __setstate__(self, state):
         '''__setstate__(state) ... callback on restoring a saved instance, pendant to __getstate__()
         state is the dictionary returned by __getstate__().'''
+        PathLog.track()
         self.OpName = state['OpName']
         self.OpIcon = state['OpIcon']
         self.OpPageModule = state['OpPageModule']
         self.OpPageClass = state['OpPageClass']
+        FreeCAD.Console.PrintWarning('__setstate__(1) self.OpPageModule: {}\n'.format(self.OpPageModule))
+        self.OpPageModule = getFullModule(state['OpPageModule'])
+        FreeCAD.Console.PrintWarning('__setstate__(2) self.OpPageModule: {}\n'.format(self.OpPageModule))
 
     def getIcon(self):
         '''getIcon() ... the icon used in the object tree'''
@@ -181,6 +222,9 @@ class ViewProvider(object):
 
     def getTaskPanelOpPage(self, obj):
         '''getTaskPanelOpPage(obj) ... use the stored information to instantiate the receiver op's page controller.'''
+        PathLog.track()
+        self.OpPageModule = getFullModule(self.OpPageModule)
+        FreeCAD.Console.PrintMessage('getTaskPanelOpPage() self.OpPageModule: {}\n'.format(self.OpPageModule))
         mod = importlib.import_module(self.OpPageModule)
         cls = getattr(mod, self.OpPageClass)
         return cls(obj, 0)
