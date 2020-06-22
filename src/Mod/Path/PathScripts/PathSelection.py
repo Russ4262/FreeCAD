@@ -28,8 +28,13 @@ import PathScripts.PathLog as PathLog
 import PathScripts.PathUtils as PathUtils
 import math
 
-PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
-# PathLog.trackModule(PathLog.thisModule())
+LOGLEVEL = True
+
+if LOGLEVEL:
+    PathLog.setLevel(PathLog.Level.DEBUG, PathLog.thisModule())
+    PathLog.trackModule(PathLog.thisModule())
+else:
+    PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 
 
 class PathBaseGate(object):

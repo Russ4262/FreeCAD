@@ -325,4 +325,3 @@ def offsetWire(wire, base, offset, forward):#, Side = None):
         edges.reverse()
 
     return orientWire(Part.Wire(edges), None)
-

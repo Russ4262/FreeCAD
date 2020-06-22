@@ -34,7 +34,13 @@ import six
 import PathScripts.PathLog as PathLog
 import PySide
 
-PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
+LOGLEVEL = True
+
+if LOGLEVEL:
+    PathLog.setLevel(PathLog.Level.DEBUG, PathLog.thisModule())
+    PathLog.trackModule(PathLog.thisModule())
+else:
+    PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 
 def translate(context, text, disambig=None):
     return PySide.QtCore.QCoreApplication.translate(context, text, disambig)

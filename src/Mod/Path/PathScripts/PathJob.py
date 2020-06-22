@@ -39,7 +39,13 @@ ArchPanel = LazyLoader('ArchPanel', globals(), 'ArchPanel')
 Draft = LazyLoader('Draft', globals(), 'Draft')
 
 
-PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
+DEBUG = True
+
+if DEBUG:
+    PathLog.setLevel(PathLog.Level.DEBUG, PathLog.thisModule())
+    PathLog.trackModule(PathLog.thisModule())
+else:
+    PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 
 
 # Qt translation handling

@@ -35,7 +35,7 @@ __doc__ = "A collection of helper and utility functions for the Path GUI."
 def translate(context, text, disambig=None):
     return PySide.QtCore.QCoreApplication.translate(context, text, disambig)
 
-LOGLEVEL = False
+LOGLEVEL = True
 
 if LOGLEVEL:
     PathLog.setLevel(PathLog.Level.DEBUG, PathLog.thisModule())

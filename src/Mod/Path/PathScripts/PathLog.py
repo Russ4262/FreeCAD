@@ -40,7 +40,7 @@ class Level:
     def toString(cls, level):
         return cls._names.get(level, 'UNKNOWN')
 
-_defaultLogLevel = Level.NOTICE
+_defaultLogLevel = Level.DEBUG  # Level.NOTICE
 _moduleLogLevel  = { }
 _useConsole = True
 _trackModule = { }
