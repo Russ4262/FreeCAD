@@ -118,13 +118,14 @@ class PathWorkbench (Workbench):
 
             try:
                 import ocl  # pylint: disable=unused-variable
-                from PathScripts import PathSurfaceGui
-                from PathScripts import PathWaterlineGui
+            except ImportError:
+                FreeCAD.Console.PrintError("OpenCamLib is not working!\n")
+            else:
+                from PathScripts.Operations import PathSurfaceGui
+                from PathScripts.Operations import PathWaterlineGui
                 threedopcmdlist.extend(["Path_Surface", "Path_Waterline"])
                 threedcmdgroup = ['Path_3dTools']
                 FreeCADGui.addCommand('Path_3dTools', PathCommandGroup(threedopcmdlist, QtCore.QT_TRANSLATE_NOOP("Path", '3D Operations')))
-            except ImportError:
-                FreeCAD.Console.PrintError("OpenCamLib is not working!\n")
 
         self.appendToolbar(QtCore.QT_TRANSLATE_NOOP("Path", "Project Setup"), projcmdlist)
         self.appendToolbar(QtCore.QT_TRANSLATE_NOOP("Path", "Tool Commands"), toolcmdlist)

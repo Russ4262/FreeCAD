@@ -37,12 +37,12 @@ def Startup():
     global Processed # pylint: disable=global-statement
     if not Processed:
         PathLog.debug('Initializing PathGui')
-        from PathScripts import PathAdaptiveGui
+        from PathScripts.Operations import PathAdaptiveGui
         from PathScripts import PathArray
         from PathScripts import PathComment
         # from PathScripts import PathCustom
         from PathScripts import PathCustomGui
-        from PathScripts import PathDeburrGui
+        from PathScripts.Operations import PathDeburrGui
         from PathScripts import PathDressupAxisMap
         from PathScripts import PathDressupDogbone
         from PathScripts import PathDressupDragknife
@@ -51,26 +51,27 @@ def Startup():
         from PathScripts import PathDressupTagGui
         from PathScripts import PathDressupLeadInOut
         from PathScripts import PathDressupZCorrect
-        from PathScripts import PathDrillingGui
-        from PathScripts import PathEngraveGui
+        from PathScripts.Operations import PathDrillingGui
+        from PathScripts.Operations import PathEngraveGui
         from PathScripts import PathFixture
-        from PathScripts import PathHelixGui
+        from PathScripts.Operations import PathHelixGui
         from PathScripts import PathHop
         from PathScripts import PathInspect
-        from PathScripts import PathMillFaceGui
-        from PathScripts import PathPocketGui
-        from PathScripts import PathPocketShapeGui
+        from PathScripts.Operations import PathMillFaceGui
+        from PathScripts.Operations import PathPocketGui
+        from PathScripts.Operations import PathPocketShapeGui
         from PathScripts import PathPost
         from PathScripts import PathProbeGui
+        # Next three were merged into PathProfileGui
         # from PathScripts import PathProfileContourGui
         # from PathScripts import PathProfileEdgesGui
         # from PathScripts import PathProfileFacesGui
-        from PathScripts import PathProfileGui
+        from PathScripts.Operations import PathProfileGui
         from PathScripts import PathSanity
         from PathScripts import PathSetupSheetGui
         from PathScripts import PathSimpleCopy
         from PathScripts import PathSimulatorGui
-        from PathScripts import PathSlotGui
+        from PathScripts.Operations import PathSlotGui
         from PathScripts import PathStop
         # from PathScripts import PathSurfaceGui  # Added in initGui.py due to OCL dependency
         from PathScripts import PathToolController
@@ -79,7 +80,25 @@ def Startup():
         from PathScripts import PathToolLibraryEditor
         from PathScripts import PathUtilsGui
         # from PathScripts import PathWaterlineGui  # Added in initGui.py due to OCL dependency
-        from PathScripts import PathVcarveGui
+        from PathScripts.Dressups import PathDressupAxisMap
+        from PathScripts.Dressups import PathDressupDogbone
+        from PathScripts.Dressups import PathDressupDragknife
+        from PathScripts.Dressups import PathDressupLeadInOut
+        from PathScripts.Dressups import PathDressupPathBoundaryGui
+        from PathScripts.Dressups import PathDressupRampEntry
+        from PathScripts.Dressups import PathDressupTagGui
+        from PathScripts.Dressups import PathDressupZCorrect
+        from PathScripts.Operations import PathAdaptiveGui
+        from PathScripts.Operations import PathDeburrGui
+        from PathScripts.Operations import PathDrillingGui
+        from PathScripts.Operations import PathEngraveGui
+        from PathScripts.Operations import PathHelixGui
+        from PathScripts.Operations import PathMillFaceGui
+        from PathScripts.Operations import PathPocketGui
+        from PathScripts.Operations import PathPocketShapeGui
+        from PathScripts.Operations import PathProfileGui
+        from PathScripts.Operations import PathSlotGui
+        from PathScripts.Operations import PathVcarveGui
         Processed = True
     else:
         PathLog.debug('Skipping PathGui initialisation')

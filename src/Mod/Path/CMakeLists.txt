@@ -25,18 +25,12 @@ INSTALL(
 
 SET(PathScripts_SRCS
     PathCommands.py
-    PathScripts/PathAdaptive.py
-    PathScripts/PathAdaptiveGui.py
-    PathScripts/PathAreaOp.py
+    PathScripts/__init__.py
     PathScripts/PathArray.py
-    PathScripts/PathCircularHoleBase.py
-    PathScripts/PathCircularHoleBaseGui.py
     PathScripts/PathComment.py
     PathScripts/PathCopy.py
     PathScripts/PathCustom.py
     PathScripts/PathCustomGui.py
-    PathScripts/PathDeburr.py
-    PathScripts/PathDeburrGui.py
     PathScripts/PathDressup.py
     PathScripts/PathDressupAxisMap.py
     PathScripts/PathDressupDogbone.py
@@ -50,18 +44,11 @@ SET(PathScripts_SRCS
     PathScripts/PathDressupTagGui.py
     PathScripts/PathDressupTagPreferences.py
     PathScripts/PathDressupZCorrect.py
-    PathScripts/PathDrilling.py
-    PathScripts/PathDrillingGui.py
-    PathScripts/PathEngrave.py
-    PathScripts/PathEngraveBase.py
-    PathScripts/PathEngraveGui.py
     PathScripts/PathFixture.py
     PathScripts/PathGeom.py
     PathScripts/PathGetPoint.py
     PathScripts/PathGui.py
     PathScripts/PathGuiInit.py
-    PathScripts/PathHelix.py
-    PathScripts/PathHelixGui.py
     PathScripts/PathHop.py
     PathScripts/PathIconViewProvider.py
     PathScripts/PathInspect.py
@@ -70,17 +57,9 @@ SET(PathScripts_SRCS
     PathScripts/PathJobDlg.py
     PathScripts/PathJobGui.py
     PathScripts/PathLog.py
-    PathScripts/PathMillFace.py
-    PathScripts/PathMillFaceGui.py
     PathScripts/PathOp.py
     PathScripts/PathOpGui.py
     PathScripts/PathOpTools.py
-    PathScripts/PathPocket.py
-    PathScripts/PathPocketBase.py
-    PathScripts/PathPocketBaseGui.py
-    PathScripts/PathPocketGui.py
-    PathScripts/PathPocketShape.py
-    PathScripts/PathPocketShapeGui.py
     PathScripts/PathPost.py
     PathScripts/PathPostProcessor.py
     PathScripts/PathPreferences.py
@@ -88,14 +67,6 @@ SET(PathScripts_SRCS
     PathScripts/PathPreferencesPathJob.py
     PathScripts/PathProbe.py
     PathScripts/PathProbeGui.py
-    PathScripts/PathProfile.py
-    PathScripts/PathProfileContour.py
-    PathScripts/PathProfileContourGui.py
-    PathScripts/PathProfileEdges.py
-    PathScripts/PathProfileEdgesGui.py
-    PathScripts/PathProfileFaces.py
-    PathScripts/PathProfileFacesGui.py
-    PathScripts/PathProfileGui.py
     PathScripts/PathSanity.py
     PathScripts/PathSelection.py
     PathScripts/PathSetupSheet.py
@@ -104,13 +75,8 @@ SET(PathScripts_SRCS
     PathScripts/PathSetupSheetOpPrototypeGui.py
     PathScripts/PathSimpleCopy.py
     PathScripts/PathSimulatorGui.py
-    PathScripts/PathSlot.py
-    PathScripts/PathSlotGui.py
     PathScripts/PathStock.py
     PathScripts/PathStop.py
-    PathScripts/PathSurface.py
-    PathScripts/PathSurfaceGui.py
-    PathScripts/PathSurfaceSupport.py
     PathScripts/PathToolBit.py
     PathScripts/PathToolBitCmd.py
     PathScripts/PathToolBitEdit.py
@@ -125,12 +91,7 @@ SET(PathScripts_SRCS
     PathScripts/PathUtil.py
     PathScripts/PathUtils.py
     PathScripts/PathUtilsGui.py
-    PathScripts/PathVcarve.py
-    PathScripts/PathVcarveGui.py
-    PathScripts/PathWaterline.py
-    PathScripts/PathWaterlineGui.py
     PathScripts/PostUtils.py
-    PathScripts/__init__.py
 )
 
 SET(PathScripts_Features_SRCS
@@ -139,6 +100,49 @@ SET(PathScripts_Features_SRCS
     PathScripts/Features/BaseLocationTaskPanel.py
     PathScripts/Features/DepthsTaskPanel.py
     PathScripts/Features/HeightsTaskPanel.py
+)
+
+SET(PathScripts_Operations_SRCS
+    PathScripts/Operations/__init__.py
+    PathScripts/Operations/PathAdaptive.py
+    PathScripts/Operations/PathAdaptiveGui.py
+    PathScripts/Operations/PathAreaOp.py
+    PathScripts/Operations/PathCircularHoleBase.py
+    PathScripts/Operations/PathCircularHoleBaseGui.py
+    PathScripts/Operations/PathDeburr.py
+    PathScripts/Operations/PathDeburrGui.py
+    PathScripts/Operations/PathDrilling.py
+    PathScripts/Operations/PathDrillingGui.py
+    PathScripts/Operations/PathEngrave.py
+    PathScripts/Operations/PathEngraveBase.py
+    PathScripts/Operations/PathEngraveGui.py
+    PathScripts/Operations/PathHelix.py
+    PathScripts/Operations/PathHelixGui.py
+    PathScripts/Operations/PathMillFace.py
+    PathScripts/Operations/PathMillFaceGui.py
+    PathScripts/Operations/PathPocket.py
+    PathScripts/Operations/PathPocketBase.py
+    PathScripts/Operations/PathPocketBaseGui.py
+    PathScripts/Operations/PathPocketGui.py
+    PathScripts/Operations/PathPocketShape.py
+    PathScripts/Operations/PathPocketShapeGui.py
+    PathScripts/Operations/PathProfile.py
+    PathScripts/Operations/PathProfileContour.py
+    PathScripts/Operations/PathProfileContourGui.py
+    PathScripts/Operations/PathProfileEdges.py
+    PathScripts/Operations/PathProfileEdgesGui.py
+    PathScripts/Operations/PathProfileFaces.py
+    PathScripts/Operations/PathProfileFacesGui.py
+    PathScripts/Operations/PathProfileGui.py
+    PathScripts/Operations/PathSlot.py
+    PathScripts/Operations/PathSlotGui.py
+    PathScripts/Operations/PathSurface.py
+    PathScripts/Operations/PathSurfaceGui.py
+    PathScripts/Operations/PathSurfaceSupport.py
+    PathScripts/Operations/PathWaterline.py
+    PathScripts/Operations/PathWaterlineGui.py
+    PathScripts/Operations/PathVcarve.py
+    PathScripts/Operations/PathVcarveGui.py
 )
 
 SET(PathScripts_post_SRCS
@@ -233,6 +237,7 @@ SET(all_files
     ${PathScripts_SRCS}
     ${PathScripts_post_SRCS}
     ${PathScripts_Features_SRCS}
+    ${PathScripts_Operations_SRCS}
     ${Tools_Bit_SRCS}
     ${Tools_Library_SRCS}
     ${Tools_Shape_SRCS}
@@ -267,6 +272,13 @@ INSTALL(
         ${PathScripts_Features_SRCS}
     DESTINATION
         Mod/Path/PathScripts/Features
+)
+
+INSTALL(
+    FILES
+        ${PathScripts_Operations_SRCS}
+    DESTINATION
+        Mod/Path/PathScripts/Operations
 )
 
 INSTALL(
