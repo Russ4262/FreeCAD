@@ -274,7 +274,7 @@ class TURNGate(PathBaseGate):
             return False
 
 
-class ALLGate(PathBaseGate):
+class SLOTGate(PathBaseGate):
     def allow(self, doc, obj, sub):  # pylint: disable=unused-argument
         if sub and sub[0:6] == 'Vertex':
             return True
@@ -340,7 +340,7 @@ def adaptiveselect():
 
 
 def slotselect():
-    FreeCADGui.Selection.addSelectionGate(ALLGate())
+    FreeCADGui.Selection.addSelectionGate(SLOTGate())
     if not PathPreferences.suppressSelectionModeWarning():
         FreeCAD.Console.PrintWarning("Slot Cutter Select Mode\n")
 
