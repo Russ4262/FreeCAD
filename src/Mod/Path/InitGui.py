@@ -117,7 +117,7 @@ class PathWorkbench (Workbench):
         if PathPreferences.experimentalFeaturesEnabled():
             projcmdlist.append("Path_Sanity")
             prepcmdlist.append("Path_Shape")
-            extracmdlist.extend(["Path_Area", "Path_Area_Workplane"])
+            extracmdlist.extend(["Path_Area", "Path_Area_Workplane", "Path_FeatureGroup"])
             specialcmdlist.append('Path_Thread_Milling')
             twodopcmdlist.append("Path_Slot")
 
@@ -135,7 +135,7 @@ class PathWorkbench (Workbench):
 
         self.appendToolbar(QtCore.QT_TRANSLATE_NOOP("Path", "Project Setup"), projcmdlist)
         self.appendToolbar(QtCore.QT_TRANSLATE_NOOP("Path", "Tool Commands"), toolcmdlist)
-        self.appendToolbar(QtCore.QT_TRANSLATE_NOOP("Path", "New Operations"), twodopcmdlist+engravecmdgroup+threedcmdgroup)
+        self.appendToolbar(QtCore.QT_TRANSLATE_NOOP("Path", "New Operations"), twodopcmdlist + engravecmdgroup + threedcmdgroup)
         self.appendToolbar(QtCore.QT_TRANSLATE_NOOP("Path", "Path Modification"), modcmdlist)
         if extracmdlist:
             self.appendToolbar(QtCore.QT_TRANSLATE_NOOP("Path", "Helpful Tools"), extracmdlist)
