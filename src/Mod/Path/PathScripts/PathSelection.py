@@ -285,6 +285,32 @@ class SLOTGate(PathBaseGate):
         return False
 
 
+class ALLGate(PathBaseGate):
+    def allow(self, doc, obj, sub):  # pylint: disable=unused-argument
+        features = ['Edge', 'Wire', 'Face', 'Vert', 'Vertex']
+
+        if sub and sub[0:4] in features:
+            return True
+
+        try:
+            obj = obj.Shape
+        except Exception:  # pylint: disable=broad-except
+            return False
+
+        if obj.ShapeType in features:
+            return True
+
+        elif obj.ShapeType == 'Solid':
+            if sub and sub[0:4] in features:
+                return True
+
+        elif obj.ShapeType == 'Compound':
+            if sub and sub[0:4] in features:
+                return True
+
+        return False
+
+
 def contourselect():
     FreeCADGui.Selection.addSelectionGate(CONTOURGate())
     if not PathPreferences.suppressSelectionModeWarning():
@@ -375,6 +401,11 @@ def turnselect():
     FreeCADGui.Selection.addSelectionGate(TURNGate())
     if not PathPreferences.suppressSelectionModeWarning():
         FreeCAD.Console.PrintWarning("Turning Select Mode\n")
+
+
+def featuregroupselect():
+    FreeCADGui.Selection.addSelectionGate(ALLGate())
+    FreeCAD.Console.PrintWarning("All Select Mode\n")
 
 
 def select(op):
