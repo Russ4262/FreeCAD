@@ -450,31 +450,6 @@ class TaskPanelBaseGeometryPage(TaskPanelPage):
         self.update_import_list(panel)
         return panel
 
-    def update_import_list(self, panel):
-        '''update_import_list(self, panel) ...
-        Helper method to modify the current form immediately after
-        it is loaded.'''
-        # Determine if Job operations are available with Base Geometry
-        availableOps = list()
-        ops = self.job.Operations.Group
-        for op in ops:
-            if hasattr(op, 'Base') and isinstance(op.Base, list):
-                if len(op.Base) > 0:
-                    availableOps.append(op.Label)
-
-        # Load available operations into combobox
-        if len(availableOps) > 0:
-            # Populate the operations list
-            panel.geometryImportList.blockSignals(True)
-            panel.geometryImportList.clear()
-            availableOps.sort()
-            for opLbl in availableOps:
-                panel.geometryImportList.addItem(opLbl)
-            panel.geometryImportList.blockSignals(False)
-        else:
-            panel.geometryImportList.hide()
-            panel.geometryImportButton.hide()
-
     def getTitle(self, obj):
         return translate("PathOp", "Base Geometry")
 
@@ -492,7 +467,6 @@ class TaskPanelBaseGeometryPage(TaskPanelPage):
                 self.form.baseList.addItem(item)
         self.form.baseList.blockSignals(False)
         self.resizeBaseList()
-        self._set_select_feature_controls()
 
     def itemActivated(self):
         FreeCADGui.Selection.clearSelection()
@@ -570,7 +544,6 @@ class TaskPanelBaseGeometryPage(TaskPanelPage):
             self.setFields(self.obj)
             self.setDirty()
             self.updatePanelVisibility('Operation', self.obj)
-            self._update_feature_selection_tools()
 
     def deleteBase(self):
         PathLog.track()
@@ -581,7 +554,6 @@ class TaskPanelBaseGeometryPage(TaskPanelPage):
         self.updateBase()
         self.updatePanelVisibility('Operation', self.obj)
         self.resizeBaseList()
-        self._update_feature_selection_tools()
 
     def updateBase(self):
         newlist = []
@@ -603,7 +575,60 @@ class TaskPanelBaseGeometryPage(TaskPanelPage):
         self.setDirty()
         self.updatePanelVisibility('Operation', self.obj)
         self.resizeBaseList()
-        self._update_feature_selection_tools()
+
+    def registerSignalHandlers(self, obj):
+        self.form.baseList.itemSelectionChanged.connect(self.itemActivated)
+        self.form.addBase.clicked.connect(self.addBase)
+        self.form.deleteBase.clicked.connect(self.deleteBase)
+        self.form.clearBase.clicked.connect(self.clearBase)
+        self.form.geometryImportButton.clicked.connect(self.importBaseGeometry)
+        self.form.sel_make.clicked.connect(self._apply_feature_selection)
+
+    def pageUpdateData(self, obj, prop):
+        if prop in ['Base']:
+            self.setFields(obj)
+
+    def updateSelection(self, obj, sel):
+        if self.selectionSupportedAsBaseGeometry(sel, True):
+            self.form.addBase.setEnabled(True)
+        else:
+            self.form.addBase.setEnabled(False)
+
+    def getSignalsForUpdate(self, obj):
+        signals = []
+        # Feature selection utility signals
+        # signals.append(self.form.sel_ref.currentIndexChanged)
+        # signals.append(self.form.sel_feat.currentIndexChanged)
+        # signals.append(self.form.sel_relation.currentIndexChanged)
+        # signals.append(self.form.sel_dep_val.valueChanged)
+        signals.append(self.form.sel_make.toggled)
+        return signals
+
+    # Methods for import base geometry feature
+    def update_import_list(self, panel):
+        '''update_import_list(self, panel) ...
+        Helper method to modify the current form immediately after
+        it is loaded.'''
+        # Determine if Job operations are available with Base Geometry
+        availableOps = list()
+        ops = self.job.Operations.Group
+        for op in ops:
+            if hasattr(op, 'Base') and isinstance(op.Base, list):
+                if len(op.Base) > 0:
+                    availableOps.append(op.Label)
+
+        # Load available operations into combobox
+        if len(availableOps) > 0:
+            # Populate the operations list
+            panel.geometryImportList.blockSignals(True)
+            panel.geometryImportList.clear()
+            availableOps.sort()
+            for opLbl in availableOps:
+                panel.geometryImportList.addItem(opLbl)
+            panel.geometryImportList.blockSignals(False)
+        else:
+            panel.geometryImportList.hide()
+            panel.geometryImportButton.hide()
 
     def importBaseGeometry(self):
         opLabel = str(self.form.geometryImportList.currentText())
@@ -616,29 +641,6 @@ class TaskPanelBaseGeometryPage(TaskPanelPage):
         FreeCADGui.Selection.clearSelection()
         FreeCADGui.Selection.addSelection(base, subList)
         self.addBase()
-
-    def registerSignalHandlers(self, obj):
-        self.form.baseList.itemSelectionChanged.connect(self.itemActivated)
-        self.form.addBase.clicked.connect(self.addBase)
-        self.form.deleteBase.clicked.connect(self.deleteBase)
-        self.form.clearBase.clicked.connect(self.clearBase)
-        self.form.geometryImportButton.clicked.connect(self.importBaseGeometry)
-
-        self.form.sel_ref.currentIndexChanged.connect(self._update_feature_selection_in_gui)
-        self.form.sel_feat.currentIndexChanged.connect(self._update_feature_selection_in_gui)
-        self.form.sel_relation.currentIndexChanged.connect(self._update_feature_selection_in_gui)
-        self.form.sel_dep_val.valueChanged.connect(self._update_feature_selection_in_gui)
-        self.form.sel_make.clicked.connect(self._apply_feature_selection)
-
-    def pageUpdateData(self, obj, prop):
-        if prop in ['Base']:
-            self.setFields(obj)
-
-    def updateSelection(self, obj, sel):
-        if self.selectionSupportedAsBaseGeometry(sel, True):
-            self.form.addBase.setEnabled(True)
-        else:
-            self.form.addBase.setEnabled(False)
 
     def resizeBaseList(self):
         # Set base geometry list window to resize based on contents
@@ -657,18 +659,9 @@ class TaskPanelBaseGeometryPage(TaskPanelPage):
         #qList.setMinimumHeight(row)
         PathLog.debug("baseList({}, {}) {} * {}".format(qList.size(), row, qList.count(), qList.sizeHintForRow(0)))
 
-    def getSignalsForUpdate(self, obj):
-        signals = []
-        # Feature selection utility signals
-        # signals.append(self.form.sel_ref.currentIndexChanged)
-        # signals.append(self.form.sel_feat.currentIndexChanged)
-        # signals.append(self.form.sel_relation.currentIndexChanged)
-        # signals.append(self.form.sel_dep_val.valueChanged)
-        signals.append(self.form.sel_make.toggled)
-        return signals
-
     # Methods pertaining to feature selection utility
     def add_selection_controls(self, panel):
+        FreeCAD.Console.PrintMessage("add_selection_controls()\n")
         formLayout = QtGui.QFormLayout()
         layout = panel.gridLayout
         rows = layout.rowCount()
@@ -677,22 +670,34 @@ class TaskPanelBaseGeometryPage(TaskPanelPage):
 
         # Add title for feature selection tools
         label = QtGui.QLabel("Feature Selection Tools")
+        font = QtGui.QFont()
+        font.setBold(True)
+        label.setFont(font)
         label.setAlignment(QtCore.Qt.AlignCenter)
         formLayout.addRow(label)
 
-        # Add Reference selection
-        panel.sel_ref = QtGui.QComboBox()
-        for f in self.selection_references:
-            panel.sel_ref.addItem(f)
-        panel.sel_ref.setToolTip("Choose the reference to use for making the selection.")
-        formLayout.addRow(QtGui.QLabel("Selection reference: "), panel.sel_ref)
+        # Add model selection
+        panel.sel_model = QtGui.QComboBox()
+        for m in self.job.Model.Group:
+            panel.sel_model.addItem(m.Label)
+        panel.sel_model.setToolTip("Choose the base model to use for making the selection.")
+        formLayout.addRow(QtGui.QLabel("Base model: "), panel.sel_model)
+        sel_model_visible = False
+        if len(self.job.Model.Group) > 1:
+            sel_model_visible = True
+            # panel.sel_model.addItem(translate("PathOpGui", "All"))
+        panel.sel_model.setEnabled(sel_model_visible)
 
         # Add geometry type selection
         panel.sel_feat = QtGui.QComboBox()
         for f in self.selection_features:
-            panel.sel_feat.addItem(f)
+            is_supported = getattr(self, 'supports{}'.format(f))
+            if is_supported():
+                panel.sel_feat.addItem(f)
         panel.sel_feat.setToolTip("Choose the type of feature you want to select from the list.")
         formLayout.addRow(QtGui.QLabel("Selection feature type: "), panel.sel_feat)
+        if panel.sel_feat.count() < 2:
+            panel.sel_feat.setEnabled(False)
 
         # add face selection type
         panel.sel_relation = QtGui.QComboBox()
@@ -701,7 +706,7 @@ class TaskPanelBaseGeometryPage(TaskPanelPage):
         panel.sel_relation.setToolTip("Select the desired relationship to the selected reference.")
         formLayout.addRow(QtGui.QLabel("Feature relationship: "), panel.sel_relation)
 
-        # helix angle
+        # add reference depth input
         panel.sel_dep_val = QtGui.QDoubleSpinBox()
         # panel.sel_dep_val.setMinimum(0.1)
         # panel.sel_dep_val.setMaximum(90)
@@ -721,113 +726,162 @@ class TaskPanelBaseGeometryPage(TaskPanelPage):
         # formLayout.addRow(panel.sel_make)
 
     def _instantiate_selection_variables(self):
+        FreeCAD.Console.PrintMessage("_instantiate_selection_variables()\n")
         # class variables for selection controls
-        self.selection_relationships = ["All s above", "All below",
+        self.selection_relationships = ["All above", "All below",
             "Horizontal at or above", "Horizontal below", "Vertical at or above",
             "Vertical below", "Other at or above", "Other below"]
         self.selection_features = ["Faces", "Edges", "Vertexes"]
         self.selection_features_singular = ["Face", "Edge", "Vertex"]
-        self.selection_references = ["First", "Last", "Reference depth"]
         self.is_multi_model_job = True if len(self.job.Model.Group) > 1 else False
-
-    def _update_feature_selection_tools(self):
-        """This method only updates list of references for feature selection tools."""
-        FreeCAD.Console.PrintMessage("_update_feature_selection_tools()\n")
-        self.form.sel_ref.blockSignals(True)
-        self.form.sel_ref.clear()
-        if self.obj.Base:
-            for ref in self.selection_references:
-                self.form.sel_ref.addItem(ref)
-        else:
-            self.form.sel_ref.addItem(self.selection_references[2])
-        self.form.sel_ref.blockSignals(False)
-        # self.setClean()
-
-    def _update_feature_selection_in_gui(self):
-        """This method only updates GUI viewport selections based on settings
-        in the available controls."""
-        FreeCAD.Console.PrintMessage("_update_feature_selection_in_gui()\n")
-        FreeCADGui.Selection.clearSelection()
-        """
-        base_geom_list_count = self.form.baseList.count()
-        if base_geom_list_count:
-            item = self.form.baseList.item(0)
-            obj = item.data(self.DataObject)
-            sub = item.data(self.DataObjectSub)
-        """
-        if self.obj.Base:
-            (base, subs_list) = self.obj.Base[0]
-
-
-        # (base, subList) = ops[0].Base[0]
-        FreeCADGui.Selection.addSelection(base, subs_list)
-        self.setClean()
 
     def _apply_feature_selection(self):
         FreeCAD.Console.PrintMessage("_apply_feature_selection()\n")
-        if self.is_multi_model_job:
-            sel = self._multi_model_selection()
-        else:
-            sel = self._single_model_selection()
+        sel = self._single_model_selection()
 
         if sel:
             (base, subs_list) = sel
             FreeCADGui.Selection.clearSelection()
             FreeCADGui.Selection.addSelection(base, subs_list)
 
-    def _set_select_feature_controls(self):
-        if False:
-            if self.obj.Base:
-                self.form.sel_ref.setEnabled(True)
-                self.form.sel_feat.setEnabled(True)
-                self.form.sel_relation.setEnabled(True)
-                self.form.sel_dep_val.setEnabled(True)
-            else:
-                self.form.sel_ref.setEnabled(False)
-                self.form.sel_feat.setEnabled(False)
-                self.form.sel_relation.setEnabled(False)
-                self.form.sel_dep_val.setEnabled(False)
-
-    def _multi_model_selection(self):
-        FreeCAD.Console.PrintMessage("_multi_model_selection()\n")
-        return False
-
     def _single_model_selection(self):
         FreeCAD.Console.PrintMessage("_single_model_selection()\n")
         subs_list = list()
-        sel_ref_idx = self.form.sel_ref.currentIndex()
         sel_feat_idx = self.form.sel_feat.currentIndex()
         sel_relation_idx = self.form.sel_relation.currentIndex()
 
-        reference = self.selection_references[sel_ref_idx]
         relation = self.selection_relationships[sel_relation_idx]
         features = self.selection_features[sel_feat_idx]
         feat_prefix = self.selection_features_singular[sel_feat_idx]
         base = self.job.Model.Group[0]
+        depth = self.form.sel_dep_val.value()
+        feat_list = getattr(base.Shape, features)
 
-        if sel_ref_idx == 0:  # First
-            FreeCAD.Console.PrintError("{} reference unavailable()\n".format(reference))
-        elif sel_ref_idx == 1:  # Last
-            FreeCAD.Console.PrintError("{} reference unavailable()\n".format(reference))
-        else:  # Reference depth
-            depth = self.form.sel_dep_val.value()
-            feat_list = getattr(base.Shape, features)
-            if sel_relation_idx == 0:  # All at or above
-                i = 0
+        # Proceed based on relationship
+        if sel_relation_idx == 0:  # All at or above
+            i = 0
+            for feat in feat_list:
+                if feat.BoundBox.ZMin >= depth:
+                    subs_list.append(feat_prefix + str(i + 1))
+                i += 1
+        elif sel_relation_idx == 1:  # All below
+            i = 0
+            for feat in feat_list:
+                if feat.BoundBox.ZMax < depth:
+                    subs_list.append(feat_prefix + str(i + 1))
+                i += 1
+
+        elif sel_relation_idx == 2:  # Horizontal at or above
+            i = 0
+            for feat in feat_list:
+                if feat.BoundBox.ZMin >= depth and self._is_feature_horizontal(feat):
+                        subs_list.append(feat_prefix + str(i + 1))
+                i += 1
+        elif sel_relation_idx == 3:  # Horizontal below
+            i = 0
+            for feat in feat_list:
+                if feat.BoundBox.ZMax < depth and self._is_feature_horizontal(feat):
+                        subs_list.append(feat_prefix + str(i + 1))
+                i += 1
+
+        elif sel_relation_idx == 4:  # Vertical at or above
+            i = 0
+            if feat_prefix == "Face":
+                for feat in feat_list:
+                    if feat.BoundBox.ZMin >= depth and self._is_face_vertical(feat):
+                        subs_list.append(feat_prefix + str(i + 1))
+                    i += 1
+            elif feat_prefix == "Edge":
+                FreeCAD.Console.PrintError("_is_edge_vertical() is INCOMPLETE.\n")
+                for feat in feat_list:
+                    if feat.BoundBox.ZMin >= depth and self._is_edge_vertical(feat):
+                        subs_list.append(feat_prefix + str(i + 1))
+                    i += 1
+            elif feat_prefix == "Vertex":
                 for feat in feat_list:
                     if feat.BoundBox.ZMin >= depth:
                         subs_list.append(feat_prefix + str(i + 1))
                     i += 1
-            elif sel_relation_idx == 1:  # All below
-                i = 0
+        elif sel_relation_idx == 5:  # Vertical below
+            i = 0
+            if feat_prefix == "Face":
+                for feat in feat_list:
+                    if feat.BoundBox.ZMax < depth and self._is_face_vertical(feat):
+                        subs_list.append(feat_prefix + str(i + 1))
+                    i += 1
+            elif feat_prefix == "Edge":
+                FreeCAD.Console.PrintError("_is_edge_vertical() is INCOMPLETE.\n")
+                for feat in feat_list:
+                    if feat.BoundBox.ZMax < depth and self._is_edge_vertical(feat):
+                        subs_list.append(feat_prefix + str(i + 1))
+                    i += 1
+            elif feat_prefix == "Vertex":
                 for feat in feat_list:
                     if feat.BoundBox.ZMax < depth:
                         subs_list.append(feat_prefix + str(i + 1))
                     i += 1
-            else:
-                FreeCAD.Console.PrintError("The '{}' relationship is unavailable()\n".format(relation))
+
+        elif sel_relation_idx == 6:  # Other at or above
+            i = 0
+            if feat_prefix == "Face":
+                for feat in feat_list:
+                    if feat.BoundBox.ZMin >= depth and self._is_face_vertical(feat):
+                        subs_list.append(feat_prefix + str(i + 1))
+                    i += 1
+            elif feat_prefix == "Edge":
+                FreeCAD.Console.PrintError("{} selection is unavailable for {}.\n".format(feat_prefix, relation))
+            elif feat_prefix == "Vertex":
+                for feat in feat_list:
+                    if feat.BoundBox.ZMin >= depth:
+                        subs_list.append(feat_prefix + str(i + 1))
+                    i += 1
+        elif sel_relation_idx == 7:  # Other below
+            i = 0
+            if feat_prefix == "Face":
+                for feat in feat_list:
+                    if feat.BoundBox.ZMax < depth and self._is_face_vertical(feat):
+                        subs_list.append(feat_prefix + str(i + 1))
+                    i += 1
+            elif feat_prefix == "Edge":
+                FreeCAD.Console.PrintError("{} selection is unavailable for {}.\n".format(feat_prefix, relation))
+            elif feat_prefix == "Vertex":
+                for feat in feat_list:
+                    if feat.BoundBox.ZMax < depth:
+                        subs_list.append(feat_prefix + str(i + 1))
+                    i += 1
+
+        else:
+            FreeCAD.Console.PrintError("The '{}' relationship is unavailable\n".format(relation))
+
         return (base, subs_list)
 
+    def _is_feature_horizontal(self, feat):
+        if round(feat.BoundBox.ZLength, 6) == 0.0:
+            return True
+        return False
+
+    def _is_face_vertical(self, face):
+        if round(face.normalAt(0, 0).z, 6) == 0.0:
+            return True
+        return False
+
+    def _is_edge_vertical(self, edge):
+        verts = edge.Vertexes
+        vert_cnt = len(verts)
+
+        if edge.Curve.TypeId == "Part::GeomLine":
+            diff = verts[0].Point.sub(verts[1].Point)
+            if round(diff.x, 6) == 0.0 and round(diff.y, 6) == 0.0:
+                return True
+            return False
+        elif edge.Curve.TypeId == "Part::GeomCircle":
+            if vert_cnt == 1:
+                pass
+            else:
+                pass
+        elif edge.Curve.TypeId == "Part::BSpline":
+            pass
+        return False
 
 class TaskPanelBaseLocationPage(TaskPanelPage):
     '''Page controller for base locations. Uses PathGetPoint.'''
