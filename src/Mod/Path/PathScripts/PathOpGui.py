@@ -197,13 +197,13 @@ class TaskPanelPage(object):
         '''__init__(obj, features) ... framework initialisation.
         Do not overwrite, implement initPage(obj) instead.'''
         self.obj = obj
+        self.features = features
         self.job = PathUtils.findParentJob(obj)
         self.form = self.getForm()  # pylint: disable=assignment-from-no-return
         self.signalDirtyChanged = None
         self.setClean()
         self.setTitle('-')
         self.setIcon(None)
-        self.features = features
         self.isdirty = False
         self.parent = None
         self.panelTitle = 'Operation'
