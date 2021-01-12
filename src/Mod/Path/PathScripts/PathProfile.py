@@ -46,7 +46,7 @@ __url__ = "http://www.freecadweb.org"
 __doc__ = "Path Profile operation based on entire model, selected faces or selected edges."
 __contributors__ = "Schildkroet"
 
-PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
+PathLog.setLevel(PathLog.Level.DEBUG, PathLog.thisModule())
 
 
 # Qt translation handling
@@ -596,6 +596,12 @@ class ObjectProfile(PathAreaOp.ObjectOp):
         ezMin = None
         self.cutOut = self.tool.Diameter
 
+        # Update self.ofstRradius for open-edge requirements
+        if obj.UseComp:
+            self.ofstRadius = self.radius - self.offsetExtra
+        else:
+            self.ofstRadius = self.offsetExtra  # + 2.0 * self.radius
+
         for p in range(0, len(obj.Base)):
             (base, subsList) = obj.Base[p]
             keepFaces = list()
@@ -659,6 +665,7 @@ class ObjectProfile(PathAreaOp.ObjectOp):
                                     for cW in cutWireObjs:
                                         openEdges.append(cW)
                                 else:
+                                    self._addDebugObject("cutShape", Part.show(cutShp))
                                     PathLog.error(self.inaccessibleMsg)
 
                             if openEdges:
@@ -682,7 +689,7 @@ class ObjectProfile(PathAreaOp.ObjectOp):
         PathLog.debug('_flattenWire()')
         wBB = wire.BoundBox
 
-        if wBB.ZLength > 0.0:
+        if round(wBB.ZLength, 10) > 0.0:
             PathLog.debug('Wire is not horizontally co-planar. Flattening it.')
 
             # Extrude non-horizontal wire
@@ -695,6 +702,7 @@ class ObjectProfile(PathAreaOp.ObjectOp):
             if crsectFaceShp is not False:
                 return (wire, crsectFaceShp)
             else:
+                PathLog.debug("Failed to flatten wire.")
                 return False
         else:
             srtWire = Part.Wire(Part.__sortEdges__(wire.Edges))
@@ -708,10 +716,23 @@ class ObjectProfile(PathAreaOp.ObjectOp):
         # FCAD = FreeCAD.ActiveDocument
         tolerance = self.JOB.GeometryTolerance.Value
         toolDiam = 2 * self.radius  # self.radius defined in PathAreaOp or PathProfileBase modules
-        minBfr = toolDiam * 1.25
-        bbBfr = (self.ofstRadius * 2) * 1.25
+
+        # Update self.ofstRradius for open-edge requirements
+        if obj.UseComp:
+            minBfr = toolDiam * 1.25
+            bbBfr = (self.ofstRadius * 2) * 1.25
+            if self.offsetExtra < 0.0:  # obj.OffsetExtra.Value
+                bbBfr += obj.OffsetExtra.Value
+        else:
+            minBfr = 1.0  # self.radius * 1.25
+            bbBfr = (self.ofstRadius * 2) * 1.25  # self.radius * 1.25
+            bbBfr += self.offsetExtra  # obj.OffsetExtra.Value
+        PathLog.debug("... minBfr: {}".format(minBfr))
+        PathLog.debug("... bbBfr: {}".format(bbBfr))
         if bbBfr < minBfr:
             bbBfr = minBfr
+        PathLog.debug("... limited bbBfr: {}".format(bbBfr))
+
         # fwBB = flatWire.BoundBox
         wBB = origWire.BoundBox
         minArea = (self.ofstRadius - tolerance)**2 * math.pi
@@ -720,7 +741,7 @@ class ObjectProfile(PathAreaOp.ObjectOp):
         numOrigEdges = len(useWire.Edges)
         sdv = wBB.ZMax
         fdv = obj.FinalDepth.Value
-        extLenFwd = sdv - fdv
+        extLenFwd = round(sdv - fdv, 8)
         if extLenFwd <= 0.0:
             msg = translate('PathProfile',
                             'For open edges, verify Final Depth for this operation.')
@@ -759,13 +780,20 @@ class ObjectProfile(PathAreaOp.ObjectOp):
         # Create intersection tags for determining which side of wire to cut
         (begInt, begExt, iTAG, eTAG) = self._makeIntersectionTags(useWire, numOrigEdges, fdv)
         if not begInt or not begExt:
+            PathLog.debug("not begInt or not begExt")  # self._addDebugObject("cutShape", Part.show(cutShp))
             return False
         self.iTAG = iTAG
         self.eTAG = eTAG
 
         # Create extended wire boundbox, and extrude
         extBndbox = self._makeExtendedBoundBox(wBB, bbBfr, fdv)
-        extBndboxEXT = extBndbox.extrude(FreeCAD.Vector(0, 0, extLenFwd))
+        if extLenFwd == 0.0:
+            extBndboxEXT = extBndbox
+        else:
+            PathLog.debug("... extBndbox bbBfr: {}".format(bbBfr))
+            PathLog.debug("... extLenFwd: {}".format(extLenFwd))
+            self._addDebugObject("extBndbox", extBndbox)
+            extBndboxEXT = extBndbox.extrude(FreeCAD.Vector(0, 0, extLenFwd))
 
         # Cut model(selected edges) from extended edges boundbox
         cutArea = extBndboxEXT.cut(base.Shape)
@@ -872,7 +900,7 @@ class ObjectProfile(PathAreaOp.ObjectOp):
             isReady = self._checkTagIntersection(iTAG, eTAG, self.cutSide, testArea)
             PathLog.debug('isReady {}.'.format(isReady))
 
-            if isReady is False:
+            if not isReady:
                 PathLog.debug('Using wire index {}.'.format(wi - 1))
                 pWire = Part.Wire(Part.__sortEdges__(workShp.Wires[wi - 1].Edges))
                 pfcShp = Part.Face(pWire)
@@ -887,6 +915,9 @@ class ObjectProfile(PathAreaOp.ObjectOp):
                 pfcShp.translate(FreeCAD.Vector(0, 0, fdv - workShp.BoundBox.ZMin))
                 workShp = pfcShp.cut(fcShp)
         # Eif
+
+        self._addDebugObject("workShp", workShp)
+        self._addDebugObject("pathStops", pathStops)
 
         # Add path stops at ends of wire
         cutShp = workShp.cut(pathStops)
@@ -1227,7 +1258,7 @@ class ObjectProfile(PathAreaOp.ObjectOp):
 
     def _makeCrossSection(self, shape, sliceZ, zHghtTrgt=False):
         '''_makeCrossSection(shape, sliceZ, zHghtTrgt=None)...
-        Creates cross-section objectc from shape.  Translates cross-section to zHghtTrgt if available.
+        Creates cross-section object from shape.  Translates cross-section to zHghtTrgt if available.
         Makes face shape from cross-section object. Returns face shape at zHghtTrgt.'''
         PathLog.debug('_makeCrossSection()')
         # Create cross-section of shape and translate
@@ -1241,6 +1272,7 @@ class ObjectProfile(PathAreaOp.ObjectOp):
                 comp.translate(FreeCAD.Vector(0, 0, zHghtTrgt - comp.BoundBox.ZMin))
             return comp
 
+        PathLog.debug("... no cross-section slice")
         return False
 
     def _makeExtendedBoundBox(self, wBB, bbBfr, zDep):
