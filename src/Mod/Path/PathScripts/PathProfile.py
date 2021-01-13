@@ -596,12 +596,6 @@ class ObjectProfile(PathAreaOp.ObjectOp):
         ezMin = None
         self.cutOut = self.tool.Diameter
 
-        # Update self.ofstRradius for open-edge requirements
-        if obj.UseComp:
-            self.ofstRadius = self.radius - self.offsetExtra
-        else:
-            self.ofstRadius = self.offsetExtra  # + 2.0 * self.radius
-
         for p in range(0, len(obj.Base)):
             (base, subsList) = obj.Base[p]
             keepFaces = list()
@@ -713,25 +707,20 @@ class ObjectProfile(PathAreaOp.ObjectOp):
     # Open-edges methods
     def _getCutAreaCrossSection(self, obj, base, origWire, flatWire):
         PathLog.debug('_getCutAreaCrossSection()')
-        # FCAD = FreeCAD.ActiveDocument
         tolerance = self.JOB.GeometryTolerance.Value
         toolDiam = 2 * self.radius  # self.radius defined in PathAreaOp or PathProfileBase modules
 
-        # Update self.ofstRradius for open-edge requirements
+        # Update self.ofstRadius for open-edge requirements
         if obj.UseComp:
             minBfr = toolDiam * 1.25
             bbBfr = (self.ofstRadius * 2) * 1.25
-            if self.offsetExtra < 0.0:  # obj.OffsetExtra.Value
+            if self.offsetExtra < 0.0:
                 bbBfr += obj.OffsetExtra.Value
         else:
-            minBfr = 1.0  # self.radius * 1.25
-            bbBfr = (self.ofstRadius * 2) * 1.25  # self.radius * 1.25
-            bbBfr += self.offsetExtra  # obj.OffsetExtra.Value
-        PathLog.debug("... minBfr: {}".format(minBfr))
-        PathLog.debug("... bbBfr: {}".format(bbBfr))
+            minBfr = 1.0
+            bbBfr = (self.ofstRadius * 2) * 1.25  + self.offsetExtra
         if bbBfr < minBfr:
             bbBfr = minBfr
-        PathLog.debug("... limited bbBfr: {}".format(bbBfr))
 
         # fwBB = flatWire.BoundBox
         wBB = origWire.BoundBox
@@ -740,14 +729,13 @@ class ObjectProfile(PathAreaOp.ObjectOp):
         useWire = origWire.Wires[0]
         numOrigEdges = len(useWire.Edges)
         sdv = wBB.ZMax
-        fdv = obj.FinalDepth.Value
+        fdv = origWire.BoundBox.ZMin  # obj.FinalDepth.Value
         extLenFwd = round(sdv - fdv, 8)
-        if extLenFwd <= 0.0:
+        if extLenFwd < 0.0:
             msg = translate('PathProfile',
                             'For open edges, verify Final Depth for this operation.')
             FreeCAD.Console.PrintError(msg + '\n')
-            # return False
-            extLenFwd = 0.1
+            extLenFwd = 0.0
         WIRE = flatWire.Wires[0]
         numEdges = len(WIRE.Edges)
 
@@ -786,49 +774,30 @@ class ObjectProfile(PathAreaOp.ObjectOp):
         self.eTAG = eTAG
 
         # Create extended wire boundbox, and extrude
-        extBndbox = self._makeExtendedBoundBox(wBB, bbBfr, fdv)
+        # extBndbox = self._makeExtendedBoundBox(wBB, bbBfr, fdv)
         if extLenFwd == 0.0:
-            extBndboxEXT = extBndbox
+            extBndbox = self._makeExtendedBoundBox(wBB, bbBfr, fdv - 0.1)
+            extBndboxEXT = extBndbox.extrude(FreeCAD.Vector(0, 0, 0.1))
+            extBndbox_bot = self._makeExtendedBoundBox(wBB, bbBfr, fdv)
+            extBndboxEXT_bot = extBndbox_bot.extrude(FreeCAD.Vector(0, 0, 0.1))
+
+            # Cut model(selected edges) from extended edges boundbox
+            # cutArea = extBndboxEXT.cut(base.Shape)
+            # Cut model(selected edges) from extended edges boundbox
+            botCutArea = extBndboxEXT.cut(base.Shape)
+            topCutArea = extBndboxEXT_bot.cut(base.Shape)
         else:
-            PathLog.debug("... extBndbox bbBfr: {}".format(bbBfr))
-            PathLog.debug("... extLenFwd: {}".format(extLenFwd))
-            self._addDebugObject("extBndbox", extBndbox)
+            extBndbox = self._makeExtendedBoundBox(wBB, bbBfr, fdv)
+            # self._addDebugObject("extBndbox", extBndbox)
             extBndboxEXT = extBndbox.extrude(FreeCAD.Vector(0, 0, extLenFwd))
 
-        # Cut model(selected edges) from extended edges boundbox
-        cutArea = extBndboxEXT.cut(base.Shape)
-        self._addDebugObject('CutArea', cutArea)
+            # Cut model(selected edges) from extended edges boundbox
+            botCutArea = extBndboxEXT.cut(base.Shape)
+            topCutArea = botCutArea
+            self._addDebugObject('CutArea', botCutArea)
 
         # Get top and bottom faces of cut area (CA), and combine faces when necessary
-        topFc = list()
-        botFc = list()
-        bbZMax = cutArea.BoundBox.ZMax
-        bbZMin = cutArea.BoundBox.ZMin
-        for f in range(0, len(cutArea.Faces)):
-            FcBB = cutArea.Faces[f].BoundBox
-            if abs(FcBB.ZMax - bbZMax) < tolerance and abs(FcBB.ZMin - bbZMax) < tolerance:
-                topFc.append(f)
-            if abs(FcBB.ZMax - bbZMin) < tolerance and abs(FcBB.ZMin - bbZMin) < tolerance:
-                botFc.append(f)
-        if len(topFc) == 0:
-            PathLog.error('Failed to identify top faces of cut area.')
-            return False
-        topComp = Part.makeCompound([cutArea.Faces[f] for f in topFc])
-        topComp.translate(FreeCAD.Vector(0, 0, fdv - topComp.BoundBox.ZMin))  # Translate face to final depth
-        if len(botFc) > 1:
-            # PathLog.debug('len(botFc) > 1')
-            bndboxFace = Part.Face(extBndbox.Wires[0])
-            tmpFace = Part.Face(extBndbox.Wires[0])
-            for f in botFc:
-                Q = tmpFace.cut(cutArea.Faces[f])
-                tmpFace = Q
-            botComp = bndboxFace.cut(tmpFace)
-        else:
-            botComp = Part.makeCompound([cutArea.Faces[f] for f in botFc])  # Part.makeCompound([CA.Shape.Faces[f] for f in botFc])
-        botComp.translate(FreeCAD.Vector(0, 0, fdv - botComp.BoundBox.ZMin))  # Translate face to final depth
-
-        # Make common of the two
-        comFC = topComp.common(botComp)
+        comFC = self._get_top_and_bottom_cut_area_faces(extBndbox, botCutArea, topCutArea, tolerance, fdv)
 
         # Determine with which set of intersection tags the model intersects
         (cmnIntArea, cmnExtArea) = self._checkTagIntersection(iTAG, eTAG, 'QRY', comFC)
@@ -924,6 +893,43 @@ class ObjectProfile(PathAreaOp.ObjectOp):
         self._addDebugObject('CutShape', cutShp)
 
         return cutShp
+
+    def _get_top_and_bottom_cut_area_faces(self, extBndbox, botCutArea, topCutArea, tolerance, fdv):
+        """Add some collision detection"""
+        # Get top and bottom faces of cut area (CA), and combine faces when necessary
+        topFc = list()
+        botFc = list()
+        bbZMax = topCutArea.BoundBox.ZMax
+        bbZMin = botCutArea.BoundBox.ZMin
+        for f in range(0, len(topCutArea.Faces)):
+            FcBB = topCutArea.Faces[f].BoundBox
+            if abs(FcBB.ZMax - bbZMax) < tolerance and abs(FcBB.ZMin - bbZMax) < tolerance:
+                topFc.append(f)
+        for f in range(0, len(botCutArea.Faces)):
+            FcBB = botCutArea.Faces[f].BoundBox
+            if abs(FcBB.ZMax - bbZMin) < tolerance and abs(FcBB.ZMin - bbZMin) < tolerance:
+                botFc.append(f)
+        if len(topFc) == 0:
+            PathLog.error('Failed to identify top faces of cut area.')
+            return False
+        topComp = Part.makeCompound([topCutArea.Faces[f] for f in topFc])
+        topComp.translate(FreeCAD.Vector(0, 0, fdv - topComp.BoundBox.ZMin))  # Translate face to final depth
+        if len(botFc) > 1:
+            # PathLog.debug('len(botFc) > 1')
+            bndboxFace = Part.Face(extBndbox.Wires[0])
+            tmpFace = Part.Face(extBndbox.Wires[0])
+            for f in botFc:
+                Q = tmpFace.cut(botCutArea.Faces[f])
+                tmpFace = Q
+            botComp = bndboxFace.cut(tmpFace)
+        else:
+            botComp = Part.makeCompound([botCutArea.Faces[f] for f in botFc])  # Part.makeCompound([CA.Shape.Faces[f] for f in botFc])
+        botComp.translate(FreeCAD.Vector(0, 0, fdv - botComp.BoundBox.ZMin))  # Translate face to final depth
+
+        # Make common of the two
+        comFC = topComp.common(botComp)
+
+        return comFC
 
     def _checkTagIntersection(self, iTAG, eTAG, cutSide, tstObj):
         PathLog.debug('_checkTagIntersection()')
