@@ -825,26 +825,33 @@ class ObjectSlot(PathOp.ObjectOp):
                 PathLog.debug(' -pair: {}, {}'.format(round(a.Length, 4), round(b.Length,4)))
             PathLog.debug(' -parallel_edge_flags: {}'.format(parallel_edge_flags))
 
+        make_parallel_version = None
         if pairCnt == 0:
             msg = translate('PathSlot',
                 'No parallel edges identified.')
             FreeCAD.Console.PrintError(msg + '\n')
             return False
         elif pairCnt == 1:
+            PathLog.debug('One pair parallel edges')
             # One pair of parallel edges identified
             if eCnt == 4:
                 flag_set = list()
+                other_set = list()
                 for i in range(0, 4):
                     e = parallel_edge_flags[i]
-                    if e == 0:
+                    if e == 1:
                         flag_set.append(shape.Edges[i])
+                    else:
+                        other_set.append(shape.Edges[i])
                 if len(flag_set) == 2:
                     same = (flag_set[0], flag_set[1])
+                    make_parallel_version = other_set
                 else:
                     same = parallel_edge_pairs[0]
             else:
                 same = parallel_edge_pairs[0]
         else:
+            PathLog.debug('Two pairs parallel edges')
             if obj.Reference1 == 'Long Edge':
                 same = parallel_edge_pairs[1]
             elif obj.Reference1 == 'Short Edge':
@@ -856,7 +863,7 @@ class ObjectSlot(PathOp.ObjectOp):
                 FreeCAD.Console.PrintError(msg + '\n')
                 return False
 
-        (p1, p2) = self._getOppMidPoints(same)
+        (p1, p2) = self._getOppMidPoints(same, make_parallel_version)
         return (p1, p2)
 
     def _processSingleComplexFace(self, obj, shape):
@@ -1298,13 +1305,38 @@ class ObjectSlot(PathOp.ObjectOp):
             n2 = p2
         return (n1, n2) 
 
-    def _getOppMidPoints(self, same):
-        """_getOppMidPoints(same)...
-        Find mid-points between ends of equal, oppossing edges passed in tuple (edge1, edge2)."""
-        com1 = same[0].CenterOfMass
-        com2 = same[1].CenterOfMass
+    def _getOppMidPoints(self, edges_tuple, make_parallel_version=None):
+        """_getOppMidPoints(edges_tuple, make_parallel_version=None)...
+        Find mid-points between two edges passed in tuple (edge1, edge2).
+        If make_parallel_version contains two other edges, return the
+        two points on those edges that pass through the midline between
+        the two edges contained in `edges_tuple` tuple."""
+
+        com1 = edges_tuple[0].CenterOfMass
+        com2 = edges_tuple[1].CenterOfMass
         p1 = FreeCAD.Vector(com1.x, com1.y, 0.0)
         p2 = FreeCAD.Vector(com2.x, com2.y, 0.0)
+
+        if make_parallel_version:
+            p1_p1_midpnt = p1.add(p2).multiply(0.5).add(FreeCAD.Vector(0.0, 0.0, com1.z))
+            e3, e4 = make_parallel_version
+            e1_p1 = edges_tuple[0].Vertexes[0].Point
+            e1_p2 = edges_tuple[0].Vertexes[1].Point
+            comp = Part.makeCompound([edges_tuple[0], edges_tuple[1], e3, e4])
+            dist = comp.BoundBox.DiagonalLength / 2.0
+            d1 = e1_p1.sub(e1_p2).normalize()
+            d2 = e1_p2.sub(e1_p1).normalize()
+            seg1 = p1_p1_midpnt.add(d1.multiply(dist))
+            seg2 = p1_p1_midpnt.add(d2.multiply(dist))
+            mid_line = Part.makeLine(seg1, seg2)
+            end1 = DraftGeomUtils.findIntersection(mid_line, e3)
+            end2 = DraftGeomUtils.findIntersection(mid_line, e4)
+            if end1 and end2:
+                p1 = end1[0].add(FreeCAD.Vector(0.0, 0.0, -1.0 * end1[0].z))
+                p2 = end2[0].add(FreeCAD.Vector(0.0, 0.0, -1.0 * end2[0].z))
+            else:
+                PathLog.error("Failed to connect midline through ends.")
+
         return (p1, p2)
 
     def _isParallel(self, dYdX1, dYdX2):
