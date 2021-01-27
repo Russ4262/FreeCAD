@@ -38,6 +38,9 @@ from pivy import coin
 from lazy_loader.lazy_loader import LazyLoader
 Part = LazyLoader('Part', globals(), 'Part')
 TechDraw = LazyLoader('TechDraw', globals(), 'TechDraw')
+FeatureExtensions = LazyLoader('PathScripts.features.PathFeatureExtensions',
+                                globals(),
+                                'PathScripts.features.PathFeatureExtensions')
 
 __doc__ = "Class and implementation of the Adaptive path operation."
 
@@ -532,42 +535,78 @@ def Execute(op, obj):
         job.ViewObject.Visibility = oldJobVisibility
         sceneClean()
 
-
 def _get_working_edges(op, obj):
-    """_get_working_edges(op, obj)...
-    Compile all working edges from the Base Geometry selection (obj.Base)
-    for the current operation.
-    Additional modifications to selected region(face), such as extensions,
-    should be placed within this function.
-    """
     pathArray = list()
+    edge_data = list()
+    edge_list = list()
 
     for base, subs in obj.Base:
         for sub in subs:
             if obj.UseOutline:
                 face = base.Shape.getElement(sub)
-                zmin = face.BoundBox.ZMin
-                # get face outline with same method in PocketShape
-                wire = TechDraw.findShapeOutline(face, 1, FreeCAD.Vector(0.0, 0.0, 1.0))
-                shape = Part.Face(wire)
-                # translate to face height if necessary
-                if shape.BoundBox.ZMin != zmin:
-                    shape.translate(FreeCAD.Vector(0.0, 0.0, zmin - shape.BoundBox.ZMin))
+                shape = Part.Face(face.Wires[0])
             else:
                 shape = base.Shape.getElement(sub)
 
-            for edge in shape.Edges:
-                pathArray.append([discretize(edge)])
+            # Apply All Access Extension feature when enabled
+            aa_value = obj.AllAccessExtension.Value
+            if aa_value > 0.0:
+                aa_face = FeatureExtensions._get_all_access_face(obj, 
+                                                            base.Shape,
+                                                            shape,
+                                                            aa_value,
+                                                            discretize_factor=0.5)
+                if aa_face:
+                    shape = aa_face
+            # Eif All Access Extension
+
+            # Only add edges not found in extensions wires earlier
+            for e in shape.Edges:
+                mp = _get_edge_midpoint(e)
+                edge_data.append(mp)
+                edge_list.append(e)
+    # Efor
+
+    # add edges from active extensions
+    op.exts = [] # pylint: disable=attribute-defined-outside-init
+    for ext in FeatureExtensions.getExtensions(obj):
+        wire = ext.getWire()
+        if wire:
+            face = Part.Face(wire)
+            op.exts.append(face)
+            for e in face.Edges:
+                mp = _get_edge_midpoint(e)
+                if mp in edge_data:
+                    # Edge exists. Remove it.
+                    i = edge_data.index(mp)
+                    edge_data.pop(i)
+                    edge_list.pop(i)
+                else:
+                    edge_data.append(mp)
+                    edge_list.append(e)
+
+    for edge in edge_list:
+        pathArray.append([discretize(edge)])
 
     return pathArray
 
+def _get_edge_midpoint(e):
+    precision = 4
+    midpnt = e.valueAt(e.FirstParameter + (e.Length / 2.0))
+    mpx = round(midpnt.x, precision)
+    mpy = round(midpnt.y, precision)
+    mp = 'x{}_y{}'.format(mpx, mpy)
+    return mp
+   
 
 class PathAdaptive(PathOp.ObjectOp):
     def opFeatures(self, obj):
         '''opFeatures(obj) ... returns the OR'ed list of features used and supported by the operation.
         The default implementation returns "FeatureTool | FeatureDepths | FeatureHeights | FeatureStartPoint"
         Should be overwritten by subclasses.'''
-        return PathOp.FeatureTool | PathOp.FeatureBaseEdges | PathOp.FeatureDepths | PathOp.FeatureFinishDepth | PathOp.FeatureStepDown | PathOp.FeatureHeights | PathOp.FeatureBaseGeometry | PathOp.FeatureCoolant
+        return PathOp.FeatureTool | PathOp.FeatureBaseEdges | PathOp.FeatureDepths \
+            | PathOp.FeatureFinishDepth | PathOp.FeatureStepDown | PathOp.FeatureHeights \
+            | PathOp.FeatureBaseGeometry | PathOp.FeatureCoolant | PathOp.FeatureLocations
 
     def initOperation(self, obj):
         '''initOperation(obj) ... implement to create additional properties.
@@ -583,7 +622,6 @@ class PathAdaptive(PathOp.ObjectOp):
         obj.addProperty("App::PropertyDistance", "LiftDistance", "Adaptive", "Lift distance for rapid moves")
         obj.addProperty("App::PropertyDistance", "KeepToolDownRatio", "Adaptive", "Max length of keep tool down path compared to direct distance between points")
         obj.addProperty("App::PropertyDistance", "StockToLeave", "Adaptive", "How much stock to leave (i.e. for finishing operation)")
-        # obj.addProperty("App::PropertyBool", "ProcessHoles", "Adaptive","Process holes as well as the face outline")
 
         obj.addProperty("App::PropertyBool", "ForceInsideOut", "Adaptive", "Force plunging into material inside and clearing towards the edges")
         obj.addProperty("App::PropertyBool", "FinishingProfile", "Adaptive", "To take a finishing profile path at the end")
@@ -609,13 +647,14 @@ class PathAdaptive(PathOp.ObjectOp):
 
         obj.addProperty("App::PropertyBool", "UseOutline", "Adaptive", "Uses the outline of the base geometry.")
 
+        FeatureExtensions.initialize_properties(obj)
+
     def opSetDefaultValues(self, obj, job):
         obj.Side = "Inside"
         obj.OperationType = "Clearing"
         obj.Tolerance = 0.1
         obj.StepOver = 20
         obj.LiftDistance = 0
-        # obj.ProcessHoles = True
         obj.ForceInsideOut = False
         obj.FinishingProfile = True
         obj.Stopped = False
@@ -629,6 +668,7 @@ class PathAdaptive(PathOp.ObjectOp):
         obj.KeepToolDownRatio = 3.0
         obj.UseHelixArcs = False
         obj.UseOutline = False
+        FeatureExtensions.set_default_property_values(obj, job)
 
     def opExecute(self, obj):
         '''opExecute(obj) ... called whenever the receiver needs to be recalculated.
