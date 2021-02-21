@@ -33,6 +33,7 @@ PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 # PathLog.trackModule(PathLog.thisModule())
 
 
+
 class PathBaseGate(object):
     # pylint: disable=no-init
     pass
@@ -285,6 +286,58 @@ class ALLGate(PathBaseGate):
         return False
 
 
+class PARTALIGNGate(PathBaseGate):
+    def allow(self, doc, obj, sub):  # pylint: disable=unused-argument
+
+        allow = False
+        try:
+            shape = obj.Shape
+        except Exception:  # pylint: disable=broad-except
+            return False
+
+        if shape.ShapeType == 'Edge':
+            if shape.Curve.TypeId == 'Part::GeomLine':
+                allow = True
+
+        elif shape.ShapeType == 'Solid':
+            if sub and sub[0:4] == 'Edge':
+                edge = getattr(shape, sub)
+                if edge.Curve.TypeId == 'Part::GeomLine':
+                    allow = True
+
+        return allow
+
+
+class NEW1Gate(PathBaseGate):
+    def allow(self, doc, obj, sub):  # pylint: disable=unused-argument
+
+        allow = False
+        try:
+            shape = obj.Shape
+        except Exception:  # pylint: disable=broad-except
+            return False
+
+        if shape.ShapeType == 'Edge':
+            allow = True
+
+        elif shape.ShapeType == 'Solid':
+            if sub and sub[0:4] == 'Edge':
+                allow = True
+
+        elif shape.ShapeType == 'Face':
+            allow = True
+
+        elif shape.ShapeType == 'Solid':
+            if sub and sub[0:4] == 'Face':
+                allow = True
+
+        elif shape.ShapeType == 'Compound':
+            if sub and sub[0:4] == 'Face':
+                allow = True
+
+        return allow
+
+
 def contourselect():
     FreeCADGui.Selection.addSelectionGate(CONTOURGate())
     if not PathPreferences.suppressSelectionModeWarning():
@@ -377,6 +430,16 @@ def turnselect():
         FreeCAD.Console.PrintWarning("Turning Select Mode\n")
 
 
+def partalignselect():
+    FreeCADGui.Selection.addSelectionGate(PARTALIGNGate())
+    FreeCAD.Console.PrintWarning("PartAlign Select Mode\n")
+
+
+def new1select():
+    FreeCADGui.Selection.addSelectionGate(NEW1Gate())
+    FreeCAD.Console.PrintWarning("New1 Select Mode\n")
+
+
 def select(op):
     opsel = {}
     opsel['Contour'] = contourselect  # (depreciated)
@@ -385,6 +448,8 @@ def select(op):
     opsel['Engrave'] = engraveselect
     opsel['Helix'] = drillselect
     opsel['MillFace'] = pocketselect
+    opsel['New1'] = new1select
+    opsel['PartAlign'] = partalignselect
     opsel['Pocket'] = pocketselect
     opsel['Pocket 3D'] = pocketselect
     opsel['Pocket Shape'] = pocketselect

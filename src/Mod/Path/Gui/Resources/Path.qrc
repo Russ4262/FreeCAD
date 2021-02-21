@@ -69,6 +69,8 @@
         <file>icons/Path_ToolTable.svg</file>
         <file>icons/Path_Vcarve.svg</file>
         <file>icons/Path_Waterline.svg</file>
+        <file>icons/Path-PartAlign.svg</file>
+        <file>icons/Path-New1.svg</file>
         <file>icons/arrow-ccw.svg</file>
         <file>icons/arrow-cw.svg</file>
         <file>icons/arrow-down.svg</file>
@@ -110,6 +112,8 @@
         <file>panels/PageOpDrillingEdit.ui</file>
         <file>panels/PageOpEngraveEdit.ui</file>
         <file>panels/PageOpHelixEdit.ui</file>
+        <file>panels/PageOpNew1Edit.ui</file>
+        <file>panels/PageOpPartAlignEdit.ui</file>
         <file>panels/PageOpPocketExtEdit.ui</file>
         <file>panels/PageOpPocketFullEdit.ui</file>
         <file>panels/PageOpProbeEdit.ui</file>
