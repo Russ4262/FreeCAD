@@ -34,7 +34,7 @@ else:
 Processed = False
 
 def Startup():
-    global Processed # pylint: disable=global-statement
+    global Processed  # pylint: disable=global-statement
     if not Processed:
         PathLog.debug('Initializing PathGui')
         from PathScripts import PathAdaptiveGui
@@ -58,6 +58,8 @@ def Startup():
         from PathScripts import PathHop
         from PathScripts import PathInspect
         from PathScripts import PathMillFaceGui
+        from PathScripts import PathNew1Gui
+        from PathScripts import PathPartAlignGui
         from PathScripts import PathPocketGui
         from PathScripts import PathPocketShapeGui
         from PathScripts import PathPost
