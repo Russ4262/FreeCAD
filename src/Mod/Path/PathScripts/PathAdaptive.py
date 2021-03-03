@@ -563,7 +563,7 @@ def _get_working_edges(op, obj):
 
             # Only add edges not found in extensions wires earlier
             for e in shape.Edges:
-                mp = _get_edge_midpoint(e)
+                mp = _get_edge_identifier(e)
                 edge_data.append(mp)
                 edge_list.append(e)
     # Efor
@@ -576,7 +576,7 @@ def _get_working_edges(op, obj):
             face = Part.Face(wire)
             op.exts.append(face)
             for e in face.Edges:
-                mp = _get_edge_midpoint(e)
+                mp = _get_edge_identifier(e)
                 if mp in edge_data:
                     # Edge exists. Remove it.
                     i = edge_data.index(mp)
@@ -592,12 +592,20 @@ def _get_working_edges(op, obj):
     return pathArray
 
 
-def _get_edge_midpoint(e):
-    precision = 4
-    midpnt = e.valueAt(e.FirstParameter + (e.Length / 2.0))
-    mpx = round(midpnt.x, precision)
-    mpy = round(midpnt.y, precision)
-    mp = 'x{}_y{}'.format(mpx, mpy)
+def _get_edge_identifier(e):
+    """This method is prone to error when precision is loose."""
+    precision = 10000
+    v0 = e.Vertexes[0].Point
+    v1 = e.Vertexes[1].Point
+    v0px = int(math.ceil(v0.x * precision))
+    v0py = int(math.ceil(v0.y * precision))
+    v1px = int(math.ceil(v1.x * precision))
+    v1py = int(math.ceil(v1.y * precision))
+    if v0px <= v1px:
+        mp = 'a{}_b{}_x{}_y{}'.format(v0px, v0py, v1px, v1py)
+    else:
+        mp = 'a{}_b{}_x{}_y{}'.format(v1px, v1py, v0px, v0py)
+
     return mp
 
 
