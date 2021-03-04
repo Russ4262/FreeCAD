@@ -35,6 +35,7 @@ import PathScripts.PathSetupSheet as PathSetupSheet
 import PathScripts.PathUtil as PathUtil
 import PathScripts.PathUtils as PathUtils
 import importlib
+import PathScripts.PathSelectionUtilsGui as PathSelectionUtilsGui
 
 from PySide import QtCore, QtGui
 
@@ -443,6 +444,8 @@ class TaskPanelBaseGeometryPage(TaskPanelPage):
         self.panelTitle = 'Base Geometry'
         self.OpIcon = ":/icons/Path_BaseGeometry.svg"
         self.setIcon(self.OpIcon)
+        self.selectionUtilsSidebar = None
+        self.selectionSidebar = PathSelectionUtilsGui.SelectionUtils(self.obj)
 
     def getForm(self):
         panel = FreeCADGui.PySideUic.loadUi(":/panels/PageBaseGeometryEdit.ui")
@@ -473,6 +476,8 @@ class TaskPanelBaseGeometryPage(TaskPanelPage):
         else:
             panel.geometryImportList.hide()
             panel.geometryImportButton.hide()
+        
+        self._add_selection_utils_button(panel)
 
     def getTitle(self, obj):
         return translate("PathOp", "Base Geometry")
@@ -618,6 +623,7 @@ class TaskPanelBaseGeometryPage(TaskPanelPage):
         self.form.deleteBase.clicked.connect(self.deleteBase)
         self.form.clearBase.clicked.connect(self.clearBase)
         self.form.geometryImportButton.clicked.connect(self.importBaseGeometry)
+        self.form.selectionUtilBtn.clicked.connect(self._open_selection_utils)
 
     def pageUpdateData(self, obj, prop):
         if prop in ['Base']:
@@ -646,6 +652,16 @@ class TaskPanelBaseGeometryPage(TaskPanelPage):
         #qList.setMinimumHeight(row)
         PathLog.debug("baseList({}, {}) {} * {}".format(qList.size(), row, qList.count(), qList.sizeHintForRow(0)))
 
+    def _add_selection_utils_button(self, panel):
+        btn = QtGui.QPushButton("Selection Utility", panel)
+        btn.setToolTip("Click to open the Selection Utility sidebar.")
+        panel.gridLayout.addWidget(btn)
+        panel.selectionUtilBtn = btn
+
+    def _open_selection_utils(self):
+        # self.selectionUtilsSidebar = PathSelectionUtilsGui.SelectionUtils(self.obj)
+        # sidebar = PathSelectionUtilsGui.SelectionUtils(self.obj)
+        self.selectionSidebar.gui_show_form()
 
 class TaskPanelBaseLocationPage(TaskPanelPage):
     '''Page controller for base locations. Uses PathGetPoint.'''
@@ -1002,6 +1018,7 @@ class TaskPanel(object):
         FreeCAD.ActiveDocument.openTransaction(translate("Path", "AreaOp Operation"))
         self.deleteOnReject = deleteOnReject
         self.featurePages = []
+        self.sidebar = None
 
         # members initialized later
         self.clearanceHeight = None
@@ -1022,6 +1039,9 @@ class TaskPanel(object):
                 self.featurePages.append(opPage.taskPanelBaseGeometryPage(obj, features))
             else:
                 self.featurePages.append(TaskPanelBaseGeometryPage(obj, features))
+            # Enable reference to sidebar with selection utilities
+            last = len(self.featurePages) - 1
+            self.sidebar = self.featurePages[last].selectionSidebar
 
         if PathOp.FeatureLocations & features:
             if hasattr(opPage, 'taskPanelBaseLocationPage'):
@@ -1117,6 +1137,7 @@ class TaskPanel(object):
             self.panelGetFields()
         FreeCAD.ActiveDocument.commitTransaction()
         self.cleanup(resetEdit)
+        self._close_sidebar()
 
     def reject(self, resetEdit=True):
         '''reject() ... callback invoked when user presses the task panel Cancel button.'''
@@ -1131,7 +1152,14 @@ class TaskPanel(object):
                 PathLog.debug('{}\n'.format(ee))
             FreeCAD.ActiveDocument.commitTransaction()
         self.cleanup(resetEdit)
+        self._close_sidebar()
         return True
+
+    def _close_sidebar(self):
+        # close selection utility sidebar if open
+        if self.sidebar:
+            if self.sidebar.dockedWindow:
+                self.sidebar.dockedWindow.close()
 
     def preCleanup(self):
         for page in self.featurePages:
