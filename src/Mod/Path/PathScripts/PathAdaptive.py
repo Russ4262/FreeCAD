@@ -543,10 +543,9 @@ def _get_working_edges(op, obj):
     Additional modifications to selected region(face), such as extensions,
     should be placed within this function.
     """
-    pathArray = list()
-    edge_data = list()
-    edge_list = list()
+    regions = list()
 
+    # Get faces selected by user
     for base, subs in obj.Base:
         for sub in subs:
             if obj.UseOutline:
@@ -560,36 +559,40 @@ def _get_working_edges(op, obj):
                     shape.translate(FreeCAD.Vector(0.0, 0.0, zmin - shape.BoundBox.ZMin))
             else:
                 shape = base.Shape.getElement(sub)
-
-            # Only add edges not found in extensions wires earlier
-            for e in shape.Edges:
-                mp = _get_edge_identifier(e)
-                edge_data.append(mp)
-                edge_list.append(e)
+            regions.append(shape)
     # Efor
 
-    # add edges from active extensions
+    # add extension faces
     op.exts = [] # pylint: disable=attribute-defined-outside-init
     for ext in FeatureExtensions.getExtensions(obj):
         wire = ext.getWire()
         if wire:
             face = Part.Face(wire)
             op.exts.append(face)
-            for e in face.Edges:
-                mp = _get_edge_identifier(e)
-                if mp in edge_data:
-                    # Edge exists. Remove it.
-                    i = edge_data.index(mp)
-                    edge_data.pop(i)
-                    edge_list.pop(i)
-                else:
-                    edge_data.append(mp)
-                    edge_list.append(e)
+            regions.append(face)
+    
+    # identify unique edges, eliminating shared edges between faces
+    unique_edges = _get_unique_edges(regions)
 
-    for edge in edge_list:
-        pathArray.append([discretize(edge)])
+    return [[discretize(ue)] for ue in unique_edges]
 
-    return pathArray
+
+def _get_unique_edges(faces):
+    edge_data = list()
+    edge_list = list()
+
+    for f in faces:
+        for e in f.Edges:
+            edgId = _get_edge_identifier(e)
+            if edgId in edge_data:
+                # Edge exists. Remove it.
+                i = edge_data.index(edgId)
+                edge_data.pop(i)
+                edge_list.pop(i)
+            else:
+                edge_data.append(edgId)
+                edge_list.append(e)
+    return edge_list
 
 
 def _get_edge_identifier(e):
