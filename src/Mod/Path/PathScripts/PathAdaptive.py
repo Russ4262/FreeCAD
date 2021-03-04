@@ -39,8 +39,8 @@ from lazy_loader.lazy_loader import LazyLoader
 Part = LazyLoader('Part', globals(), 'Part')
 TechDraw = LazyLoader('TechDraw', globals(), 'TechDraw')
 FeatureExtensions = LazyLoader('PathScripts.features.PathFeatureExtensions',
-                                globals(),
-                                'PathScripts.features.PathFeatureExtensions')
+                               globals(),
+                               'PathScripts.features.PathFeatureExtensions')
 
 __doc__ = "Class and implementation of the Adaptive path operation."
 
