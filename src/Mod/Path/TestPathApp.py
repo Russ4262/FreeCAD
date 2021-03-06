@@ -43,6 +43,7 @@ from PathTests.TestPathDeburr  import TestPathDeburr
 from PathTests.TestPathHelix  import TestPathHelix
 from PathTests.TestPathVoronoi  import TestPathVoronoi
 from PathTests.TestPathThreadMilling  import TestPathThreadMilling
+from PathTests.TestPathAdaptive  import TestPathAdaptive
 from PathTests.TestPathVcarve  import TestPathVcarve
 
 # dummy usage to get flake8 and lgtm quiet
@@ -68,4 +69,5 @@ False if TestPathVoronoi.__name__ else True
 False if TestPathThreadMilling.__name__ else True
 False if TestPathVcarve.__name__ else True
 False if TestPathPropertyBag.__name__ else True
+False if TestPathAdaptive.__name__ else True
 
