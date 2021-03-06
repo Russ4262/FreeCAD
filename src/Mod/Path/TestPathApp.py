@@ -46,28 +46,27 @@ from PathTests.TestPathThreadMilling  import TestPathThreadMilling
 from PathTests.TestPathAdaptive  import TestPathAdaptive
 from PathTests.TestPathVcarve  import TestPathVcarve
 
-# dummy usage to get flake8 and lgtm quiet
+# dummy usage to get flake8 and lgtm quiet - alphabetically sorted
 False if TestApp.__name__ else True
-False if TestPathLog.__name__ else True
-False if TestPathCore.__name__ else True
-False if TestPathGeom.__name__ else True
-False if TestPathOpTools.__name__ else True
-False if TestPathUtil.__name__ else True
-False if depthTestCases.__name__ else True
-False if TestHoldingTags.__name__ else True
 False if TestDressupDogbone.__name__ else True
-False if TestPathStock.__name__ else True
-False if TestPathTool.__name__ else True
-False if TestPathTooltable.__name__ else True
-False if TestPathToolController.__name__ else True
-False if TestPathSetupSheet.__name__ else True
-False if TestPathDeburr.__name__ else True
-False if TestPathHelix.__name__ else True
-False if TestPathPreferences.__name__ else True
-False if TestPathToolBit.__name__ else True
-False if TestPathVoronoi.__name__ else True
-False if TestPathThreadMilling.__name__ else True
-False if TestPathVcarve.__name__ else True
-False if TestPathPropertyBag.__name__ else True
+False if TestHoldingTags.__name__ else True
 False if TestPathAdaptive.__name__ else True
-
+False if TestPathCore.__name__ else True
+False if TestPathDeburr.__name__ else True
+False if TestPathGeom.__name__ else True
+False if TestPathHelix.__name__ else True
+False if TestPathLog.__name__ else True
+False if TestPathOpTools.__name__ else True
+False if TestPathPreferences.__name__ else True
+False if TestPathPropertyBag.__name__ else True
+False if TestPathSetupSheet.__name__ else True
+False if TestPathStock.__name__ else True
+False if TestPathThreadMilling.__name__ else True
+False if TestPathTool.__name__ else True
+False if TestPathToolBit.__name__ else True
+False if TestPathToolController.__name__ else True
+False if TestPathTooltable.__name__ else True
+False if TestPathUtil.__name__ else True
+False if TestPathVcarve.__name__ else True
+False if TestPathVoronoi.__name__ else True
+False if depthTestCases.__name__ else True
