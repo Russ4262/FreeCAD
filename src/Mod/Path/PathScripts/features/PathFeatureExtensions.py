@@ -29,6 +29,7 @@ import math
 # lazily loaded modules
 from lazy_loader.lazy_loader import LazyLoader
 Part = LazyLoader('Part', globals(), 'Part')
+PathUtils = LazyLoader('PathScripts.PathUtils', globals(), 'PathScripts.PathUtils')
 
 from PySide import QtCore
 
@@ -288,6 +289,8 @@ def initialize_properties(obj):
     if not hasattr(obj, 'ExtensionCorners'):
         obj.addProperty('App::PropertyBool', 'ExtensionCorners', 'Extension', QtCore.QT_TRANSLATE_NOOP('PathPocketShape', 'When enabled connected extension edges are combined to wires.'))
         obj.ExtensionCorners = True
+    if not hasattr(obj, 'ExtendOutline'):
+        obj.addProperty('App::PropertyLength', 'ExtendOutline', 'Extension', QtCore.QT_TRANSLATE_NOOP('PathPocketShape', 'When enabled connected extension edges are combined to wires.'))
 
     obj.setEditorMode('ExtensionFeature', 2)
 
@@ -295,11 +298,63 @@ def initialize_properties(obj):
 def set_default_property_values(obj, job):
     """set_default_property_values(obj, job) ... set default values for feature properties"""
     obj.ExtensionCorners = True
+    obj.ExtendOutline.Value = 0.0
     obj.setExpression('ExtensionLengthDefault', 'OpToolDiameter / 2.0')
 
 
 def SetupProperties():
     """SetupProperties()... Returns list of feature property names"""
     setup = ['ExtensionLengthDefault', 'ExtensionFeature',
-             'ExtensionCorners']
+             'ExtensionCorners', 'ExtendOutline']
     return setup
+
+
+# All access extension code
+def _getExtendOutlineFace(obj, base_shape, face, extension):
+    """_getExtendOutlineFace(obj, base_shape, face, extension) ...
+    Creates an extended face for the pocket, taking into consideration lateral
+    collision with the greater base shape.
+    Arguments are:
+        path object, base shape of face, target face,
+        extension magnitude, discretize factor
+    Return is an all access face extending the specified extension value from the source face.
+    """
+    ofst_tolernc = 1e-4  # This is default value at getOffsetArea() function definition
+
+    # Make offset face per user-specified extension distance so as to allow full clearing of face where possible.
+    if hasattr(obj, "UseOutline"):
+        remHoles = obj.UseOutline
+    else:
+        remHoles = False
+    offset_face = PathUtils.getOffsetArea(face,
+                                extension,
+                                removeHoles=remHoles,
+                                plane=face,
+                                tolerance=ofst_tolernc)
+    # Part.show(offset_face)  # Debug
+
+    # Apply collision detection by limiting extended face using base shape
+    offset_ext = offset_face.extrude(FreeCAD.Vector(0.0, 0.0, 1.0))
+    face_del = offset_face.extrude(FreeCAD.Vector(0.0, 0.0, -1.0))
+    clear = base_shape.cut(face_del)
+    available = offset_ext.cut(clear)
+    available.removeSplitter()
+    # Part.show(available)  # Debug
+
+    # Identify bottom face of available volume
+    zmin = available.Face2.BoundBox.ZMax
+    bottom_face = None
+    for f in available.Faces:
+        bbx = f.BoundBox
+        zNorm = abs(f.normalAt(0.0, 0.0).z)
+        if (PathGeom.isRoughly(zNorm, 1.0) and
+            PathGeom.isRoughly(bbx.ZMax - bbx.ZMin, 0.0) and
+            PathGeom.isRoughly(bbx.ZMin, face.BoundBox.ZMin)):
+            if bbx.ZMin < zmin:
+                bottom_face = f
+
+    # Drop travel face to same height as source face
+    diff = face.BoundBox.ZMax - bottom_face.BoundBox.ZMax
+    bottom_face.translate(FreeCAD.Vector(0.0, 0.0, diff))
+
+    return bottom_face
