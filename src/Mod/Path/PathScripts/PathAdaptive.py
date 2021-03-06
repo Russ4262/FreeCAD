@@ -33,6 +33,7 @@ import json
 import math
 import area
 from pivy import coin
+from PySide import QtCore
 
 # lazily loaded modules
 from lazy_loader.lazy_loader import LazyLoader
@@ -43,6 +44,11 @@ FeatureExtensions = LazyLoader('PathScripts.features.PathFeatureExtensions',
                                'PathScripts.features.PathFeatureExtensions')
 
 __doc__ = "Class and implementation of the Adaptive path operation."
+
+
+# Qt translation handling
+def translate(context, text, disambig=None):
+    return QtCore.QCoreApplication.translate(context, text, disambig)
 
 
 def convertTo2d(pathArray):
