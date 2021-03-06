@@ -185,6 +185,17 @@ class TaskPanelExtensionPage(PathOpGui.TaskPanelPage):
 
     def getForm(self):
         form = FreeCADGui.PySideUic.loadUi(":/panels/PageOpPocketExtEdit.ui")
+
+        # Add input for Extend Outline extension
+        form.extendOutlineLabel = QtGui.QLabel("Extend Outline")
+        form.extendOutline = QtGui.QDoubleSpinBox()
+        form.extendOutline.setMinimum(0.0)
+        form.extendOutline.setSingleStep(1.0)
+        form.extendOutline.setValue(0.0)
+        form.extendOutline.setToolTip("Extend the outline with the value provided.  Lateral collision avoidance is active.")
+        form.gridLayout.addWidget(form.extendOutlineLabel)
+        form.gridLayout.addWidget(form.extendOutline)
+
         return form
 
     def forAllItemsCall(self, cb):
@@ -218,6 +229,7 @@ class TaskPanelExtensionPage(PathOpGui.TaskPanelPage):
         if obj.ExtensionCorners != self.form.extendCorners.isChecked():
             obj.ExtensionCorners = self.form.extendCorners.isChecked()
         self.defaultLength.updateProperty()
+        obj.ExtendOutline.Value = self.form.extendOutline.value()
 
         self.updateProxyExtensions(obj)
         self.blockUpdateData = False # pylint: disable=attribute-defined-outside-init
@@ -231,6 +243,7 @@ class TaskPanelExtensionPage(PathOpGui.TaskPanelPage):
         # self.extensions = obj.Proxy.getExtensions(obj) # pylint: disable=attribute-defined-outside-init
         self.extensions = FeatureExtensions.getExtensions(obj) # pylint: disable=attribute-defined-outside-init
         self.setExtensions(self.extensions)
+        self.form.extendOutline.setValue(obj.ExtendOutline.Value)
 
     def createItemForBaseModel(self, base, sub, edges, extensions):
         PathLog.track(base.Label, sub, '+', len(edges), len(base.Shape.getElement(sub).Edges))
@@ -458,6 +471,7 @@ class TaskPanelExtensionPage(PathOpGui.TaskPanelPage):
         PathLog.track(obj.Label)
         signals = []
         signals.append(self.form.defaultLength.valueChanged)
+        signals.append(self.form.extendOutline.valueChanged)
         return signals
 
     def registerSignalHandlers(self, obj):
