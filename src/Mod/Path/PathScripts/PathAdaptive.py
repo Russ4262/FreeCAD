@@ -554,7 +554,7 @@ def _get_working_edges(op, obj):
     # Get faces selected by user
     for base, subs in obj.Base:
         for sub in subs:
-            if obj.UseOutline:
+            if obj.UseOutline and obj.ExtendOutline.Value == 0.0:
                 face = base.Shape.getElement(sub)
                 zmin = face.BoundBox.ZMin
                 # get face outline with same method in PocketShape
@@ -569,18 +569,38 @@ def _get_working_edges(op, obj):
     # Efor
 
     # add extension faces
-    op.exts = [] # pylint: disable=attribute-defined-outside-init
-    for ext in FeatureExtensions.getExtensions(obj):
-        wire = ext.getWire()
-        if wire:
-            face = Part.Face(wire)
-            op.exts.append(face)
-            regions.append(face)
-    
-    # identify unique edges, eliminating shared edges between faces
-    unique_edges = _get_unique_edges(regions)
+    if obj.ExtendOutline.Value > 0.0:
+        # Apply Extend Outline extension
+        edge_list = list()
+        extend = obj.ExtendOutline.Value
+        if obj.Side == 'Outside':
+            extend *= -1.0
 
-    return [[discretize(ue)] for ue in unique_edges]
+        for f in regions:
+            extFace = FeatureExtensions._getExtendOutlineFace(obj, base.Shape,
+                                                              f, extend)
+            if extFace:
+                face = extFace
+            else:
+                Console.PrintError(translate("PathAdaptive", "Extend Outline error"))
+                face = f
+
+            for e in face.Edges:
+                edge_list.append([discretize(e)])
+        return edge_list
+    else:
+        # Apply regular Extensions
+        op.exts = [] # pylint: disable=attribute-defined-outside-init
+        for ext in FeatureExtensions.getExtensions(obj):
+            wire = ext.getWire()
+            if wire:
+                face = Part.Face(wire)
+                op.exts.append(face)
+                regions.append(face)
+    
+        # identify unique edges, eliminating shared edges between faces
+        unique_edges = _get_unique_edges(regions)
+        return [[discretize(ue)] for ue in unique_edges]
 
 
 def _get_unique_edges(faces):
@@ -706,6 +726,7 @@ class PathAdaptive(PathOp.ObjectOp):
                             "UseOutline",
                             "Adaptive",
                             "Uses the outline of the base geometry.")
+        FeatureExtensions.initialize_properties(obj)
 
 
 def Create(name, obj=None):
