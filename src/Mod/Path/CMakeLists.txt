@@ -242,6 +242,7 @@ SET(PathTests_SRCS
     PathTests/TestPathPropertyBag.py
     PathTests/TestPathRotationGenerator.py
     PathTests/TestPathSetupSheet.py
+    PathTests/TestPathSlot.py
     PathTests/TestPathStock.py
     PathTests/TestPathThreadMilling.py
     PathTests/TestPathThreadMillingGenerator.py

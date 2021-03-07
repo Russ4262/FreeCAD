@@ -22,24 +22,23 @@
 
 import TestApp
 
+
+# from PathTests.TestPathHelix import TestPathHelix
+# from PathTests.TestPathPost import PathPostTestCases
 from PathTests.TestPathAdaptive import TestPathAdaptive
 from PathTests.TestPathCore import TestPathCore
+from PathTests.TestPathDeburr import TestPathDeburr
 from PathTests.TestPathDepthParams import depthTestCases
 from PathTests.TestPathDressupDogbone import TestDressupDogbone
 from PathTests.TestPathDressupHoldingTags import TestHoldingTags
 from PathTests.TestPathDrillable import TestPathDrillable
 from PathTests.TestPathDrillGenerator import TestPathDrillGenerator
 from PathTests.TestPathGeom import TestPathGeom
-
-# from PathTests.TestPathHelix import TestPathHelix
-from PathTests.TestPathHelpers import TestPathHelpers
+from PathTests.TestPathHelix import TestPathHelix
 from PathTests.TestPathHelixGenerator import TestPathHelixGenerator
+from PathTests.TestPathHelpers import TestPathHelpers
 from PathTests.TestPathLog import TestPathLog
 from PathTests.TestPathOpTools import TestPathOpTools
-
-# from PathTests.TestPathPost import PathPostTestCases
-from PathTests.TestPathDeburr import TestPathDeburr
-from PathTests.TestPathHelix import TestPathHelix
 from PathTests.TestPathPost import TestPathPostImport
 from PathTests.TestPathPost import TestPathPostUtils
 from PathTests.TestPathPreferences import TestPathPreferences
@@ -47,6 +46,7 @@ from PathTests.TestPathProfile import TestPathProfile
 from PathTests.TestPathPropertyBag import TestPathPropertyBag
 from PathTests.TestPathRotationGenerator import TestPathRotationGenerator
 from PathTests.TestPathSetupSheet import TestPathSetupSheet
+from PathTests.TestPathSlot import TestPathSlot
 from PathTests.TestPathStock import TestPathStock
 from PathTests.TestPathThreadMilling import TestPathThreadMilling
 from PathTests.TestPathThreadMillingGenerator import TestPathThreadMillingGenerator
@@ -84,6 +84,7 @@ False if TestPathProfile.__name__ else True
 False if TestPathPropertyBag.__name__ else True
 False if TestPathRotationGenerator.__name__ else True
 False if TestPathSetupSheet.__name__ else True
+False if TestPathSlot.__name__ else True
 False if TestPathStock.__name__ else True
 False if TestPathThreadMilling.__name__ else True
 False if TestPathThreadMillingGenerator.__name__ else True
