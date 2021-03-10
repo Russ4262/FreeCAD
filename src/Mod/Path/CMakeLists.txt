@@ -137,6 +137,7 @@ SET(PathScripts_SRCS
     PathScripts/PathWaterline.py
     PathScripts/PathWaterlineGui.py
     PathScripts/PostUtils.py
+    PathScripts/TaskPanelPageGui.py
     PathScripts/__init__.py
 )
 

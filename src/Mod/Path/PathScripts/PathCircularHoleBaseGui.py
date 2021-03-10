@@ -25,6 +25,7 @@ import FreeCADGui
 import PathGui as PGui # ensure Path/Gui/Resources are loaded
 import PathScripts.PathLog as PathLog
 import PathScripts.PathOpGui as PathOpGui
+import PathScripts.TaskPanelPageGui as TaskPanelPageGui
 
 from PySide import QtCore, QtGui
 
@@ -41,7 +42,7 @@ if LOGLEVEL:
 else:
     PathLog.setLevel(PathLog.Level.NOTICE, PathLog.thisModule())
 
-class TaskPanelHoleGeometryPage(PathOpGui.TaskPanelBaseGeometryPage):
+class TaskPanelHoleGeometryPage(TaskPanelPageGui.TaskPanelBaseGeometryPage):
     '''Controller class to be used for the BaseGeomtery page.
     Circular holes don't just display the feature, they also add a column
     displaying the radius the feature describes. This page provides that
@@ -179,7 +180,7 @@ class TaskPanelHoleGeometryPage(PathOpGui.TaskPanelBaseGeometryPage):
         if not self.updating and prop in ['Base', 'Disabled']:
             self.setFields(obj)
 
-class TaskPanelOpPage(PathOpGui.TaskPanelPage):
+class TaskPanelOpPage(TaskPanelPageGui.TaskPanelPage):
     '''Base class for circular hole based operation's page controller.'''
 
     def taskPanelBaseGeometryPage(self, obj, features):

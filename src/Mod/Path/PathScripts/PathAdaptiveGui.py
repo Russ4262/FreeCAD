@@ -22,11 +22,12 @@
 # ***************************************************************************
 
 import PathScripts.PathOpGui as PathOpGui
+import PathScripts.TaskPanelPageGui as TaskPanelPageGui
 from PySide import QtCore, QtGui
 import PathScripts.PathAdaptive as PathAdaptive
 
 
-class TaskPanelOpPage(PathOpGui.TaskPanelPage):
+class TaskPanelOpPage(TaskPanelPageGui.TaskPanelPage):
     def initPage(self, obj):
         self.setTitle("Adaptive path operation")
 

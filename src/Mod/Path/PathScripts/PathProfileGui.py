@@ -25,6 +25,7 @@ import FreeCADGui
 import PathGui as PGui # ensure Path/Gui/Resources are loaded
 import PathScripts.PathGui as PathGui
 import PathScripts.PathOpGui as PathOpGui
+import PathScripts.TaskPanelPageGui as TaskPanelPageGui
 import PathScripts.PathProfile as PathProfile
 
 from PySide import QtCore
@@ -44,7 +45,7 @@ def translate(context, text, disambig=None):
     return QtCore.QCoreApplication.translate(context, text, disambig)
 
 
-class TaskPanelOpPage(PathOpGui.TaskPanelPage):
+class TaskPanelOpPage(TaskPanelPageGui.TaskPanelPage):
     '''Base class for profile operation page controllers. Two sub features are supported:
         FeatureSide       ... Is the Side property exposed in the UI
         FeatureProcessing ... Are the processing check boxes supported by the operation

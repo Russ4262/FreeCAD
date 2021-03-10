@@ -25,6 +25,7 @@ import FreeCADGui
 import PathGui as PGui # ensure Path/Gui/Resources are loaded
 import PathScripts.PathCustom as PathCustom
 import PathScripts.PathOpGui as PathOpGui
+import PathScripts.TaskPanelPageGui as TaskPanelPageGui
 
 from PySide import QtCore
 
@@ -39,14 +40,14 @@ def translate(context, text, disambig=None):
     return QtCore.QCoreApplication.translate(context, text, disambig)
 
 
-# class TaskPanelBaseGeometryPage(PathOpGui.TaskPanelBaseGeometryPage):
+# class TaskPanelBaseGeometryPage(TaskPanelPageGui.TaskPanelBaseGeometryPage):
 #     '''Page controller for the base geometry.'''
 
 #     def getForm(self):
 #         return None
 
 
-class TaskPanelOpPage(PathOpGui.TaskPanelPage):
+class TaskPanelOpPage(TaskPanelPageGui.TaskPanelPage):
     '''Page controller class for the Custom operation.'''
 
     def getForm(self):
