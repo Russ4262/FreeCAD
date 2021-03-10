@@ -678,7 +678,14 @@ class TaskPanelDepthsPage(TaskPanelPage):
         self.setIcon(self.OpIcon)
 
     def getForm(self):
-        return FreeCADGui.PySideUic.loadUi(":/panels/PageDepthsEdit.ui")
+        panel = FreeCADGui.PySideUic.loadUi(":/panels/PageDepthsEdit.ui")
+        btn = QtGui.QPushButton("Show Op Page", panel)
+        btn.setToolTip("Click to show or hide operation page.")
+        btn.setCheckable(True)
+        btn.setChecked(True)
+        panel.gridLayout.addWidget(btn)
+        panel.toggleOpBtn = btn
+        return panel
 
     def haveStartDepth(self):
         return PathOp.FeatureDepths & self.features
@@ -765,6 +772,7 @@ class TaskPanelDepthsPage(TaskPanelPage):
             self.form.startDepthSet.clicked.connect(lambda: self.depthSet(obj, self.startDepth, 'StartDepth'))
         if self.haveFinalDepth():
             self.form.finalDepthSet.clicked.connect(lambda: self.depthSet(obj, self.finalDepth, 'FinalDepth'))
+        self.form.toggleOpBtn.clicked.connect(self.parent._toggleOpPage)
 
     def pageUpdateData(self, obj, prop):
         if prop in ['StartDepth', 'FinalDepth', 'StepDown', 'FinishDepth']:
