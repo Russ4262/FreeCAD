@@ -199,6 +199,8 @@ class TaskPanel(object):
         self.deleteOnReject = deleteOnReject
         self.featurePages = []
         self.form = None
+        self.opPageVisibility = True
+        self.opPageIdx = 0
 
         # members initialized later
         self.clearanceHeight = None
@@ -264,6 +266,7 @@ class TaskPanel(object):
             page.initPage(obj)
             page.onDirtyChanged(self.pageDirtyChanged)
             page.setParent(self)
+        self.opPageIdx = len(self.featurePages) - 1
 
         taskPanelLayout = PathPreferences.defaultTaskPanelLayout()
 
@@ -429,6 +432,16 @@ class TaskPanel(object):
         sel = FreeCADGui.Selection.getSelectionEx()
         for page in self.featurePages:
             page.updateSelection(self.obj, sel)
+
+    # Method for enabling/disabling operation tab task panel
+    def _toggleOpPage(self):
+        '''_toggleOpPage()... receiver of toggle op button slot in TaskPanelDepths UI'''
+        if self.opPageVisibility:
+            self.form.setItemEnabled(self.opPageIdx, False)
+            self.opPageVisibility = False
+        else:
+            self.form.setItemEnabled(self.opPageIdx, True)
+            self.opPageVisibility = True
 
     # SelectionObserver interface
     def addSelection(self, doc, obj, sub, pnt):
