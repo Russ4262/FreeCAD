@@ -27,6 +27,7 @@ import PathGui as PGui # ensure Path/Gui/Resources are loaded
 import PathScripts.PathVcarve as PathVcarve
 import PathScripts.PathLog as PathLog
 import PathScripts.PathOpGui as PathOpGui
+import PathScripts.TaskPanelPageGui as TaskPanelPageGui
 import PathScripts.PathUtils as PathUtils
 
 from PySide import QtCore, QtGui
@@ -47,7 +48,7 @@ def translate(context, text, disambig=None):
     return QtCore.QCoreApplication.translate(context, text, disambig)
 
 
-class TaskPanelBaseGeometryPage(PathOpGui.TaskPanelBaseGeometryPage):
+class TaskPanelBaseGeometryPage(TaskPanelPageGui.TaskPanelBaseGeometryPage):
     '''Enhanced base geometry page to also allow special base objects.'''
 
     def super(self):
@@ -113,7 +114,7 @@ class TaskPanelBaseGeometryPage(PathOpGui.TaskPanelBaseGeometryPage):
         return self.super().updateBase()
 
 
-class TaskPanelOpPage(PathOpGui.TaskPanelPage):
+class TaskPanelOpPage(TaskPanelPageGui.TaskPanelPage):
     '''Page controller class for the Vcarve operation.'''
 
     def getForm(self):

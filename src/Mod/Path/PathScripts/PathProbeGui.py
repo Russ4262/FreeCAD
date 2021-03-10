@@ -25,6 +25,7 @@ import FreeCADGui
 import PathGui as PGui # ensure Path/Gui/Resources are loaded
 import PathScripts.PathProbe as PathProbe
 import PathScripts.PathOpGui as PathOpGui
+import PathScripts.TaskPanelPageGui as TaskPanelPageGui
 import PathScripts.PathGui as PathGui
 
 from PySide import QtCore, QtGui
@@ -40,7 +41,7 @@ def translate(context, text, disambig=None):
     return QtCore.QCoreApplication.translate(context, text, disambig)
 
 
-class TaskPanelOpPage(PathOpGui.TaskPanelPage):
+class TaskPanelOpPage(TaskPanelPageGui.TaskPanelPage):
     '''Page controller class for the Probing operation.'''
 
     def getForm(self):

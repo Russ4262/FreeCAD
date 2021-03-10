@@ -25,6 +25,7 @@ import FreeCADGui
 import PathGui as PGui # ensure Path/Gui/Resources are loaded
 import PathScripts.PathGui as PathGui
 import PathScripts.PathOpGui as PathOpGui
+import PathScripts.TaskPanelPageGui as TaskPanelPageGui
 
 from PySide import QtCore #, QtGui
 
@@ -40,7 +41,7 @@ FeaturePocket   = 0x01
 FeatureFacing   = 0x02
 FeatureOutline  = 0x04
 
-class TaskPanelOpPage(PathOpGui.TaskPanelPage):
+class TaskPanelOpPage(TaskPanelPageGui.TaskPanelPage):
     '''Page controller class for pocket operations, supports:
           FeaturePocket  ... used for pocketing operation
           FeatureFacing  ... used for face milling operation

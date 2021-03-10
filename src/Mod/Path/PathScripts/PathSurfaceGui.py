@@ -26,6 +26,7 @@ import PathGui as PGui # ensure Path/Gui/Resources are loaded
 import PathScripts.PathSurface as PathSurface
 import PathScripts.PathGui as PathGui
 import PathScripts.PathOpGui as PathOpGui
+import PathScripts.TaskPanelPageGui as TaskPanelPageGui
 
 from PySide import QtCore
 
@@ -35,7 +36,7 @@ __url__ = "https://www.freecadweb.org"
 __doc__ = "Surface operation page controller and command implementation."
 
 
-class TaskPanelOpPage(PathOpGui.TaskPanelPage):
+class TaskPanelOpPage(TaskPanelPageGui.TaskPanelPage):
     '''Page controller class for the Surface operation.'''
 
     def initPage(self, obj):

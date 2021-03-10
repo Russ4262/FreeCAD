@@ -28,6 +28,7 @@ import PathGui as PGui # ensure Path/Gui/Resources are loaded
 import PathScripts.PathWaterline as PathWaterline
 import PathScripts.PathGui as PathGui
 import PathScripts.PathOpGui as PathOpGui
+import PathScripts.TaskPanelPageGui as TaskPanelPageGui
 
 from PySide import QtCore
 
@@ -37,7 +38,7 @@ __url__ = "http://www.freecadweb.org"
 __doc__ = "Waterline operation page controller and command implementation."
 
 
-class TaskPanelOpPage(PathOpGui.TaskPanelPage):
+class TaskPanelOpPage(TaskPanelPageGui.TaskPanelPage):
     '''Page controller class for the Waterline operation.'''
 
     def initPage(self, obj):
