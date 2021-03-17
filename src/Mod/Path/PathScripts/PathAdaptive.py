@@ -421,6 +421,9 @@ def Execute(op, obj):
 
         # Get list of working edges for adaptive algorithm
         pathArray = _get_working_edges(op, obj)
+        if not pathArray:
+            FreeCAD.Console.PrintError("No wire data returned.")
+            return
 
         path2d = convertTo2d(pathArray)
 
@@ -550,28 +553,27 @@ def _get_working_edges(op, obj):
     should be placed within this function.
     """
     regions = list()
+    all_regions = list()
+    edge_list = list()
 
     # Get faces selected by user
     for base, subs in obj.Base:
         for sub in subs:
-            if obj.UseOutline and obj.ExtendOutline.Value == 0.0:
+            if obj.UseOutline:
                 face = base.Shape.getElement(sub)
-                zmin = face.BoundBox.ZMin
-                # get face outline with same method in PocketShape
-                wire = TechDraw.findShapeOutline(face, 1, FreeCAD.Vector(0.0, 0.0, 1.0))
-                shape = Part.Face(wire)
-                # translate to face height if necessary
-                if shape.BoundBox.ZMin != zmin:
-                    shape.translate(FreeCAD.Vector(0.0, 0.0, zmin - shape.BoundBox.ZMin))
+                # get outline with wire_A method used in PocketShape, but it does not play nicely later
+                # wire_A = TechDraw.findShapeOutline(face, 1, FreeCAD.Vector(0.0, 0.0, 1.0))
+                wire_B = face.Wires[0]
+                shape = Part.Face(wire_B)
             else:
                 shape = base.Shape.getElement(sub)
             regions.append(shape)
     # Efor
 
-    # add extension faces
+    # Return Extend Outline extension, OR regular edge extension
+    all_regions = regions
     if obj.ExtendOutline.Value > 0.0:
         # Apply Extend Outline extension
-        edge_list = list()
         extend = obj.ExtendOutline.Value
         if obj.Side == 'Outside':
             extend *= -1.0
@@ -587,55 +589,75 @@ def _get_working_edges(op, obj):
 
             for e in face.Edges:
                 edge_list.append([discretize(e)])
-        return edge_list
     else:
         # Apply regular Extensions
         op.exts = [] # pylint: disable=attribute-defined-outside-init
         for ext in FeatureExtensions.getExtensions(obj):
             wire = ext.getWire()
             if wire:
-                face = Part.Face(wire)
-                op.exts.append(face)
-                regions.append(face)
-    
-        # identify unique edges, eliminating shared edges between faces
-        unique_edges = _get_unique_edges(regions)
-        return [[discretize(ue)] for ue in unique_edges]
+                extFace = ext.getExtensionFace(wire)
+                op.exts.append(extFace)
+                all_regions.append(extFace)
 
+        (outer, inner) = getCutRegionWires(all_regions)
+        if outer:
+            for w in outer:
+                w.translate(FreeCAD.Vector(0.0, 0.0, obj.FinalDepth.Value - w.BoundBox.ZMin))
+                for e in w.Edges:
+                    edge_list.append([discretize(e)])
+            if inner:
+                for w in inner:
+                    w.translate(FreeCAD.Vector(0.0, 0.0, obj.FinalDepth.Value - w.BoundBox.ZMin))
+                    for e in w.Edges:
+                        edge_list.append([discretize(e)])
 
-def _get_unique_edges(faces):
-    edge_data = list()
-    edge_list = list()
-
-    for f in faces:
-        for e in f.Edges:
-            edgId = _get_edge_identifier(e)
-            if edgId in edge_data:
-                # Edge exists. Remove it.
-                i = edge_data.index(edgId)
-                edge_data.pop(i)
-                edge_list.pop(i)
-            else:
-                edge_data.append(edgId)
-                edge_list.append(e)
     return edge_list
 
 
-def _get_edge_identifier(e):
-    """This method is prone to error when precision is loose."""
-    precision = 10000
-    v0 = e.Vertexes[0].Point
-    v1 = e.Vertexes[1].Point
-    v0px = int(math.ceil(v0.x * precision))
-    v0py = int(math.ceil(v0.y * precision))
-    v1px = int(math.ceil(v1.x * precision))
-    v1py = int(math.ceil(v1.y * precision))
-    if v0px <= v1px:
-        mp = 'a{}_b{}_x{}_y{}'.format(v0px, v0py, v1px, v1py)
-    else:
-        mp = 'a{}_b{}_x{}_y{}'.format(v1px, v1py, v0px, v0py)
+def getCutRegionWires(faces):
+    '''getCutRegionWires(faces)...
+    This function successfully identifies and combines multiple connected shapes and
+    works on multiple independent faces with multiple connected shapes within the list of faces.
+    The return value is an (outer, inner) tuple with each item being a list of those wires.
+    The Adaptive op is not concerned with which hole edges belong to which face.
 
-    return mp
+    Attempts to do the same shape connecting failed with TechDraw.findShapeOutline() and
+    PathGeom.combineConnectedShapes(), so this algorithm was created.
+    '''
+    outer, inner = None, None
+    offset = 10.0
+    topFace = None
+    innerFaces = list()
+
+    # Verify all incomming faces are at Z=0.0
+    for f in faces:
+        if f.BoundBox.ZMin != 0.0:
+            f.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - f.BoundBox.ZMin))
+
+    # Make offset compound boundbox solid and cut incoming face extrusions from it
+    allFaces = Part.makeCompound(faces)
+    afbb = allFaces.BoundBox
+    bboxFace = FeatureExtensions.makeBoundBoxFace(afbb, offset, -5.0)
+    bboxSolid = bboxFace.extrude(FreeCAD.Vector(0.0, 0.0, 10.0))
+    allFacesSolid = allFaces.extrude(FreeCAD.Vector(0.0, 0.0, 6.0))
+    cut = bboxSolid.cut(allFacesSolid)        
+
+    # Identify top face and floating inner faces that are the holes in incoming faces
+    for f in cut.Faces:
+        fbb = f.BoundBox
+        if PathGeom.isRoughly(fbb.ZMin, 5.0) and PathGeom.isRoughly(fbb.ZMax, 5.0):
+            if (PathGeom.isRoughly(afbb.XMin - offset, fbb.XMin) and
+                PathGeom.isRoughly(afbb.XMax + offset, fbb.XMax) and
+                PathGeom.isRoughly(afbb.YMin - offset, fbb.YMin) and
+                PathGeom.isRoughly(afbb.YMax + offset, fbb.YMax)):
+                topFace = f
+            else:
+                innerFaces.append(f)
+    if topFace:
+        outer = [w for w in topFace.Wires[1:]]
+        if innerFaces:
+            inner = [f.Wires[0] for f in innerFaces]
+    return (outer, inner)
 
 
 class PathAdaptive(PathOp.ObjectOp):
