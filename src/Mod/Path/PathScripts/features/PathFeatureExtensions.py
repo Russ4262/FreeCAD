@@ -159,6 +159,7 @@ class Extension(object):
         self.sub = sub
         self.length = length
         self.direction = direction
+        self.cutFaces = list()
 
         self.wire = None
 
@@ -217,7 +218,25 @@ class Extension(object):
 
         return self._getDirectedNormal(e0.valueAt(midparam), normal.normalize())
 
+    def getExtensionFace(self, extended_wire):
+        '''getExtensionFace(extended_wire)...
+        A public helper method to retrieve extensions as a face,
+        rather than a wire becuase some circular extensions are not solid circles
+        and require a face shape for definition that allows for two wires
+        for boundary definition.'''
+        face = Part.Face(extended_wire)
+        face.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - face.BoundBox.ZMin))
+        if self.cutFaces:
+            for cf in self.cutFaces:
+                cut = face.cut(cf)
+                face = cut
+            face.translate(FreeCAD.Vector(0.0, 0.0, extended_wire.BoundBox.ZMin))
+        return face
+
     def getWire(self):
+        '''getWire()... Public method to retrieve the extension area, pertaining to the feature
+        and sub element provided at class instantiation, as a closed wire.  If no closed wire
+        is possible, a `None` value is returned.'''
         PathLog.track()
         if PathGeom.isRoughly(0, self.length.Value) or not self.sub:
             PathLog.debug("no extension, length=%.2f, sub=%s" % (self.length.Value, self.sub))
@@ -244,6 +263,19 @@ class Extension(object):
                 else:
                     r = circle.Radius + self.length.Value
 
+                # handle internal holes to be removed from external circular extension
+                edgeFace = None
+                if len(feature.Wires) > 1:
+                    if Part.Wire([edge]).isClosed():
+                        edgeFace = Part.Face(Part.Wire([edge]))
+                        edgeFaceArea = edgeFace.Area
+                        for i in range(1, len(feature.Wires)):
+                            wr = feature.Wires[i]
+                            wireFace = Part.Face(wr)
+                            if wireFace.Area < (edgeFaceArea * 0.99):
+                                wireFace.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - wireFace.BoundBox.ZMin))
+                                self.cutFaces.append(wireFace)
+
                 # assuming the offset produces a valid circle - go for it
                 if r > 0:
                     e3 = Part.makeCircle(r, circle.Center, circle.Axis, edge.FirstParameter * 180 / math.pi, edge.LastParameter * 180 / math.pi)
@@ -251,9 +283,19 @@ class Extension(object):
                         # need to construct the arc slice
                         e0 = Part.makeLine(edge.valueAt(edge.FirstParameter), e3.valueAt(e3.FirstParameter))
                         e2 = Part.makeLine(edge.valueAt(edge.LastParameter), e3.valueAt(e3.LastParameter))
-                        return Part.Wire([e0, edge, e2, e3])
+                        ext_wire = Part.Wire([e0, edge, e2, e3])
+                        # Add original outer wire to cut faces if necessary
+                        if edgeFace and Part.Face(ext_wire).Area > edgeFace.Area:
+                            edgeFace.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - edgeFace.BoundBox.ZMin))
+                            self.cutFaces.append(edgeFace)
+                        return ext_wire
 
-                    return Part.Wire([e3])
+                    ext_wire = Part.Wire([e3])
+                    # Add original outer wire to cut faces if necessary
+                    if edgeFace and Part.Face(ext_wire).Area > edgeFace.Area:
+                        edgeFace.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - edgeFace.BoundBox.ZMin))
+                        self.cutFaces.append(edgeFace)
+                    return ext_wire
 
                 # the extension is bigger than the hole - so let's just cover the whole hole
                 if endPoints(edge):
