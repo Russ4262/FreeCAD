@@ -425,7 +425,7 @@ def Execute(op, obj):
         path2d = convertTo2d(pathArray)
 
         stockPaths = []
-        if op.stock.StockType == "CreateCylinder":
+        if hasattr(op.stock, "StockType") and op.stock.StockType == "CreateCylinder":
             stockPaths.append([discretize(op.stock.Shape.Edges[0])])
 
         else:
