@@ -1,0 +1,746 @@
+# -*- coding: utf-8 -*-
+# ***************************************************************************
+# *   Copyright (c) 2017 sliptonic <shopinthewoods@gmail.com>               *
+# *                                                                         *
+# *   This program is free software; you can redistribute it and/or modify  *
+# *   it under the terms of the GNU Lesser General Public License (LGPL)    *
+# *   as published by the Free Software Foundation; either version 2 of     *
+# *   the License, or (at your option) any later version.                   *
+# *   for detail see the LICENCE text file.                                 *
+# *                                                                         *
+# *   This program is distributed in the hope that it will be useful,       *
+# *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+# *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+# *   GNU Library General Public License for more details.                  *
+# *                                                                         *
+# *   You should have received a copy of the GNU Library General Public     *
+# *   License along with this program; if not, write to the Free Software   *
+# *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  *
+# *   USA                                                                   *
+# *                                                                         *
+# ***************************************************************************
+
+import FreeCAD
+import PathScripts.PathGeom as PathGeom
+import PathScripts.PathLog as PathLog
+import PathScripts.PathUtils as PathUtils
+import math
+from PySide import QtCore
+
+# lazily loaded modules
+from lazy_loader.lazy_loader import LazyLoader
+Part = LazyLoader('Part', globals(), 'Part')
+TechDraw = LazyLoader('TechDraw', globals(), 'TechDraw')
+
+
+__title__ = "Path Pocket Shape Operation"
+__author__ = "sliptonic (Brad Collette)"
+__url__ = "https://www.freecadweb.org"
+__doc__ = "Class and implementation of shape based Pocket operation."
+
+PathLog.setLevel(PathLog.Level.DEBUG, PathLog.thisModule())
+# PathLog.trackModule(PathLog.thisModule())
+
+
+# Qt translation handling
+def translate(context, text, disambig=None):
+    return QtCore.QCoreApplication.translate(context, text, disambig)
+
+
+def areaOpShapes(self, obj):
+    '''areaOpShapes(obj) ... return shapes representing the solids to be removed.'''
+    PathLog.track()
+    PathLog.debug("----- areaOpShapes() in PathPocketShape.py")
+
+    self.isDebug = True if PathLog.getLevel(PathLog.thisModule()) == 4 else False
+    baseSubsTuples = []
+    allTuples = []
+    subCount = 0
+
+    if obj.Base:
+        PathLog.debug('Processing obj.Base')
+        self.removalshapes = []  # pylint: disable=attribute-defined-outside-init
+
+        if obj.EnableRotation == 'Off':
+            stock = PathUtils.findParentJob(obj).Stock
+            for (base, subList) in obj.Base:
+                tup = (base, subList, 0.0, 'X', stock)
+                baseSubsTuples.append(tup)
+        else:
+            PathLog.debug('... Rotation is active')
+            # method call here
+            for p in range(0, len(obj.Base)):
+                (bst, at) = self.process_base_geometry_with_rotation(obj, p, subCount)
+                allTuples.extend(at)
+                baseSubsTuples.extend(bst)
+
+        for o in baseSubsTuples:
+            self.horiz = []  # pylint: disable=attribute-defined-outside-init
+            self.vert = []  # pylint: disable=attribute-defined-outside-init
+            subBase = o[0]
+            subsList = o[1]
+            angle = o[2]
+            axis = o[3]
+            # stock = o[4]
+
+            for sub in subsList:
+                if 'Face' in sub:
+                    if not self.clasifySub(subBase, sub):
+                        PathLog.error(translate('PathPocket', 'Pocket does not support shape %s.%s') % (subBase.Label, sub))
+                        if obj.EnableRotation != 'Off':
+                            PathLog.warning(translate('PathPocket', 'Face might not be within rotation accessibility limits.'))
+
+            # Determine final depth as highest value of bottom boundbox of vertical face,
+            #   in case of uneven faces on bottom
+            if len(self.vert) > 0:
+                vFinDep = self.vert[0].BoundBox.ZMin
+                for vFace in self.vert:
+                    if vFace.BoundBox.ZMin > vFinDep:
+                        vFinDep = vFace.BoundBox.ZMin
+                # Determine if vertical faces for a loop: Extract planar loop wire as new horizontal face.
+                self.vertical = PathGeom.combineConnectedShapes(self.vert) # pylint: disable=attribute-defined-outside-init
+                self.vWires = [TechDraw.findShapeOutline(shape, 1, FreeCAD.Vector(0, 0, 1)) for shape in self.vertical] # pylint: disable=attribute-defined-outside-init
+                for wire in self.vWires:
+                    w = PathGeom.removeDuplicateEdges(wire)
+                    face = Part.Face(w)
+                    # face.tessellate(0.1)
+                    if PathGeom.isRoughly(face.Area, 0):
+                        msg = translate('PathPocket', 'Vertical faces do not form a loop - ignoring')
+                        PathLog.error(msg)
+                    else:
+                        face.translate(FreeCAD.Vector(0, 0, vFinDep - face.BoundBox.ZMin))
+                        self.horiz.append(face)
+                        msg = translate('Path', 'Verify final depth of pocket shaped by vertical faces.')
+                        PathLog.warning(msg)
+
+            # add faces for extensions
+            self.exts = [] # pylint: disable=attribute-defined-outside-init
+            for ext in self.getExtensions(obj):
+                wire = ext.getWire()
+                if wire:
+                    face = ext.getCutFace(wire)  # Part.Face(wire)
+                    self.horiz.append(face)
+                    self.exts.append(face)
+
+            for h in self.horiz:
+                h.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - h.BoundBox.ZMin))
+
+            # check all faces and see if they are touching/overlapping and combine those into a compound
+            self.horizontal = [] # pylint: disable=attribute-defined-outside-init
+            for shape in PathGeom.combineConnectedShapes(self.horiz):
+                shape.sewShape()
+                # shape.tessellate(0.1)
+                shpZMin = shape.BoundBox.ZMin
+                PathLog.debug('PathGeom.combineConnectedShapes shape.BoundBox.ZMin: {}'.format(shape.BoundBox.ZMin))
+                if obj.UseOutline:
+                    wire = TechDraw.findShapeOutline(shape, 1, FreeCAD.Vector(0, 0, 1))
+                    wFace = Part.Face(wire)
+                    if wFace.BoundBox.ZMin != shpZMin:
+                        wFace.translate(FreeCAD.Vector(0, 0, shpZMin - wFace.BoundBox.ZMin))
+                    self.horizontal.append(wFace)
+                    PathLog.debug('PathGeom.combineConnectedShapes shape.BoundBox.ZMin: {}'.format(wFace.BoundBox.ZMin))
+                else:
+                    self.horizontal.append(shape)
+
+            # move all horizontal faces to FinalDepth
+            # extrude all faces up to StartDepth and those are the removal shapes
+            start_dep = obj.StartDepth.Value
+            clrnc = 0.5
+            # self._addDebugObject('subBase', subBase.Shape)
+            for face in self.horizontal:
+                isFaceUp = True
+                invZ = 0.0
+                useAngle = angle
+                faceZMin = face.BoundBox.ZMin
+                adj_final_dep = obj.FinalDepth.Value
+                trans = obj.FinalDepth.Value - face.BoundBox.ZMin
+                PathLog.debug('face.BoundBox.ZMin: {}'.format(face.BoundBox.ZMin))
+
+                if obj.EnableRotation != 'Off':
+                    PathLog.debug('... running isFaceUp()')
+                    isFaceUp = self.isFaceUp(subBase, face)
+                    # Determine if face is really oriented toward Z+ (rotational purposes)
+                    # ignore for cylindrical faces
+                    if not isFaceUp:
+                        PathLog.debug('... NOT isFaceUp')
+                        useAngle += 180.0
+                        invZ = (-2 * face.BoundBox.ZMin)
+                        face.translate(FreeCAD.Vector(0.0, 0.0, invZ))
+                        faceZMin = face.BoundBox.ZMin  # reset faceZMin
+                        PathLog.debug('... face.BoundBox.ZMin: {}'.format(face.BoundBox.ZMin))
+                    else:
+                        PathLog.debug('... isFaceUp')
+                    if useAngle > 180.0:
+                        useAngle -= 360.0
+
+                    # Apply LimitDepthToFace property for rotational operations
+                    if obj.LimitDepthToFace:
+                        if obj.FinalDepth.Value < face.BoundBox.ZMin:
+                            PathLog.debug('obj.FinalDepth.Value < face.BoundBox.ZMin')
+                            # Raise FinalDepth to face depth
+                            adj_final_dep = faceZMin  # face.BoundBox.ZMin  # faceZMin
+                            # Ensure StartDepth is above FinalDepth
+                            if start_dep <= adj_final_dep:
+                                start_dep = adj_final_dep + 1.0
+                                msg = translate('PathPocketShape', 'Start Depth is lower than face depth. Setting to:')
+                                PathLog.warning(msg + ' {} mm.'.format(start_dep))
+                            PathLog.debug('LimitDepthToFace adj_final_dep: {}'.format(adj_final_dep))
+                # Eif
+
+                face.translate(FreeCAD.Vector(0.0, 0.0, adj_final_dep - faceZMin - clrnc))
+                zExtVal = start_dep - adj_final_dep + (2 * clrnc)
+                extShp = face.removeSplitter().extrude(FreeCAD.Vector(0, 0, zExtVal))
+                self.removalshapes.append((extShp, False, 'pathPocketShape', useAngle, axis, start_dep, adj_final_dep))
+                PathLog.debug("Extent values are strDep: {}, finDep: {},  extrd: {}".format(start_dep, adj_final_dep, zExtVal))
+            # Efor face
+        # Efor
+
+    else:
+        # process the job base object as a whole
+        PathLog.debug(translate("Path", 'Processing model as a whole ...'))
+        finDep = obj.FinalDepth.Value
+        strDep = obj.StartDepth.Value
+        self.outlines = [Part.Face(TechDraw.findShapeOutline(base.Shape, 1, FreeCAD.Vector(0, 0, 1))) for base in self.model] # pylint: disable=attribute-defined-outside-init
+        stockBB = self.stock.Shape.BoundBox
+
+        self.removalshapes = [] # pylint: disable=attribute-defined-outside-init
+        self.bodies = [] # pylint: disable=attribute-defined-outside-init
+        for outline in self.outlines:
+            outline.translate(FreeCAD.Vector(0, 0, stockBB.ZMin - 1))
+            body = outline.extrude(FreeCAD.Vector(0, 0, stockBB.ZLength + 2))
+            self.bodies.append(body)
+            self.removalshapes.append((self.stock.Shape.cut(body), False, 'pathPocketShape', 0.0, 'X', strDep, finDep))
+
+    for (shape, hole, sub, angle, axis, strDep, finDep) in self.removalshapes: # pylint: disable=unused-variable
+        shape.tessellate(0.05)  # originally 0.1
+
+    if self.removalshapes:
+        obj.removalshape = self.removalshapes[0][0]
+
+    return self.removalshapes
+
+def checkForFacesLoop(self, base, subsList):
+    '''checkForFacesLoop(base, subsList)...
+        Accepts a list of face names for the given base.
+        Checks to determine if they are looped together.
+    '''
+    PathLog.track()
+    fCnt = 0
+    go = True
+    vertLoopFace = None
+    tempNameList = []
+    delTempNameList = 0
+    saSum = FreeCAD.Vector(0.0, 0.0, 0.0)
+    norm = FreeCAD.Vector(0.0, 0.0, 0.0)
+    surf = FreeCAD.Vector(0.0, 0.0, 0.0)
+    precision = 6
+
+    def makeTempExtrusion(base, sub, fCnt):
+        extName = 'tmpExtrude' + str(fCnt)
+        wireName = 'tmpWire' + str(fCnt)
+        wr = Part.Wire(Part.__sortEdges__(base.Shape.getElement(sub).Edges))
+        if wr.isNull():
+            PathLog.debug('No wire created from {}'.format(sub))
+            return (False, 0, 0)
+        else:
+            tmpWire = FreeCAD.ActiveDocument.addObject('Part::Feature', wireName).Shape = wr
+            tmpWireObj = FreeCAD.ActiveDocument.getObject(wireName)
+            tmpExtObj = FreeCAD.ActiveDocument.addObject('Part::Extrusion', extName)
+            tmpExt = FreeCAD.ActiveDocument.getObject(extName)
+            tmpExt.Base = tmpWireObj
+            tmpExt.DirMode = "Normal"
+            tmpExt.DirLink = None
+            tmpExt.LengthFwd = 10.0
+            tmpExt.LengthRev = 0.0
+            tmpExt.Solid = True
+            tmpExt.Reversed = False
+            tmpExt.Symmetric = False
+            tmpExt.TaperAngle = 0.0
+            tmpExt.TaperAngleRev = 0.0
+
+            tmpExt.recompute()
+            tmpExt.purgeTouched()
+            tmpWireObj.purgeTouched()
+            return (True, tmpWireObj, tmpExt)
+
+    def roundValue(precision, val):
+        # Convert VALxe-15 numbers to zero
+        if PathGeom.isRoughly(0.0, val) is True:
+            return 0.0
+        # Convert VAL.99999999 to next integer
+        elif math.fabs(val % 1) > 1.0 - PathGeom.Tolerance:
+            return round(val)
+        else:
+            return round(val, precision)
+
+    # Determine precision from Tolerance
+    for i in range(0, 13):
+        if PathGeom.Tolerance * (i * 10) == 1.0:
+            precision = i
+            break
+
+    # Sub Surface.Axis values of faces
+    # Vector of (0, 0, 0) will suggests a loop
+    for sub in subsList:
+        if 'Face' in sub:
+            fCnt += 1
+            saSum = saSum.add(base.Shape.getElement(sub).Surface.Axis)
+
+    # Minimim of three faces required for loop to exist
+    if fCnt < 3:
+        go = False
+
+    # Determine if all faces combined point toward loop center = False
+    if PathGeom.isRoughly(0, saSum.x):
+        if PathGeom.isRoughly(0, saSum.y):
+            if PathGeom.isRoughly(0, saSum.z):
+                PathLog.debug("Combined subs suggest loop of faces. Checking ...")
+                go = True
+
+    if go is True:
+        lastExtrusion = None
+        matchList = []
+        go = False
+
+        # Cycle through subs, extruding to solid for each
+        for sub in subsList:
+            if 'Face' in sub:
+                fCnt += 1
+                go = False
+
+                # Extrude face to solid
+                (rtn, tmpWire, tmpExt) = makeTempExtrusion(base, sub, fCnt)
+
+                # If success, record new temporary objects for deletion
+                if rtn is True:
+                    tempNameList.append(tmpExt.Name)
+                    tempNameList.append(tmpWire.Name)
+                    delTempNameList += 1
+                    if lastExtrusion is None:
+                        lastExtrusion = tmpExt
+                        rtn = True
+                else:
+                    go = False
+                    break
+
+                # Cycle through faces on each extrusion, looking for common normal faces for rotation analysis
+                if len(matchList) == 0:
+                    for fc in lastExtrusion.Shape.Faces:
+                        (norm, raw) = self.getFaceNormAndSurf(fc)
+                        rnded = FreeCAD.Vector(roundValue(precision, raw.x), roundValue(precision, raw.y), roundValue(precision, raw.z))
+                        if rnded.x == 0.0 or rnded.y == 0.0 or rnded.z == 0.0:
+                            for fc2 in tmpExt.Shape.Faces:
+                                (norm2, raw2) = self.getFaceNormAndSurf(fc2) # pylint: disable=unused-variable
+                                rnded2 = FreeCAD.Vector(roundValue(precision, raw2.x), roundValue(precision, raw2.y), roundValue(precision, raw2.z))
+                                if rnded == rnded2:
+                                    matchList.append(fc2)
+                                    go = True
+                else:
+                    for m in matchList:
+                        (norm, raw) = self.getFaceNormAndSurf(m)
+                        rnded = FreeCAD.Vector(roundValue(precision, raw.x), roundValue(precision, raw.y), roundValue(precision, raw.z))
+                        for fc2 in tmpExt.Shape.Faces:
+                            (norm2, raw2) = self.getFaceNormAndSurf(fc2)
+                            rnded2 = FreeCAD.Vector(roundValue(precision, raw2.x), roundValue(precision, raw2.y), roundValue(precision, raw2.z))
+                            if rnded.x == 0.0 or rnded.y == 0.0 or rnded.z == 0.0:
+                                if rnded == rnded2:
+                                    go = True
+                    # Eif
+                if go is False:
+                    break
+                # Eif
+            # Eif 'Face'
+        # Efor
+    if go is True:
+        go = False
+        if len(matchList) == 2:
+            saTotal = FreeCAD.Vector(0.0, 0.0, 0.0)
+            for fc in matchList:
+                (norm, raw) = self.getFaceNormAndSurf(fc)
+                rnded = FreeCAD.Vector(roundValue(precision, raw.x), roundValue(precision, raw.y), roundValue(precision, raw.z))
+                if (rnded.y > 0.0 or rnded.z > 0.0) and vertLoopFace is None:
+                    vertLoopFace = fc
+                saTotal = saTotal.add(rnded)
+
+            if saTotal == FreeCAD.Vector(0.0, 0.0, 0.0):
+                if vertLoopFace is not None:
+                    go = True
+
+    if go is True:
+        (norm, surf) = self.getFaceNormAndSurf(vertLoopFace)
+    else:
+        PathLog.debug(translate('Path', 'Can not identify loop.'))
+
+    if delTempNameList > 0:
+        for tmpNm in tempNameList:
+            FreeCAD.ActiveDocument.removeObject(tmpNm)
+
+    return (go, norm, surf)
+
+def planarFaceFromExtrusionEdges(self, face, trans):
+    '''planarFaceFromExtrusionEdges(face, trans)...
+    Use closed edges to create a temporary face for use in the pocketing operation.
+    '''
+    useFace = 'useFaceName'
+    minArea = 0.0
+    fCnt = 0
+    clsd = []
+    planar = False
+    # Identify closed edges
+    for edg in face.Edges:
+        if edg.isClosed():
+            PathLog.debug('  -e.isClosed()')
+            clsd.append(edg)
+            planar = True
+
+    # Attempt to create planar faces and select that with smallest area for use as pocket base
+    if planar:
+        planar = False
+        for edg in clsd:
+            fCnt += 1
+            fName = sub + '_face_' + str(fCnt)
+            # Create planar face from edge
+            mFF = Part.Face(Part.Wire(Part.__sortEdges__([edg])))
+            if mFF.isNull():
+                PathLog.debug('Face(Part.Wire()) failed')
+            else:
+                if trans is True:
+                    mFF.translate(FreeCAD.Vector(0, 0, face.BoundBox.ZMin - mFF.BoundBox.ZMin))
+
+                if FreeCAD.ActiveDocument.getObject(fName):
+                    FreeCAD.ActiveDocument.removeObject(fName)
+
+                tmpFaceObj = FreeCAD.ActiveDocument.addObject('Part::Feature', fName).Shape = mFF
+                tmpFace = FreeCAD.ActiveDocument.getObject(fName)
+                tmpFace.purgeTouched()
+
+                if minArea == 0.0:
+                    minArea = tmpFace.Shape.Face1.Area
+                    useFace = fName
+                    planar = True
+                elif tmpFace.Shape.Face1.Area < minArea:
+                    minArea = tmpFace.Shape.Face1.Area
+                    FreeCAD.ActiveDocument.removeObject(useFace)
+                    useFace = fName
+                else:
+                    FreeCAD.ActiveDocument.removeObject(fName)
+
+    if useFace != 'useFaceName':
+        self.useTempJobClones(useFace)
+
+    return (planar, useFace)
+
+# Process obj.Base with rotation enabled
+def process_base_geometry_with_rotation(self, obj, p, subCount):
+    '''process_base_geometry_with_rotation(obj, p, subCount)...
+    This method is the control method for analyzing the selected features,
+    determining their rotational needs, and creating clones as needed
+    for rotational access for the pocketing operation.
+
+    Requires the object, obj.Base index (p), and subCount reference arguments.
+    Returns two lists of tuples for continued processing into pocket paths.
+    '''
+    baseSubsTuples = []
+    allTuples = []
+    isLoop = False
+
+    (base, subsList) = obj.Base[p]
+
+    # First, check all subs collectively for loop of faces
+    if len(subsList) > 2:
+        (isLoop, norm, surf) = self.checkForFacesLoop(base, subsList)
+
+    if isLoop:
+        PathLog.debug("Common Surface.Axis or normalAt() value found for loop faces.")
+        subCount += 1
+        tup = self.process_looped_sublist(obj, norm, surf)
+        if tup:
+            allTuples.append(tup)
+            baseSubsTuples.append(tup)
+    # Eif
+
+    if not isLoop:
+        PathLog.debug(translate('Path', "Processing subs individually ..."))
+        for sub in subsList:
+            subCount += 1
+            tup = self.process_nonloop_sublist(obj, base, sub)
+            if tup:
+                allTuples.append(tup)
+                baseSubsTuples.append(tup)
+    # Eif
+
+    return (baseSubsTuples, allTuples)
+
+def process_looped_sublist(self, obj, norm, surf):
+    '''process_looped_sublist(obj, norm, surf)...
+    Process set of looped faces when rotation is enabled.
+    '''
+    PathLog.debug(translate("Path", "Selected faces form loop. Processing looped faces."))
+    rtn = False
+    (rtn, angle, axis, praInfo) = self.faceRotationAnalysis(obj, norm, surf)  # pylint: disable=unused-variable
+
+    if rtn is True:
+        faceNums = ""
+        for f in subsList:
+            faceNums += '_' + f.replace('Face', '')
+        (clnBase, angle, clnStock, tag) = self.applyRotationalAnalysis(obj, base, angle, axis, faceNums)  # pylint: disable=unused-variable
+
+        # Verify faces are correctly oriented - InverseAngle might be necessary
+        PathLog.debug("Checking if faces are oriented correctly after rotation.")
+        for sub in subsList:
+            face = clnBase.Shape.getElement(sub)
+            if type(face.Surface) == Part.Plane:
+                if not PathGeom.isHorizontal(face.Surface.Axis):
+                    rtn = False
+                    PathLog.warning(translate("PathPocketShape", "Face appears to NOT be horizontal AFTER rotation applied."))
+                    break
+
+        if rtn is False:
+            PathLog.debug(translate("Path", "Face appears misaligned after initial rotation.") + ' 1')
+            if obj.InverseAngle:
+                (clnBase, clnStock, angle) = self.applyInverseAngle(obj, clnBase, clnStock, axis, angle)
+            else:
+                if obj.AttemptInverseAngle is True:
+                    (clnBase, clnStock, angle) = self.applyInverseAngle(obj, clnBase, clnStock, axis, angle)
+                else:
+                    msg = translate("Path", "Consider toggling the 'InverseAngle' property and recomputing.")
+                    PathLog.warning(msg)
+
+        if angle < 0.0:
+            angle += 360.0
+
+        tup = clnBase, subsList, angle, axis, clnStock
+    else:
+        if self.warnDisabledAxis(obj, axis) is False:
+            PathLog.debug("No rotation used")
+        axis = 'X'
+        angle = 0.0
+        stock = PathUtils.findParentJob(obj).Stock
+        tup = base, subsList, angle, axis, stock
+    # Eif
+    return tup
+
+def process_nonloop_sublist(self, obj, base, sub):
+    '''process_nonloop_sublist(obj, sub)...
+    Process sublist with non-looped set of features when rotation is enabled.
+    '''
+
+    if sub[:4] != 'Face':
+        ignoreSub = base.Name + '.' + sub
+        PathLog.error(translate('Path', "Selected feature is not a Face. Ignoring: {}".format(ignoreSub)))
+        return False
+
+    rtn = False
+    face = base.Shape.getElement(sub)
+    if type(face.Surface) == Part.SurfaceOfExtrusion:
+        # extrusion wall
+        PathLog.debug('analyzing type() == Part.SurfaceOfExtrusion')
+        # Attempt to extract planar face from surface of extrusion
+        (planar, useFace) = self.planarFaceFromExtrusionEdges(face, trans=False)
+        # Save face object to self.horiz for processing or display error
+        if planar is True:
+            base = FreeCAD.ActiveDocument.getObject(useFace)
+            sub = 'Face1'
+            PathLog.debug('  -successful face created: {}'.format(useFace))
+        else:
+            PathLog.error(translate("Path", "Failed to create a planar face from edges in {}.".format(sub)))
+
+    (norm, surf) = self.getFaceNormAndSurf(face)
+    (rtn, angle, axis, praInfo) = self.faceRotationAnalysis(obj, norm, surf)  # pylint: disable=unused-variable
+    PathLog.debug("initial {}".format(praInfo))
+
+    clnBase = base
+    faceIA = clnBase.Shape.getElement(sub)
+
+    if rtn is True:
+        faceNum = sub.replace('Face', '')
+        PathLog.debug("initial applyRotationalAnalysis")
+        (clnBase, angle, clnStock, tag) = self.applyRotationalAnalysis(obj, base, angle, axis, faceNum)
+        # Verify faces are correctly oriented - InverseAngle might be necessary
+        faceIA = clnBase.Shape.getElement(sub)
+        (norm, surf) = self.getFaceNormAndSurf(faceIA)
+        (rtn, praAngle, praAxis, praInfo2) = self.faceRotationAnalysis(obj, norm, surf)  # pylint: disable=unused-variable
+        PathLog.debug("follow-up {}".format(praInfo2))
+
+        isFaceUp = self.isFaceUp(clnBase, faceIA)
+        if isFaceUp:
+            rtn = False
+
+        if round(abs(praAngle), 8) == 180.0:
+            rtn = False
+            if not isFaceUp:
+                PathLog.debug('initial isFaceUp is False')
+                angle = 0.0
+    # Eif
+
+    if rtn:
+        # initial rotation failed, attempt inverse rotation if user requests it
+        PathLog.debug(translate("Path", "Face appears misaligned after initial rotation.") + ' 2')
+        if obj.AttemptInverseAngle:
+            PathLog.debug(translate("Path", "Applying inverse angle automatically."))
+            (clnBase, clnStock, angle) = self.applyInverseAngle(obj, clnBase, clnStock, axis, angle)
+        else:
+            if obj.InverseAngle:
+                PathLog.debug(translate("Path", "Applying inverse angle manually."))
+                (clnBase, clnStock, angle) = self.applyInverseAngle(obj, clnBase, clnStock, axis, angle)
+            else:
+                msg = translate("Path", "Consider toggling the 'InverseAngle' property and recomputing.")
+                PathLog.warning(msg)
+
+        faceIA = clnBase.Shape.getElement(sub)
+        if not self.isFaceUp(clnBase, faceIA):
+            angle += 180.0
+
+        # Normalize rotation angle
+        if angle < 0.0:
+            angle += 360.0
+        elif angle > 360.0:
+            angle -= 360.0
+
+        return (clnBase, [sub], angle, axis, clnStock)
+
+    if not self.warnDisabledAxis(obj, axis):
+        PathLog.debug(str(sub) + ": No rotation used")
+    axis = 'X'
+    angle = 0.0
+    stock = PathUtils.findParentJob(obj).Stock
+    return (base, [sub], angle, axis, stock)
+
+
+def isFaceVertical(shape):
+    '''isFaceVertical(shape)... 
+    Source: PathProfile.py
+    Determine if the shape is vertical and return flattened cross-section'''
+    PathLog.debug('isFaceVertical()')
+    shpBB = shape.BoundBox
+
+    if PathGeom.isRoughly(shpBB.ZLength, 0.0):
+        PathLog.debug("Face is geometrically horizontal.")
+        return None
+
+    PathLog.debug('Shape is not horizontally planar. Flattening it.')
+
+    # Extrude non-horizontal shape
+    extFwdLen = (shpBB.ZLength + 2.0) * 4.0
+    extShp = shape.extrude(FreeCAD.Vector(0, 0, extFwdLen))
+
+    # Create cross-section of shape
+    mid = (extShp.BoundBox.ZMin + extShp.BoundBox.ZMax) / 2.0
+    xmin = shpBB.XMin - 2.0
+    xmax = shpBB.XMax + 2.0
+    ymin = shpBB.YMin - 2.0
+    ymax = shpBB.YMax + 2.0
+    p1 = FreeCAD.Vector(xmin, ymin, mid)
+    p2 = FreeCAD.Vector(xmax, ymin, mid)
+    p3 = FreeCAD.Vector(xmax, ymax, mid)
+    p4 = FreeCAD.Vector(xmin, ymax, mid)
+
+    e1 = Part.makeLine(p1, p2)
+    e2 = Part.makeLine(p2, p3)
+    e3 = Part.makeLine(p3, p4)
+    e4 = Part.makeLine(p4, p1)
+    boundFace = Part.Face(Part.Wire([e1, e2, e3, e4]))
+
+    slcShp = extShp.common(boundFace)
+
+    if len(slcShp.Wires) == 2:
+        PathLog.debug("... One slice wire")
+        wire = slcShp.Wires[1]
+        if wire.isClosed():
+            PathLog.error("... One plane common wire is closed.")
+        else:
+            wire.translate(FreeCAD.Vector(0.0, 0.0, shape.BoundBox.ZMin - wire.BoundBox.ZMin))
+            return wire
+    else:
+        wires = list()
+        for i in extShp.slice(FreeCAD.Vector(0, 0, 1), mid):
+            wires.append(i)
+        if wires:
+            w = Part.Wire(Part.__sortEdges__(wires[0].Edges))
+            w.translate(FreeCAD.Vector(0.0, 0.0, shape.BoundBox.ZMin - w.BoundBox.ZMin))
+            return w
+        else:
+            PathLog.error("... No slice wires.")
+
+    return None
+
+def clasifySub(bs, sub):
+    '''clasifySub(bs, sub)...
+    Given a base and a sub-feature name, returns (face, None)
+    if the sub-feature is a geometrically horizontal flat face and
+    returns (None, face) for a geometrically vertical flat face. A value
+    of None is returned otherwise.
+    '''
+    horiz = None
+    vert = None
+    wire = None
+    face = bs.Shape.getElement(sub)
+
+    if type(face.Surface) == Part.Plane:
+        PathLog.debug('type() == Part.Plane')
+        if PathGeom.isVertical(face.Surface.Axis):
+            PathLog.debug('  -isVertical()')
+            # it's a flat horizontal face
+            horiz = face
+
+        elif PathGeom.isHorizontal(face.Surface.Axis):
+            PathLog.debug('  -isHorizontal()')
+            vert = face
+            profileWire = isFaceVertical(face)
+            if profileWire:
+                wire = profileWire
+            else:
+                PathLog.debug(translate("PathFeatureAnalysis", "Failed to flatten vertical face: {}.".format(sub)))
+
+    elif type(face.Surface) == Part.Cylinder and PathGeom.isVertical(face.Surface.Axis):
+        PathLog.debug('type() == Part.Cylinder')
+        # vertical cylinder wall
+        if any(e.isClosed() for e in face.Edges):
+            PathLog.debug('  -e.isClosed()')
+            # complete cylinder
+            circle = Part.makeCircle(face.Surface.Radius, face.Surface.Center)
+            disk = Part.Face(Part.Wire(circle))
+            disk.translate(FreeCAD.Vector(0, 0, face.BoundBox.ZMin - disk.BoundBox.ZMin))
+            horiz = face
+
+        else:
+            PathLog.debug('  -none isClosed()')
+            # partial cylinder wall
+            vert = face
+            profileWire = isFaceVertical(face)
+            if profileWire:
+                wire = profileWire
+            else:
+                PathLog.debug(translate("PathFeatureAnalysis", "Failed to flatten vertical face: {}.".format(sub)))
+
+    elif type(face.Surface) == Part.SurfaceOfExtrusion:
+        # extrusion wall
+        PathLog.debug('type() == Part.SurfaceOfExtrusion')
+
+        profileWire = isFaceVertical(face)
+        if profileWire:
+            wire = profileWire
+            vert = face
+        else:
+            PathLog.error(translate("Path", "Failed to create a planar face from edges in {}.".format(sub)))
+
+    else:
+        PathLog.debug('  -type(face.Surface): {}'.format(type(face.Surface)))
+
+    if horiz or vert:
+        return (horiz, vert, wire)
+    return None
+
+# Method to add temporary debug object
+def _addDebugObject(self, objName, objShape):
+    '''_addDebugObject(objName, objShape)...
+    Is passed a desired debug object's desired name and shape.
+    This method creates a FreeCAD object for debugging purposes.
+    The created object must be deleted manually from the object tree
+    by the user.
+    '''
+    if self.isDebug:
+        O = FreeCAD.ActiveDocument.addObject('Part::Feature', 'debug_' + objName)
+        O.Shape = objShape
+        O.purgeTouched()
+

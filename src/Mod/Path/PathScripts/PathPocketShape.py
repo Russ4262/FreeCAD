@@ -29,13 +29,17 @@ import PathScripts.PathPocketBase as PathPocketBase
 import PathScripts.PathUtils as PathUtils
 import math
 
+from PySide import QtCore
+
 # lazily loaded modules
 from lazy_loader.lazy_loader import LazyLoader
 Draft = LazyLoader('Draft', globals(), 'Draft')
 Part = LazyLoader('Part', globals(), 'Part')
 TechDraw = LazyLoader('TechDraw', globals(), 'TechDraw')
+FeatureAnalysis = LazyLoader('PathScripts.PathFeatureAnalysis',
+                             globals(),
+                             'PathScripts.PathFeatureAnalysis')
 
-from PySide import QtCore
 
 __title__ = "Path Pocket Shape Operation"
 __author__ = "sliptonic (Brad Collette)"
@@ -346,6 +350,7 @@ class ObjectPocket(PathPocketBase.ObjectPocket):
             for o in baseSubsTuples:
                 self.horiz = []  # pylint: disable=attribute-defined-outside-init
                 self.vert = []  # pylint: disable=attribute-defined-outside-init
+                flatWires = []
                 subBase = o[0]
                 subsList = o[1]
                 angle = o[2]
@@ -354,7 +359,15 @@ class ObjectPocket(PathPocketBase.ObjectPocket):
 
                 for sub in subsList:
                     if 'Face' in sub:
-                        if not self.clasifySub(subBase, sub):
+                        clsfySub = FeatureAnalysis.clasifySub(subBase, sub)
+                        if clsfySub:
+                            if clsfySub[0]:
+                                self.horiz.append(clsfySub[0])
+                            if clsfySub[1]:
+                                self.vert.append(clsfySub[1])
+                            if clsfySub[2]:
+                                flatWires.append(clsfySub[2])
+                        else:
                             PathLog.error(translate('PathPocket', 'Pocket does not support shape %s.%s') % (subBase.Label, sub))
                             if obj.EnableRotation != 'Off':
                                 PathLog.warning(translate('PathPocket', 'Face might not be within rotation accessibility limits.'))
@@ -362,6 +375,11 @@ class ObjectPocket(PathPocketBase.ObjectPocket):
                 # Determine final depth as highest value of bottom boundbox of vertical face,
                 #   in case of uneven faces on bottom
                 if len(self.vert) > 0:
+                    flatEdges = list()
+                    for fw in flatWires:
+                        flatEdges.extend(fw.Edges)
+                    clearFace = Part.Face(Part.Wire(Part.__sortEdges__(flatEdges)))
+
                     vFinDep = self.vert[0].BoundBox.ZMin
                     for vFace in self.vert:
                         if vFace.BoundBox.ZMin > vFinDep:
@@ -726,68 +744,6 @@ class ObjectPocket(PathPocketBase.ObjectPocket):
             self.useTempJobClones(useFace)
 
         return (planar, useFace)
-
-    def clasifySub(self, bs, sub):
-        '''clasifySub(bs, sub)...
-        Given a base and a sub-feature name, returns True
-        if the sub-feature is a horizontally oriented flat face.
-        '''
-        face = bs.Shape.getElement(sub)
-
-        if type(face.Surface) == Part.Plane:
-            PathLog.debug('type() == Part.Plane')
-            if PathGeom.isVertical(face.Surface.Axis):
-                PathLog.debug('  -isVertical()')
-                # it's a flat horizontal face
-                self.horiz.append(face)
-                return True
-
-            elif PathGeom.isHorizontal(face.Surface.Axis):
-                PathLog.debug('  -isHorizontal()')
-                self.vert.append(face)
-                return True
-
-            else:
-                return False
-
-        elif type(face.Surface) == Part.Cylinder and PathGeom.isVertical(face.Surface.Axis):
-            PathLog.debug('type() == Part.Cylinder')
-            # vertical cylinder wall
-            if any(e.isClosed() for e in face.Edges):
-                PathLog.debug('  -e.isClosed()')
-                # complete cylinder
-                circle = Part.makeCircle(face.Surface.Radius, face.Surface.Center)
-                disk = Part.Face(Part.Wire(circle))
-                disk.translate(FreeCAD.Vector(0, 0, face.BoundBox.ZMin - disk.BoundBox.ZMin))
-                self.horiz.append(disk)
-                return True
-
-            else:
-                PathLog.debug('  -none isClosed()')
-                # partial cylinder wall
-                self.vert.append(face)
-                return True
-
-        elif type(face.Surface) == Part.SurfaceOfExtrusion:
-            # extrusion wall
-            PathLog.debug('type() == Part.SurfaceOfExtrusion')
-            # Attempt to extract planar face from surface of extrusion
-            (planar, useFace) = self.planarFaceFromExtrusionEdges(face, trans=True)
-            # Save face object to self.horiz for processing or display error
-            if planar is True:
-                uFace = FreeCAD.ActiveDocument.getObject(useFace)
-                self.horiz.append(uFace.Shape.Faces[0])
-                msg = translate('Path', "<b>Verify depth of pocket for '{}'.</b>".format(sub))
-                msg += translate('Path', "\n<br>Pocket is based on extruded surface.")
-                msg += translate('Path', "\n<br>Bottom of pocket might be non-planar and/or not normal to spindle axis.")
-                msg += translate('Path', "\n<br>\n<br><i>3D pocket bottom is NOT available in this operation</i>.")
-                PathLog.warning(msg)
-            else:
-                PathLog.error(translate("Path", "Failed to create a planar face from edges in {}.".format(sub)))
-
-        else:
-            PathLog.debug('  -type(face.Surface): {}'.format(type(face.Surface)))
-            return False
 
     # Process obj.Base with rotation enabled
     def process_base_geometry_with_rotation(self, obj, p, subCount):

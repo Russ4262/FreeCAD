@@ -56,6 +56,7 @@ SET(PathScripts_SRCS
     PathScripts/PathEngraveBase.py
     PathScripts/PathEngraveGui.py
     PathScripts/PathFixture.py
+    PathScripts/PathFeatureAnalysis.py
     PathScripts/PathGeom.py
     PathScripts/PathGetPoint.py
     PathScripts/PathGui.py
