@@ -384,7 +384,7 @@ class ObjectPocket(PathPocketBase.ObjectPocket):
                     for vFace in self.vert:
                         if vFace.BoundBox.ZMin > vFinDep:
                             vFinDep = vFace.BoundBox.ZMin
-                    # Determine if vertical faces for a loop: Extract planar loop wire as new horizontal face.
+                    # Determine if vertical faces form a loop: Extract planar loop wire as new horizontal face.
                     self.vertical = PathGeom.combineConnectedShapes(self.vert) # pylint: disable=attribute-defined-outside-init
                     self.vWires = [TechDraw.findShapeOutline(shape, 1, FreeCAD.Vector(0, 0, 1)) for shape in self.vertical] # pylint: disable=attribute-defined-outside-init
                     for wire in self.vWires:
