@@ -366,7 +366,7 @@ class ObjectPocket(PathPocketBase.ObjectPocket):
                             if clsfySub[1]:
                                 self.vert.append(clsfySub[1])
                             if clsfySub[2]:
-                                flatWires.append(clsfySub[2])
+                                flatWires.append(clsfySub[2])  # flat profile wire of vertical faces
                         else:
                             PathLog.error(translate('PathPocket', 'Pocket does not support shape %s.%s') % (subBase.Label, sub))
                             if obj.EnableRotation != 'Off':
@@ -439,7 +439,6 @@ class ObjectPocket(PathPocketBase.ObjectPocket):
                     useAngle = angle
                     faceZMin = face.BoundBox.ZMin
                     adj_final_dep = obj.FinalDepth.Value
-                    trans = obj.FinalDepth.Value - face.BoundBox.ZMin
                     PathLog.debug('face.BoundBox.ZMin: {}'.format(face.BoundBox.ZMin))
 
                     if obj.EnableRotation != 'Off':
