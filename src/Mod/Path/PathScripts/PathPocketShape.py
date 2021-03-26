@@ -375,28 +375,10 @@ class ObjectPocket(PathPocketBase.ObjectPocket):
                 # Determine final depth as highest value of bottom boundbox of vertical face,
                 #   in case of uneven faces on bottom
                 if len(self.vert) > 0:
-                    flatEdges = list()
-                    for fw in flatWires:
-                        flatEdges.extend(fw.Edges)
-                    clearFace = Part.Face(Part.Wire(Part.__sortEdges__(flatEdges)))
-
-                    vFinDep = self.vert[0].BoundBox.ZMin
-                    for vFace in self.vert:
-                        if vFace.BoundBox.ZMin > vFinDep:
-                            vFinDep = vFace.BoundBox.ZMin
                     # Determine if vertical faces form a loop: Extract planar loop wire as new horizontal face.
-                    self.vertical = PathGeom.combineConnectedShapes(self.vert) # pylint: disable=attribute-defined-outside-init
-                    self.vWires = [TechDraw.findShapeOutline(shape, 1, FreeCAD.Vector(0, 0, 1)) for shape in self.vertical] # pylint: disable=attribute-defined-outside-init
-                    for wire in self.vWires:
-                        w = PathGeom.removeDuplicateEdges(wire)
-                        face = Part.Face(w)
-                        # face.tessellate(0.1)
-                        if PathGeom.isRoughly(face.Area, 0):
-                            msg = translate('PathPocket', 'Vertical faces do not form a loop - ignoring')
-                            PathLog.error(msg)
-                        else:
-                            face.translate(FreeCAD.Vector(0, 0, vFinDep - face.BoundBox.ZMin))
-                            self.horiz.append(face)
+                    vertFaceLoops = FeatureAnalysis.isVerticalFaceLoop(self.vert)
+                    if vertFaceLoops:
+                            self.horiz.extend(vertFaceLoops)
 
                 # add faces for extensions
                 self.exts = [] # pylint: disable=attribute-defined-outside-init
