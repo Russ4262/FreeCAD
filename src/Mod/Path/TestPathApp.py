@@ -60,8 +60,7 @@ from PathTests.TestPathUtil import TestPathUtil
 from PathTests.TestPathVcarve import TestPathVcarve
 from PathTests.TestPathVoronoi import TestPathVoronoi
 
-# dummy usage to get flake8 and lgtm quiet
-# False if TestPathHelix.__name__ else True
+# dummy usage to get flake8 and lgtm quiet - alphabetically sorted
 # False if TestPathPost.__name__ else True
 False if depthTestCases.__name__ else True
 False if TestApp.__name__ else True
