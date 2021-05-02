@@ -157,6 +157,8 @@ class ObjectJob:
 
         self.tooltip = None
         self.tooltipArgs = None
+        self.templateTCS = list()
+        self.noTemplateTC = True
 
         obj.Proxy = self
 
@@ -338,52 +340,62 @@ class ObjectJob:
                 return b
         return None
 
-    def setFromTemplateFile(self, obj, template):
-        '''setFromTemplateFile(obj, template) ... extract the properties from the given template file and assign to receiver.
+    def setFromTemplateFile(self, obj, templateFile):
+        '''setFromTemplateFile(obj, templateFile) ... extract the properties from the given template file and assign to receiver.
         This will also create any TCs stored in the template.'''
-        tcs = []
-        if template:
-            with open(PathUtil.toUnicode(template), 'rb') as fp:
+        if templateFile:
+            with open(PathUtil.toUnicode(templateFile), 'rb') as fp:
                 attrs = json.load(fp)
 
             if attrs.get(JobTemplate.Version) and 1 == int(attrs[JobTemplate.Version]):
                 attrs = self.setupSheet.decodeTemplateAttributes(attrs)
-                if attrs.get(JobTemplate.SetupSheet):
-                    self.setupSheet.setFromTemplate(attrs[JobTemplate.SetupSheet])
-
-                if attrs.get(JobTemplate.GeometryTolerance):
-                    obj.GeometryTolerance = float(attrs.get(JobTemplate.GeometryTolerance))
-                if attrs.get(JobTemplate.PostProcessor):
-                    obj.PostProcessor = attrs.get(JobTemplate.PostProcessor)
-                    if attrs.get(JobTemplate.PostProcessorArgs):
-                        obj.PostProcessorArgs = attrs.get(JobTemplate.PostProcessorArgs)
-                    else:
-                        obj.PostProcessorArgs = ''
-                if attrs.get(JobTemplate.PostProcessorOutputFile):
-                    obj.PostProcessorOutputFile = attrs.get(JobTemplate.PostProcessorOutputFile)
-                if attrs.get(JobTemplate.Description):
-                    obj.Description = attrs.get(JobTemplate.Description)
-
-                if attrs.get(JobTemplate.ToolController):
-                    for tc in attrs.get(JobTemplate.ToolController):
-                        tcs.append(PathToolController.FromTemplate(tc))
-                if attrs.get(JobTemplate.Stock):
-                    obj.Stock = PathStock.CreateFromTemplate(obj, attrs.get(JobTemplate.Stock))
-
-                if attrs.get(JobTemplate.Fixtures):
-                    obj.Fixtures = [x for y in attrs.get(JobTemplate.Fixtures) for x in y]
-
-                if attrs.get(JobTemplate.OrderOutputBy):
-                    obj.OrderOutputBy = attrs.get(JobTemplate.OrderOutputBy)
-
-                if attrs.get(JobTemplate.SplitOutput):
-                    obj.SplitOutput = attrs.get(JobTemplate.SplitOutput)
-
-                PathLog.debug("setting tool controllers (%d)" % len(tcs))
-                obj.Tools.Group = tcs
+                self.setPropsFromAttrs(obj, attrs)
             else:
                 PathLog.error(translate('PathJob', "Unsupported PathJob template version %s") % attrs.get(JobTemplate.Version))
-        if not tcs:
+        if not self.templateTCS and self.noTemplateTC:
+            self.addToolController(PathToolController.Create())
+
+    def setPropsFromAttrs(self, obj, attrs):
+        '''setPropsFromAttrs(obj, attrs) ... assign properties in attributes to receiver.
+        This will also create any TCs passed in the attributes.'''
+        self.templateTCS = []
+
+        if attrs.get(JobTemplate.SetupSheet):
+            self.setupSheet.setFromTemplate(attrs[JobTemplate.SetupSheet])
+
+        if attrs.get(JobTemplate.GeometryTolerance):
+            obj.GeometryTolerance = float(attrs.get(JobTemplate.GeometryTolerance))
+        if attrs.get(JobTemplate.PostProcessor):
+            obj.PostProcessor = attrs.get(JobTemplate.PostProcessor)
+            if attrs.get(JobTemplate.PostProcessorArgs):
+                obj.PostProcessorArgs = attrs.get(JobTemplate.PostProcessorArgs)
+            else:
+                obj.PostProcessorArgs = ''
+        if attrs.get(JobTemplate.PostProcessorOutputFile):
+            obj.PostProcessorOutputFile = attrs.get(JobTemplate.PostProcessorOutputFile)
+        if attrs.get(JobTemplate.Description):
+            obj.Description = attrs.get(JobTemplate.Description)
+
+        if attrs.get(JobTemplate.ToolController):
+            for tc in attrs.get(JobTemplate.ToolController):
+                self.templateTCS.append(PathToolController.FromTemplate(tc))
+        if attrs.get(JobTemplate.Stock):
+            obj.Stock = PathStock.CreateFromTemplate(obj, attrs.get(JobTemplate.Stock))
+
+        if attrs.get(JobTemplate.Fixtures):
+            obj.Fixtures = [x for y in attrs.get(JobTemplate.Fixtures) for x in y]
+
+        if attrs.get(JobTemplate.OrderOutputBy):
+            obj.OrderOutputBy = attrs.get(JobTemplate.OrderOutputBy)
+
+        if attrs.get(JobTemplate.SplitOutput):
+            obj.SplitOutput = attrs.get(JobTemplate.SplitOutput)
+
+        PathLog.debug("setting tool controllers (%d)" % len(self.templateTCS))
+        obj.Tools.Group = self.templateTCS
+
+        if not self.templateTCS:
+            self.noTemplateTC = False
             self.addToolController(PathToolController.Create())
 
     def templateAttrs(self, obj):
