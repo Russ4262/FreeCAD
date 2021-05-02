@@ -74,5 +74,5 @@ def Create(name, obj=None):
     '''Create(name) ... Creates and returns a Custom operation.'''
     if obj is None:
         obj = FreeCAD.ActiveDocument.addObject("Path::FeaturePython", name)
-    proxy = ObjectCustom(obj, name)
+    obj.Proxy = ObjectCustom(obj, name)
     return obj
