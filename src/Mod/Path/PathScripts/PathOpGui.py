@@ -104,6 +104,11 @@ class ViewProvider(object):
             self.setupTaskPanel(TaskPanel(vobj.Object, self.deleteObjectsOnReject(), page, selection))
             self.deleteOnReject = False
             return True
+        elif 5 == mode:
+            if vobj is None:
+                vobj = self.vobj
+            self.deleteOnReject = False
+            return True
         # no other editing possible
         return False
 
@@ -1286,7 +1291,7 @@ def Create(res):
         obj.ViewObject.Visibility = False
 
         FreeCAD.ActiveDocument.commitTransaction()
-        obj.ViewObject.Document.setEdit(obj.ViewObject, 0)
+        obj.ViewObject.Document.setEdit(obj.ViewObject, res.editMode)
         return obj
     FreeCAD.ActiveDocument.abortTransaction()
     return None
@@ -1329,6 +1334,8 @@ class CommandResources:
         self.menuText = menuText
         self.accelKey = accelKey
         self.toolTip = toolTip
+        self.editMode = 0
+        self.parentJob = None
 
 
 def SetupOperation(name,
@@ -1337,7 +1344,8 @@ def SetupOperation(name,
                    pixmap,
                    menuText,
                    toolTip,
-                   setupProperties=None):
+                   setupProperties=None,
+                   parentJob=None):
     '''SetupOperation(name, objFactory, opPageClass, pixmap, menuText, toolTip, setupProperties=None)
     Creates an instance of CommandPathOp with the given parameters and registers the command with FreeCAD.
     When activated it creates a model with proxy (by invoking objFactory), assigns a view provider to it
@@ -1347,6 +1355,7 @@ def SetupOperation(name,
     '''
 
     res = CommandResources(name, objFactory, opPageClass, pixmap, menuText, None, toolTip)
+    res.parentJob = parentJob
 
     command = CommandPathOp(res)
     FreeCADGui.addCommand("Path_%s" % name.replace(' ', '_'), command)
