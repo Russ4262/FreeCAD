@@ -171,12 +171,15 @@ class ViewProvider:
         return True
 
     def openTaskPanel(self, activate=None):
-        self.taskPanel = TaskPanel(self.vobj, self.deleteObjectsOnReject())
-        FreeCADGui.Control.closeDialog()
-        FreeCADGui.Control.showDialog(self.taskPanel)
-        self.taskPanel.setupUi(activate)
+        global createWithTaskPanel
+        if createWithTaskPanel:
+            self.taskPanel = TaskPanel(self.vobj, self.deleteObjectsOnReject())
+            FreeCADGui.Control.closeDialog()
+            FreeCADGui.Control.showDialog(self.taskPanel)
+            self.taskPanel.setupUi(activate)
+            self.showOriginAxis(True)
+        createWithTaskPanel = True
         self.deleteOnReject = False
-        self.showOriginAxis(True)
 
     def resetTaskPanel(self):
         self.showOriginAxis(False)
@@ -1374,6 +1377,15 @@ class TaskPanel:
 
     def clearSelection(self, doc):
         self.updateSelection()
+
+
+"""
+Set `createWithTaskPanel = False` prior to calling `Create()` in order to create a Job
+object without initiating the Task Panel in the GUI.  A view provider will be created
+for the Job object.  The user will still be able to edit the Job object in the GUI using
+the Task Panel as usual.  This flag only withholds the Task Panel during GUI creation.
+"""
+createWithTaskPanel = True
 
 
 def Create(base, template=None):
