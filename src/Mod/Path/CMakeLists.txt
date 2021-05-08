@@ -221,6 +221,7 @@ SET(PathTests_SRCS
     PathTests/test_geomop.fcstd
     PathTests/test_holes00.fcstd
     PathTests/test_linuxcnc_00.ngc
+    PathTests/test_pocketshape.fcstd
     PathTests/test_profile.fcstd
     PathTests/TestPathAdaptive.py
     PathTests/TestPathCore.py
@@ -236,6 +237,7 @@ SET(PathTests_SRCS
     PathTests/TestPathHelpers.py
     PathTests/TestPathLog.py
     PathTests/TestPathOpTools.py
+    PathTests/TestPathPocketShape.py
     PathTests/TestPathPost.py
     PathTests/TestPathPreferences.py
     PathTests/TestPathProfile.py
