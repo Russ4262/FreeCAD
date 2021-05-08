@@ -24,7 +24,6 @@ import TestApp
 
 from PathTests.TestPathAdaptive import TestPathAdaptive
 from PathTests.TestPathCore import TestPathCore
-from PathTests.TestPathDeburr import TestPathDeburr
 from PathTests.TestPathDepthParams import depthTestCases
 from PathTests.TestPathDressupDogbone import TestDressupDogbone
 from PathTests.TestPathDressupHoldingTags import TestHoldingTags
@@ -39,9 +38,12 @@ from PathTests.TestPathLog import TestPathLog
 from PathTests.TestPathOpTools import TestPathOpTools
 
 # from PathTests.TestPathPost import PathPostTestCases
-from PathTests.TestPathPost import TestPathPostUtils
+from PathTests.TestPathDeburr import TestPathDeburr
+from PathTests.TestPathHelix import TestPathHelix
 from PathTests.TestPathPost import TestPathPostImport
+from PathTests.TestPathPost import TestPathPostUtils
 from PathTests.TestPathPreferences import TestPathPreferences
+from PathTests.TestPathProfile import TestPathProfile
 from PathTests.TestPathPropertyBag import TestPathPropertyBag
 from PathTests.TestPathRotationGenerator import TestPathRotationGenerator
 from PathTests.TestPathSetupSheet import TestPathSetupSheet
@@ -58,6 +60,8 @@ from PathTests.TestPathVcarve import TestPathVcarve
 from PathTests.TestPathVoronoi import TestPathVoronoi
 
 # dummy usage to get flake8 and lgtm quiet
+# False if TestPathHelix.__name__ else True
+# False if TestPathPost.__name__ else True
 False if depthTestCases.__name__ else True
 False if TestApp.__name__ else True
 False if TestDressupDogbone.__name__ else True
@@ -66,15 +70,17 @@ False if TestPathAdaptive.__name__ else True
 False if TestPathCore.__name__ else True
 False if TestPathDeburr.__name__ else True
 False if TestPathDrillable.__name__ else True
+False if TestPathDrillGenerator.__name__ else True
 False if TestPathGeom.__name__ else True
+False if TestPathHelix.__name__ else True
+False if TestPathHelixGenerator.__name__ else True
 False if TestPathHelpers.__name__ else True
-# False if TestPathHelix.__name__ else True
 False if TestPathLog.__name__ else True
 False if TestPathOpTools.__name__ else True
 False if TestPathPostImport.__name__ else True
-# False if TestPathPost.__name__ else True
 False if TestPathPostUtils.__name__ else True
 False if TestPathPreferences.__name__ else True
+False if TestPathProfile.__name__ else True
 False if TestPathPropertyBag.__name__ else True
 False if TestPathRotationGenerator.__name__ else True
 False if TestPathSetupSheet.__name__ else True
@@ -89,5 +95,3 @@ False if TestPathTooltable.__name__ else True
 False if TestPathUtil.__name__ else True
 False if TestPathVcarve.__name__ else True
 False if TestPathVoronoi.__name__ else True
-False if TestPathDrillGenerator.__name__ else True
-False if TestPathHelixGenerator.__name__ else True

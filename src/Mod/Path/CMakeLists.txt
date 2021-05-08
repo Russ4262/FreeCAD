@@ -221,31 +221,33 @@ SET(PathTests_SRCS
     PathTests/test_geomop.fcstd
     PathTests/test_holes00.fcstd
     PathTests/test_linuxcnc_00.ngc
+    PathTests/test_profile.fcstd
     PathTests/TestPathAdaptive.py
     PathTests/TestPathCore.py
     PathTests/TestPathDeburr.py
     PathTests/TestPathDepthParams.py
     PathTests/TestPathDressupDogbone.py
     PathTests/TestPathDressupHoldingTags.py
-    PathTests/TestPathDrillGenerator.py
     PathTests/TestPathDrillable.py
-    PathTests/TestPathRotationGenerator.py
+    PathTests/TestPathDrillGenerator.py
     PathTests/TestPathGeom.py
     PathTests/TestPathHelix.py
-    PathTests/TestPathHelpers.py
     PathTests/TestPathHelixGenerator.py
+    PathTests/TestPathHelpers.py
     PathTests/TestPathLog.py
     PathTests/TestPathOpTools.py
     PathTests/TestPathPost.py
     PathTests/TestPathPreferences.py
+    PathTests/TestPathProfile.py
     PathTests/TestPathPropertyBag.py
+    PathTests/TestPathRotationGenerator.py
     PathTests/TestPathSetupSheet.py
     PathTests/TestPathStock.py
-    PathTests/TestPathToolChangeGenerator.py
     PathTests/TestPathThreadMilling.py
     PathTests/TestPathThreadMillingGenerator.py
     PathTests/TestPathTool.py
     PathTests/TestPathToolBit.py
+    PathTests/TestPathToolChangeGenerator.py
     PathTests/TestPathToolController.py
     PathTests/TestPathTooltable.py
     PathTests/TestPathUtil.py
