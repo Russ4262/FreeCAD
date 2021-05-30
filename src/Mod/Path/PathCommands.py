@@ -160,6 +160,42 @@ if FreeCAD.GuiUp:
     FreeCADGui.addCommand('Path_OpActiveToggle', _ToggleOperation())
 
 
+class _PathDressupCompoundProfile:
+    "command definition to tile a Job"
+    def GetResources(self):
+        return {'Pixmap': 'Path_Stop',
+                'MenuText': QtCore.QT_TRANSLATE_NOOP("Path_PathDressupCompoundProfile", "Dressup Compound Profile"),
+                # 'Accel': "P, X",
+                'ToolTip': QtCore.QT_TRANSLATE_NOOP("Path_PathDressupCompoundProfile", "Initiate the Compound Profile Dressup."),
+                'CmdType': "ForEdit"}
+
+    def IsActive(self):
+        return True
+
+    def IsActive_selection_based(self):
+        """
+        if bool(FreeCADGui.Selection.getSelection()) is False:
+            return False
+        try:
+            for sel in FreeCADGui.Selection.getSelectionEx():
+                if not isinstance(sel.Object.Proxy, PathScripts.PathJob.ObjectJob):
+                    return False
+            return True
+        except(IndexError, AttributeError):
+            return False
+        """
+        return True
+
+    def Activated(self):
+        import PathScripts.PathDressupCompoundProfile as PathDressupCompoundProfile
+        PathDressupCompoundProfile.DressupCompoundProfile.execute()
+        # FreeCAD.ActiveDocument.recompute()
+
+
+if FreeCAD.GuiUp:
+    FreeCADGui.addCommand('Path_PathDressupCompoundProfile', _PathDressupCompoundProfile())
+
+
 class _CopyOperation:
     "the Path Copy Operation command definition"
     def GetResources(self):

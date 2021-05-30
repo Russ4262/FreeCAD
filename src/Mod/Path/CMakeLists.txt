@@ -40,6 +40,7 @@ SET(PathScripts_SRCS
     PathScripts/PathDeburrGui.py
     PathScripts/PathDressup.py
     PathScripts/PathDressupAxisMap.py
+    PathScripts/PathDressupCompoundProfile.py
     PathScripts/PathDressupDogbone.py
     PathScripts/PathDressupDragknife.py
     PathScripts/PathDressupHoldingTags.py

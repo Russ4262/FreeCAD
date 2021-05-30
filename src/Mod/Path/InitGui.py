@@ -114,7 +114,7 @@ class PathWorkbench (Workbench):
 
         threedcmdgroup = threedopcmdlist
         if PathPreferences.experimentalFeaturesEnabled():
-            projcmdlist.append("Path_Sanity")
+            projcmdlist.extend(["Path_Sanity", "Path_PathDressupCompoundProfile"])
             prepcmdlist.append("Path_Shape")
             extracmdlist.extend(["Path_Area", "Path_Area_Workplane"])
             specialcmdlist.append('Path_Thread_Milling')
