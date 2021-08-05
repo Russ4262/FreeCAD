@@ -87,13 +87,13 @@ class TaskPanelOpPage(PathOpGui.TaskPanelPage):
             obj.MinTravel = self.form.minTravel.isChecked()
 
     def updateZigZagAngle(self, obj, setModel=True):
-        if obj.OffsetPattern in ['Offset', 'Spiral']:
+        if obj.CutPattern in ['Offset', 'Spiral']:
             self.form.zigZagAngle.setEnabled(False)
         else:
             self.form.zigZagAngle.setEnabled(True)
 
         if setModel:
-            PathGui.updateInputField(obj, 'ZigZagAngle', self.form.zigZagAngle)
+            PathGui.updateInputField(obj, 'CutPatternAngle', self.form.zigZagAngle)
 
     def getFields(self, obj):
         '''getFields(obj) ... transfers values from UI to obj's proprties'''
@@ -101,8 +101,8 @@ class TaskPanelOpPage(PathOpGui.TaskPanelPage):
             obj.CutMode = str(self.form.cutMode.currentText())
         if obj.StepOver != self.form.stepOverPercent.value():
             obj.StepOver = self.form.stepOverPercent.value()
-        if obj.OffsetPattern != str(self.form.offsetPattern.currentText()):
-            obj.OffsetPattern = str(self.form.offsetPattern.currentText())
+        if obj.CutPattern != str(self.form.offsetPattern.currentText()):
+            obj.CutPattern = str(self.form.offsetPattern.currentText())
 
         PathGui.updateInputField(obj, 'ExtraOffset', self.form.extraOffset)
         self.updateToolController(obj, self.form.toolController)
@@ -132,13 +132,13 @@ class TaskPanelOpPage(PathOpGui.TaskPanelPage):
         if FeatureOutline & self.pocketFeatures():
             self.form.useOutline.setChecked(obj.UseOutline)
 
-        self.form.zigZagAngle.setText(FreeCAD.Units.Quantity(obj.ZigZagAngle, FreeCAD.Units.Angle).UserString)
+        self.form.zigZagAngle.setText(FreeCAD.Units.Quantity(obj.CutPatternAngle, FreeCAD.Units.Angle).UserString)
         self.updateZigZagAngle(obj, False)
 
         self.form.minTravel.setChecked(obj.MinTravel)
         self.updateMinTravel(obj, False)
 
-        self.selectInComboBox(obj.OffsetPattern, self.form.offsetPattern)
+        self.selectInComboBox(obj.CutPattern, self.form.offsetPattern)
         self.selectInComboBox(obj.CutMode, self.form.cutMode)
         self.setupToolController(obj, self.form.toolController)
         self.setupCoolant(obj, self.form.coolantController)

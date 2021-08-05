@@ -76,9 +76,19 @@ class ObjectPocket(PathPocketBase.ObjectPocket):
 
     def areaOpSetDefaultValues(self, obj, job):
         '''areaOpSetDefaultValues(obj, job) ... set default values'''
+        obj.CutMode = "Conventional"
+        obj.CutPattern = "Line"
+        obj.CutPatternAngle = 45
+        obj.CutPatternReversed = False
+        obj.ExtraOffset = 0.0
+        obj.KeepToolDown = False
+        obj.MinTravel = False
+        obj.PatternCenterAt = "CenterOfBoundBox"
+        obj.PatternCenterCustom = FreeCAD.Vector(0.0, 0.0, 0.0)
+        obj.StartAt = "Center"
         obj.StepOver = 100
-        obj.ZigZagAngle = 45
         obj.UseOutline = False
+        obj.Side = 'Inside'
         FeatureExtensions.set_default_property_values(obj, job)
 
     def areaOpShapes(self, obj):
@@ -143,7 +153,7 @@ class ObjectPocket(PathPocketBase.ObjectPocket):
 
             # extrude all faces up to StartDepth and those are the removal shapes
             extent = FreeCAD.Vector(0, 0, obj.StartDepth.Value - obj.FinalDepth.Value)
-            self.removalshapes = [(face.removeSplitter().extrude(extent), False) for face in self.horizontal]
+            self.removalshapes = [(face.removeSplitter().extrude(extent), False, "pathPocketShape") for face in self.horizontal]
 
         else:  # process the job base object as a whole
             PathLog.debug("processing the whole job base object")
@@ -155,14 +165,14 @@ class ObjectPocket(PathPocketBase.ObjectPocket):
                 outline.translate(FreeCAD.Vector(0, 0, stockBB.ZMin - 1))
                 body = outline.extrude(FreeCAD.Vector(0, 0, stockBB.ZLength + 2))
                 self.bodies.append(body)
-                self.removalshapes.append((self.stock.Shape.cut(body), False))
+                self.removalshapes.append((self.stock.Shape.cut(body), False, "pathPocketShape"))
 
         # Tessellate all working faces
         # for (shape, hole) in self.removalshapes:
         #    shape.tessellate(0.05)  # originally 0.1
 
         if self.removalshapes:
-            obj.removalshape = self.removalshapes[0][0]
+            obj.removalshape = Part.makeCompound([tup[0] for tup in self.removalshapes])
         return self.removalshapes
 
     # Support methods

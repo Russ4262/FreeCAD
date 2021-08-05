@@ -74,8 +74,8 @@ class TaskPanelOpPage(PathOpGui.TaskPanelPage):
 
         if obj.Side != str(self.form.cutSide.currentText()):
             obj.Side = str(self.form.cutSide.currentText())
-        if obj.Direction != str(self.form.direction.currentText()):
-            obj.Direction = str(self.form.direction.currentText())
+        if obj.CutMode != str(self.form.direction.currentText()):
+            obj.CutMode = str(self.form.direction.currentText())
         PathGui.updateInputField(obj, 'OffsetExtra', self.form.extraOffset)
 
         if obj.UseComp != self.form.useCompensation.isChecked():
@@ -96,7 +96,7 @@ class TaskPanelOpPage(PathOpGui.TaskPanelPage):
         self.setupCoolant(obj, self.form.coolantController)
 
         self.selectInComboBox(obj.Side, self.form.cutSide)
-        self.selectInComboBox(obj.Direction, self.form.direction)
+        self.selectInComboBox(obj.CutMode, self.form.direction)
         self.form.extraOffset.setText(FreeCAD.Units.Quantity(obj.OffsetExtra.Value, FreeCAD.Units.Length).UserString)
 
         self.form.useCompensation.setChecked(obj.UseComp)

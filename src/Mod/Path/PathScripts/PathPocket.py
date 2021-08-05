@@ -116,7 +116,6 @@ class ObjectPocket(PathPocketBase.ObjectPocket):
                         shape = Part.makeCompound(Faces)
                         env = PathUtils.getEnvelope(base[0].Shape, subshape=shape, depthparams=self.depthparams)
                         obj.removalshape = env.cut(base[0].Shape)
-                        # obj.removalshape.tessellate(0.1)
                         removalshapes.append((obj.removalshape, False, '3DPocket'))  # (shape, isHole, detail)
                 else:
                     for sub in base[1]:
@@ -128,7 +127,6 @@ class ObjectPocket(PathPocketBase.ObjectPocket):
 
                         env = PathUtils.getEnvelope(base[0].Shape, subshape=shape, depthparams=self.depthparams)
                         obj.removalshape = env.cut(base[0].Shape)
-                        # obj.removalshape.tessellate(0.1)
                         removalshapes.append((obj.removalshape, False, '3DPocket'))
 
         else:  # process the job base object as a whole
@@ -152,12 +150,21 @@ class ObjectPocket(PathPocketBase.ObjectPocket):
 
     def areaOpSetDefaultValues(self, obj, job):
         '''areaOpSetDefaultValues(obj, job) ... set default values'''
-        obj.StepOver = 100
-        obj.ZigZagAngle = 45
-        obj.HandleMultipleFeatures = 'Collectively'
-        obj.AdaptivePocketStart = False
         obj.AdaptivePocketFinish = False
+        obj.AdaptivePocketStart = False
+        obj.CutMode = "Conventional"
+        obj.CutPattern = "Line"
+        obj.CutPatternAngle = 45
+        obj.CutPatternReversed = False
+        obj.ExtraOffset = 0.0
+        obj.HandleMultipleFeatures = 'Collectively'
+        obj.KeepToolDown = False
+        obj.MinTravel = False
+        obj.PatternCenterAt = "CenterOfBoundBox"
+        obj.PatternCenterCustom = FreeCAD.Vector(0.0, 0.0, 0.0)
         obj.ProcessStockArea = False
+        obj.StartAt = "Center"
+        obj.StepOver = 100
 
     # methods for eliminating air milling with some pockets: adpative start and finish
     def calculateAdaptivePocket(self, obj, base, subObjTups):

@@ -69,17 +69,23 @@ class ObjectPocket(PathAreaOp.ObjectOp):
 
         # Pocket Properties
         obj.addProperty("App::PropertyEnumeration", "CutMode", "Pocket", QtCore.QT_TRANSLATE_NOOP("App::Property", "The direction that the toolpath should go around the part ClockWise (CW) or CounterClockWise (CCW)"))
+        obj.addProperty("App::PropertyFloat", "CutPatternAngle", "Pocket", QtCore.QT_TRANSLATE_NOOP("App::Property", "Angle of the zigzag pattern"))
+        obj.addProperty("App::PropertyPercent", "StepOver", "Pocket", QtCore.QT_TRANSLATE_NOOP("App::Property", "Percent of cutter diameter to step over on each pass"))
+        obj.addProperty("App::PropertyEnumeration", "CutPattern", "Pocket", QtCore.QT_TRANSLATE_NOOP("App::Property", "Clearing pattern to use"))
         obj.addProperty("App::PropertyDistance", "ExtraOffset", "Pocket", QtCore.QT_TRANSLATE_NOOP("App::Property", "Extra offset to apply to the operation. Direction is operation dependent."))
         obj.addProperty("App::PropertyEnumeration", "StartAt", "Pocket", QtCore.QT_TRANSLATE_NOOP("App::Property", "Start pocketing at center or boundary"))
-        obj.addProperty("App::PropertyPercent", "StepOver", "Pocket", QtCore.QT_TRANSLATE_NOOP("App::Property", "Percent of cutter diameter to step over on each pass"))
-        obj.addProperty("App::PropertyFloat", "ZigZagAngle", "Pocket", QtCore.QT_TRANSLATE_NOOP("App::Property", "Angle of the zigzag pattern"))
-        obj.addProperty("App::PropertyEnumeration", "OffsetPattern", "Face", QtCore.QT_TRANSLATE_NOOP("App::Property", "Clearing pattern to use"))
         obj.addProperty("App::PropertyBool", "MinTravel", "Pocket", QtCore.QT_TRANSLATE_NOOP("App::Property", "Use 3D Sorting of Path"))
         obj.addProperty("App::PropertyBool", "KeepToolDown", "Pocket", QtCore.QT_TRANSLATE_NOOP("App::Property", "Attempts to avoid unnecessary retractions."))
+        obj.addProperty("App::PropertyBool", "CutPatternReversed", "Pocket", QtCore.QT_TRANSLATE_NOOP("App::Property", "Reverse the cut order of the stepover paths. For circular cut patterns, begin at the outside and work toward the center.")),
+        obj.addProperty("App::PropertyVectorDistance", "PatternCenterCustom", "Pocket", QtCore.QT_TRANSLATE_NOOP("App::Property", "Set the start point for the cut pattern.")),
+        obj.addProperty("App::PropertyEnumeration", "PatternCenterAt", "Pocket", QtCore.QT_TRANSLATE_NOOP("App::Property", "Choose location of the center point for starting the cut pattern.")),
+        obj.addProperty("App::PropertyEnumeration", "Side", "Pocket", QtCore.QT_TRANSLATE_NOOP("App::Property", "Side of edge that tool should cut")),
 
         obj.CutMode = ['Climb', 'Conventional']
         obj.StartAt = ['Center', 'Edge']
-        obj.OffsetPattern = ['ZigZag', 'Offset', 'Spiral', 'ZigZagOffset', 'Line', 'Grid', 'Triangle']
+        obj.CutPattern = ['Line', 'LineOffset', 'ZigZag', 'ZigZagOffset', 'Circular', 'CircularZigZag', 'Offset', 'Spiral', 'Grid', 'Triangle']
+        obj.PatternCenterAt = ['CenterOfMass', 'CenterOfBoundBox', 'XminYmin', 'Custom']
+        obj.Side = ['Outside', 'Inside']
 
         self.initPocketOp(obj)
 
@@ -98,7 +104,7 @@ class ObjectPocket(PathAreaOp.ObjectOp):
         params['Coplanar'] = 0
         params['PocketMode'] = 1
         params['SectionCount'] = -1
-        params['Angle'] = obj.ZigZagAngle
+        params['Angle'] = obj.CutPatternAngle
         params['FromCenter'] = (obj.StartAt == "Center")
         params['PocketStepover'] = (self.radius * 2) * (float(obj.StepOver)/100)
         extraOffset = obj.ExtraOffset.Value
@@ -108,7 +114,7 @@ class ObjectPocket(PathAreaOp.ObjectOp):
         params['ToolRadius'] = self.radius
 
         Pattern = ['ZigZag', 'Offset', 'Spiral', 'ZigZagOffset', 'Line', 'Grid', 'Triangle']
-        params['PocketMode'] = Pattern.index(obj.OffsetPattern) + 1
+        params['PocketMode'] = Pattern.index(obj.CutPattern) + 1
         return params
 
     def areaOpPathParams(self, obj, isHole):
@@ -138,9 +144,13 @@ def SetupProperties():
     setup.append('CutMode')
     setup.append('ExtraOffset')
     setup.append('StepOver')
-    setup.append('ZigZagAngle')
-    setup.append('OffsetPattern')
+    setup.append('CutPatternAngle')
+    setup.append('CutPattern')
     setup.append('StartAt')
     setup.append('MinTravel')
     setup.append('KeepToolDown')
+    setup.append('CutPatternReversed')
+    setup.append('PatternCenterCustom')
+    setup.append('PatternCenterAt')
+    setup.append('Side')
     return setup

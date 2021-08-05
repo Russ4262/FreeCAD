@@ -216,14 +216,14 @@ class ObjectFace(PathPocketBase.ObjectPocket):
             tup = env, False, 'pathMillFace'
 
         self.removalshapes.append(tup)
-        obj.removalshape = self.removalshapes[0][0]  # save removal shape
+        obj.removalshape = Part.makeCompound([tup[0] for tup in self.removalshapes])  # save removal shape
 
         return self.removalshapes
 
     def areaOpSetDefaultValues(self, obj, job):
         '''areaOpSetDefaultValues(obj, job) ... initialize mill facing properties'''
         obj.StepOver = 50
-        obj.ZigZagAngle = 45.0
+        obj.CutPatternAngle = 45.0
         obj.ExcludeRaisedAreas = False
         obj.ClearEdges = False
 

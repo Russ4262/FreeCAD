@@ -98,8 +98,8 @@ class ObjectProfile(PathAreaOp.ObjectOp):
         Each tuple contains property declaration information in the
         form of (prototype, name, section, tooltip).'''
         return [
-            ("App::PropertyEnumeration", "Direction", "Profile",
-                QtCore.QT_TRANSLATE_NOOP("App::Property", "The direction that the toolpath should go around the part ClockWise (CW) or CounterClockWise (CCW)")),
+            ("App::PropertyEnumeration", "CutMode", "Profile",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "The direction that the toolpath should go around the part ClockWise (Conventional) or CounterClockWise (Climb)")),
             ("App::PropertyEnumeration", "HandleMultipleFeatures", "Profile",
                 QtCore.QT_TRANSLATE_NOOP("PathPocket", "Choose how to process multiple Base Geometry features.")),
             ("App::PropertyEnumeration", "JoinType", "Profile",
@@ -118,6 +118,10 @@ class ObjectProfile(PathAreaOp.ObjectOp):
                 QtCore.QT_TRANSLATE_NOOP("App::Property", "Side of edge that tool should cut")),
             ("App::PropertyBool", "UseComp", "Profile",
                 QtCore.QT_TRANSLATE_NOOP("App::Property", "Make True, if using Cutter Radius Compensation")),
+            ("App::PropertyFloat", "StepOver", "Profile",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Set the stepover percentage, based on the tool's diameter.")),
+            ("App::PropertyBool", "CutPatternReversed", "Profile",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Reverse the cut order of the stepover paths. For circular cut patterns, begin at the outside and work toward the center.")),
         ]
 
     def areaOpPropertyEnumerations(self):
@@ -125,7 +129,7 @@ class ObjectProfile(PathAreaOp.ObjectOp):
         for the operation's enumeration type properties.'''
         # Enumeration lists for App::PropertyEnumeration properties
         return {
-            'Direction': ['CW', 'CCW'],  # this is the direction that the profile runs
+            'CutMode': ['Conventional', 'Climb'],  # this is the direction that the profile runs
             'HandleMultipleFeatures': ['Collectively', 'Individually'],
             'JoinType': ['Round', 'Square', 'Miter'],  # this is the direction that the Profile runs
             'Side': ['Outside', 'Inside'],  # side of profile that cutter is on in relation to direction of profile
@@ -135,11 +139,13 @@ class ObjectProfile(PathAreaOp.ObjectOp):
         '''areaOpPropertyDefaults(obj, job) ... returns a dictionary of default values
         for the operation's properties.'''
         return {
-            'Direction': 'CW',
+            'CutMode': 'Conventional',
             'HandleMultipleFeatures': 'Collectively',
             'JoinType': 'Round',
             'MiterLimit': 0.1,
             'OffsetExtra': 0.0,
+            'StepOver': 100.0,
+            'CutPatternReversed': False,
             'Side': 'Outside',
             'UseComp': True,
             'processCircles': False,
@@ -185,6 +191,8 @@ class ObjectProfile(PathAreaOp.ObjectOp):
 
         obj.setEditorMode('JoinType', 2)
         obj.setEditorMode('MiterLimit', 2)  # ml
+        obj.setEditorMode('CutPatternReversed', 0)  # ml
+
         obj.setEditorMode('Side', side)
         obj.setEditorMode('HandleMultipleFeatures', fc)
         obj.setEditorMode('processCircles', fc)
@@ -244,17 +252,17 @@ class ObjectProfile(PathAreaOp.ObjectOp):
 
         # Reverse the direction for holes
         if isHole:
-            direction = "CW" if obj.Direction == "CCW" else "CCW"
+            direction = "Conventional" if obj.CutMode == "Climb" else "Climb"
         else:
-            direction = obj.Direction
+            direction = obj.CutMode
 
-        if direction == 'CCW':
+        if direction == 'Climb':
             params['orientation'] = 0
         else:
             params['orientation'] = 1
 
         if not obj.UseComp:
-            if direction == 'CCW':
+            if direction == 'Climb':
                 params['orientation'] = 1
             else:
                 params['orientation'] = 0
@@ -430,7 +438,9 @@ class ObjectProfile(PathAreaOp.ObjectOp):
             if hasattr(base, 'Shape'):
                 env = PathUtils.getEnvelope(partshape=base.Shape, subshape=None, depthparams=self.depthparams)
                 if env:
-                    shapeTups.append((env, False))
+                    # shapeTups.append((env, False))
+                    tup = env, False, 'pathProfile'
+                    shapeTups.append(tup)
         return shapeTups
 
     # Edges pre-processing
@@ -506,7 +516,7 @@ class ObjectProfile(PathAreaOp.ObjectOp):
                                     PathLog.error(self.inaccessibleMsg)
 
                             if openEdges:
-                                tup = openEdges, False, 'OpenEdge'
+                                tup = Part.makeCompound(openEdges), False, 'OpenEdge'
                                 shapes.append(tup)
                         else:
                             if zDiff < self.JOB.GeometryTolerance.Value:
@@ -1202,7 +1212,7 @@ class ObjectProfile(PathAreaOp.ObjectOp):
             # |   ----5----|
             # |            4
             # -----3-------|
-            # positive dist in _makePerp2DVector() is CCW rotation
+            # positive dist in _makePerp2DVector() is Climb rotation
             p1 = E
             if sType == 'BEG':
                 p2 = self._makePerp2DVector(C, E, -1 * shrt)  # E1
@@ -1230,7 +1240,7 @@ class ObjectProfile(PathAreaOp.ObjectOp):
             # |----2-------|
             # 3            1
             # |-----4------|
-            # positive dist in _makePerp2DVector() is CCW rotation
+            # positive dist in _makePerp2DVector() is Climb rotation
             p1 = E
             if sType == 'BEG':
                 p2 = self._makePerp2DVector(C, E, -1 * (shrt + abs(self.offsetExtra)))  # left, shrt

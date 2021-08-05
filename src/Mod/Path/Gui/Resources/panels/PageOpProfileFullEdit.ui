@@ -101,12 +101,12 @@
         </property>
         <item>
          <property name="text">
-          <string>CW</string>
+          <string>Climb</string>
          </property>
         </item>
         <item>
          <property name="text">
-          <string>CCW</string>
+          <string>Conventional</string>
          </property>
         </item>
        </widget>

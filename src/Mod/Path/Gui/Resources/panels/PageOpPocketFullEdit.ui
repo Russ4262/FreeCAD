@@ -137,11 +137,36 @@
          <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Pattern the tool bit is moved in to clear the material.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
         </property>
         <property name="currentText">
-         <string notr="true">ZigZag</string>
+         <string notr="true">Line</string>
         </property>
         <item>
          <property name="text">
+          <string>Line</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>LineOffset</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
           <string>ZigZag</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>ZigZagOffset</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Circular</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>CircularZigZag</string>
          </property>
         </item>
         <item>
@@ -152,16 +177,6 @@
         <item>
          <property name="text">
           <string>Spiral</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>ZigZagOffset</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>Line</string>
          </property>
         </item>
         <item>
