@@ -57,7 +57,6 @@ class ObjectEngrave(PathEngraveBase.ObjectOp):
         return (
             PathOp.FeatureTool
             | PathOp.FeatureDepths
-            | PathOp.FeatureHeights
             | PathOp.FeatureStepDown
             | PathOp.FeatureBaseEdges
             | PathOp.FeatureCoolant

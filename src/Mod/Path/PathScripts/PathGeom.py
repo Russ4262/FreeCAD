@@ -3,6 +3,8 @@
 # *   Copyright (c) 2016 sliptonic <shopinthewoods@gmail.com>               *
 # *   Copyright (c) 2021 Schildkroet                                        *
 # *                                                                         *
+# *   This file is part of the FreeCAD CAx development system.              *
+# *                                                                         *
 # *   This program is free software; you can redistribute it and/or modify  *
 # *   it under the terms of the GNU Lesser General Public License (LGPL)    *
 # *   as published by the Free Software Foundation; either version 2 of     *
@@ -31,7 +33,10 @@ from PySide import QtCore
 
 # lazily loaded modules
 from lazy_loader.lazy_loader import LazyLoader
+DraftGeomUtils = LazyLoader('DraftGeomUtils', globals(), 'DraftGeomUtils')
 Part = LazyLoader('Part', globals(), 'Part')
+PathUtils = LazyLoader('PathScripts.PathUtils', globals(), 'PathScripts.PathUtils')
+TechDraw = LazyLoader('TechDraw', globals(), 'TechDraw')
 
 __title__ = "PathGeom - geometry utilities for Path"
 __author__ = "sliptonic (Brad Collette)"
@@ -132,7 +137,7 @@ def diffAngle(a1, a2, direction = 'CW'):
     return a
 
 def isVertical(obj):
-    '''isVertical(obj) ... answer True if obj points into Z'''
+    """isVertical(obj) ... answer True if obj points into Z"""
     if type(obj) == FreeCAD.Vector:
         return isRoughly(obj.x, 0) and isRoughly(obj.y, 0)
 
@@ -167,7 +172,7 @@ def isVertical(obj):
     return None
 
 def isHorizontal(obj):
-    '''isHorizontal(obj) ... answer True if obj points into X or Y'''
+    """isHorizontal(obj) ... answer True if obj points into X or Y"""
     if type(obj) == FreeCAD.Vector:
         return isRoughly(obj.z, 0)
 
@@ -495,9 +500,9 @@ def removeDuplicateEdges(wire):
 OddsAndEnds = []
 
 def flipEdge(edge):
-    '''flipEdge(edge)
+    """flipEdge(edge)
     Flips given edge around so the new Vertexes[0] was the old Vertexes[-1] and vice versa, without changing the shape.
-    Currently only lines, line segments, circles and arcs are supported.'''
+    Currently only lines, line segments, circles and arcs are supported."""
 
     if Part.Line == type(edge.Curve) and not edge.Vertexes:
         return Part.Edge(Part.Line(edge.valueAt(edge.LastParameter), edge.valueAt(edge.FirstParameter)))
@@ -548,7 +553,7 @@ def flipEdge(edge):
 Wire = []
 
 def flipWire(wire):
-    '''Flip the entire wire and all its edges so it is being processed the other way around.'''
+    """Flip the entire wire and all its edges so it is being processed the other way around."""
     Wire.append(wire)
     edges = [flipEdge(e) for e in wire.Edges]
     edges.reverse()

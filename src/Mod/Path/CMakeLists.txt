@@ -25,9 +25,7 @@ INSTALL(
 
 SET(PathScripts_SRCS
     PathCommands.py
-    PathScripts/PathAdaptive.py
-    PathScripts/PathAdaptiveGui.py
-    PathScripts/PathAreaOp.py
+    PathScripts/__init__.py
     PathScripts/PathArray.py
     PathScripts/PathCircularHoleBase.py
     PathScripts/PathCircularHoleBaseGui.py
@@ -56,7 +54,6 @@ SET(PathScripts_SRCS
     PathScripts/PathEngraveBase.py
     PathScripts/PathEngraveGui.py
     PathScripts/PathFeatureExtensions.py
-    PathScripts/PathFeatureExtensionsGui.py
     PathScripts/PathFixture.py
     PathScripts/PathGeom.py
     PathScripts/PathGetPoint.py
@@ -72,15 +69,9 @@ SET(PathScripts_SRCS
     PathScripts/PathJobDlg.py
     PathScripts/PathJobGui.py
     PathScripts/PathLog.py
-    PathScripts/PathMillFace.py
-    PathScripts/PathMillFaceGui.py
     PathScripts/PathOp.py
     PathScripts/PathOpGui.py
     PathScripts/PathOpTools.py
-    PathScripts/PathPocket.py
-    PathScripts/PathPocketBase.py
-    PathScripts/PathPocketBaseGui.py
-    PathScripts/PathPocketGui.py
     PathScripts/PathPocketShape.py
     PathScripts/PathPocketShapeGui.py
     PathScripts/PathPost.py
@@ -92,12 +83,6 @@ SET(PathScripts_SRCS
     PathScripts/PathProbe.py
     PathScripts/PathProbeGui.py
     PathScripts/PathProfile.py
-    PathScripts/PathProfileContour.py
-    PathScripts/PathProfileContourGui.py
-    PathScripts/PathProfileEdges.py
-    PathScripts/PathProfileEdgesGui.py
-    PathScripts/PathProfileFaces.py
-    PathScripts/PathProfileFacesGui.py
     PathScripts/PathProfileGui.py
     PathScripts/PathProperty.py
     PathScripts/PathPropertyBag.py
@@ -105,6 +90,7 @@ SET(PathScripts_SRCS
     PathScripts/PathPropertyEditor.py
     PathScripts/PathSanity.py
     PathScripts/PathSelection.py
+    PathScripts/PathSelectionProcessing.py
     PathScripts/PathSetupSheet.py
     PathScripts/PathSetupSheetGui.py
     PathScripts/PathSetupSheetOpPrototype.py
@@ -118,6 +104,7 @@ SET(PathScripts_SRCS
     PathScripts/PathSurface.py
     PathScripts/PathSurfaceGui.py
     PathScripts/PathSurfaceSupport.py
+    PathScripts/PathTaskPanelGui.py
     PathScripts/PathThreadMilling.py
     PathScripts/PathThreadMillingGui.py
     PathScripts/PathToolBit.py
@@ -139,7 +126,7 @@ SET(PathScripts_SRCS
     PathScripts/PathWaterline.py
     PathScripts/PathWaterlineGui.py
     PathScripts/PostUtils.py
-    PathScripts/__init__.py
+    PathScripts/README.md
 )
 
 SET(PathScripts_post_SRCS
@@ -162,6 +149,12 @@ SET(PathScripts_post_SRCS
     PathScripts/post/slic3r_pre.py
     PathScripts/post/smoothie_post.py
     PathScripts/post/uccnc_post.py
+)
+
+SET(PathScripts_strategies_SRCS
+    PathScripts/strategies/__init__.py
+    PathScripts/strategies/PathStrategyClearing.py
+    PathScripts/strategies/PathStrategyProfile.py
 )
 
 SET(Tools_SRCS
@@ -205,6 +198,8 @@ SET(PathTests_SRCS
     PathTests/test_geomop.fcstd
     PathTests/test_holes00.fcstd
     PathTests/test_linuxcnc_00.ngc
+    PathTests/test_pocketshape.fcstd
+    PathTests/test_profile.fcstd
     PathTests/TestPathAdaptive.py
     PathTests/TestPathCore.py
     PathTests/TestPathDeburr.py
@@ -215,11 +210,15 @@ SET(PathTests_SRCS
     PathTests/TestPathHelix.py
     PathTests/TestPathLog.py
     PathTests/TestPathOpTools.py
+    PathTests/TestPathPocketShape.py
     PathTests/TestPathPost.py
     PathTests/TestPathPreferences.py
+    PathTests/TestPathProfile.py
     PathTests/TestPathPropertyBag.py
     PathTests/TestPathSetupSheet.py
+    PathTests/TestPathSlot.py
     PathTests/TestPathStock.py
+    PathTests/TestPathStrategies.py
     PathTests/TestPathThreadMilling.py
     PathTests/TestPathTool.py
     PathTests/TestPathToolBit.py
@@ -235,6 +234,7 @@ SET(PathTests_SRCS
 
 SET(PathImages_Ops
     Images/Ops/chamfer.svg
+    Images/Ops/Path-DepthsAndHeights.gif
 )
 
 SET(PathImages_Tools
@@ -260,6 +260,7 @@ SET(Path_Data
 SET(all_files
     ${PathScripts_SRCS}
     ${PathScripts_post_SRCS}
+    ${PathScripts_strategies_SRCS}
     ${Tools_SRCS}
     ${Tools_Bit_SRCS}
     ${Tools_Library_SRCS}
@@ -289,6 +290,13 @@ INSTALL(
         ${PathScripts_SRCS}
     DESTINATION
         Mod/Path/PathScripts
+)
+
+INSTALL(
+    FILES
+        ${PathScripts_strategies_SRCS}
+    DESTINATION
+        Mod/Path/PathScripts/strategies
 )
 
 INSTALL(

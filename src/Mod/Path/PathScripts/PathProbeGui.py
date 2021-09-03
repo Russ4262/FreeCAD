@@ -40,7 +40,7 @@ def translate(context, text, disambig=None):
     return QtCore.QCoreApplication.translate(context, text, disambig)
 
 
-class TaskPanelOpPage(PathOpGui.TaskPanelPage):
+class TaskPanelOpPage(PathOpGui.TaskPanelGui.TaskPanelPage):
     '''Page controller class for the Probing operation.'''
 
     def getForm(self):

@@ -52,7 +52,7 @@ class ObjectProbing(PathOp.ObjectOp):
 
     def opFeatures(self, obj):
         '''opFeatures(obj) ... Probing works on the stock object.'''
-        return PathOp.FeatureDepths | PathOp.FeatureHeights | PathOp.FeatureTool
+        return PathOp.FeatureDepths | PathOp.FeatureTool
 
     def initOperation(self, obj):
         obj.addProperty("App::PropertyLength", "Xoffset", "Probe", QtCore.QT_TRANSLATE_NOOP("App::Property", "X offset between tool and probe"))

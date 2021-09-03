@@ -22,12 +22,11 @@
 
 import FreeCAD
 import FreeCADGui
-import PathGui as PGui # ensure Path/Gui/Resources are loaded
 import PathScripts.PathGui as PathGui
 import PathScripts.PathOpGui as PathOpGui
 import PathScripts.PathProfile as PathProfile
 
-from PySide import QtCore
+from PySide import QtCore, QtGui
 
 
 __title__ = "Path Profile Operation UI"
@@ -44,15 +43,18 @@ def translate(context, text, disambig=None):
     return QtCore.QCoreApplication.translate(context, text, disambig)
 
 
-class TaskPanelOpPage(PathOpGui.TaskPanelPage):
+class TaskPanelOpPage(PathOpGui.TaskPanelGui.TaskPanelPage):
     '''Base class for profile operation page controllers. Two sub features are supported:
         FeatureSide       ... Is the Side property exposed in the UI
         FeatureProcessing ... Are the processing check boxes supported by the operation
     '''
 
     def initPage(self, obj):
+        '''initPage(obj) ... Pseudo-extension of parent constructor class
+        used to customize UI for specific model.
+        Note that this function is invoked after all page controllers have been created.'''
         self.setTitle("Profile - " + obj.Label)
-        self.updateVisibility()
+        self.materialAllowance = PathGui.QuantitySpinBox(self.form.materialAllowance, obj, 'MaterialAllowance')
 
     def profileFeatures(self):
         '''profileFeatures() ... return which of the optional profile features are supported.
@@ -64,48 +66,48 @@ class TaskPanelOpPage(PathOpGui.TaskPanelPage):
 
     def getForm(self):
         '''getForm() ... returns UI customized according to profileFeatures()'''
-        form = FreeCADGui.PySideUic.loadUi(":/panels/PageOpProfileFullEdit.ui")
-        return form
+        return FreeCADGui.PySideUic.loadUi(":/panels/PageOpProfileEdit.ui")
 
     def getFields(self, obj):
         '''getFields(obj) ... transfers values from UI to obj's proprties'''
         self.updateToolController(obj, self.form.toolController)
         self.updateCoolant(obj, self.form.coolantController)
 
-        if obj.Side != str(self.form.cutSide.currentText()):
-            obj.Side = str(self.form.cutSide.currentText())
-        if obj.Direction != str(self.form.direction.currentText()):
-            obj.Direction = str(self.form.direction.currentText())
-        PathGui.updateInputField(obj, 'OffsetExtra', self.form.extraOffset)
+        if obj.CutSide != str(self.form.cutSide.currentText()):
+            obj.CutSide = str(self.form.cutSide.currentText())
+        if obj.CutDirection != str(self.form.cutDirection.currentText()):
+            obj.CutDirection = str(self.form.cutDirection.currentText())
+
+        # PathGui.updateInputField(obj, 'MaterialAllowance', self.form.materialAllowance)
+        self.materialAllowance.updateProperty()
 
         if obj.UseComp != self.form.useCompensation.isChecked():
             obj.UseComp = self.form.useCompensation.isChecked()
         if obj.UseStartPoint != self.form.useStartPoint.isChecked():
             obj.UseStartPoint = self.form.useStartPoint.isChecked()
 
-        if obj.processHoles != self.form.processHoles.isChecked():
-            obj.processHoles = self.form.processHoles.isChecked()
-        if obj.processPerimeter != self.form.processPerimeter.isChecked():
-            obj.processPerimeter = self.form.processPerimeter.isChecked()
-        if obj.processCircles != self.form.processCircles.isChecked():
-            obj.processCircles = self.form.processCircles.isChecked()
+        if obj.ProcessHoles != self.form.processHoles.isChecked():
+            obj.ProcessHoles = self.form.processHoles.isChecked()
+        if obj.ProcessPerimeter != self.form.processPerimeter.isChecked():
+            obj.ProcessPerimeter = self.form.processPerimeter.isChecked()
+        if obj.ProcessCircles != self.form.processCircles.isChecked():
+            obj.ProcessCircles = self.form.processCircles.isChecked()
 
     def setFields(self, obj):
         '''setFields(obj) ... transfers obj's property values to UI'''
         self.setupToolController(obj, self.form.toolController)
         self.setupCoolant(obj, self.form.coolantController)
 
-        self.selectInComboBox(obj.Side, self.form.cutSide)
-        self.selectInComboBox(obj.Direction, self.form.direction)
-        self.form.extraOffset.setText(FreeCAD.Units.Quantity(obj.OffsetExtra.Value, FreeCAD.Units.Length).UserString)
+        self.selectInComboBox(obj.CutSide, self.form.cutSide)
+        self.selectInComboBox(obj.CutDirection, self.form.cutDirection)
+        # self.form.materialAllowance.setText(FreeCAD.Units.Quantity(obj.MaterialAllowance.Value, FreeCAD.Units.Length).UserString)
+        self.materialAllowance.updateSpinBox()
 
         self.form.useCompensation.setChecked(obj.UseComp)
         self.form.useStartPoint.setChecked(obj.UseStartPoint)
-        self.form.processHoles.setChecked(obj.processHoles)
-        self.form.processPerimeter.setChecked(obj.processPerimeter)
-        self.form.processCircles.setChecked(obj.processCircles)
-
-        self.updateVisibility()
+        self.form.processHoles.setChecked(obj.ProcessHoles)
+        self.form.processPerimeter.setChecked(obj.ProcessPerimeter)
+        self.form.processCircles.setChecked(obj.ProcessCircles)
 
     def getSignalsForUpdate(self, obj):
         '''getSignalsForUpdate(obj) ... return list of signals for updating obj'''
@@ -113,8 +115,8 @@ class TaskPanelOpPage(PathOpGui.TaskPanelPage):
         signals.append(self.form.toolController.currentIndexChanged)
         signals.append(self.form.coolantController.currentIndexChanged)
         signals.append(self.form.cutSide.currentIndexChanged)
-        signals.append(self.form.direction.currentIndexChanged)
-        signals.append(self.form.extraOffset.editingFinished)
+        signals.append(self.form.cutDirection.currentIndexChanged)
+        signals.append(self.form.materialAllowance.editingFinished)
         signals.append(self.form.useCompensation.stateChanged)
         signals.append(self.form.useStartPoint.stateChanged)
         signals.append(self.form.processHoles.stateChanged)
@@ -123,31 +125,41 @@ class TaskPanelOpPage(PathOpGui.TaskPanelPage):
 
         return signals
 
-    def updateVisibility(self):
-        hasFace = False
-        objBase = list()
-
-        if hasattr(self.obj, 'Base'):
-            objBase = self.obj.Base
-
-        if objBase.__len__() > 0:
-            for (base, subsList) in objBase:
-                for sub in subsList:
-                    if sub[:4] == 'Face':
-                        hasFace = True
-                        break
-
-        if hasFace:
-            self.form.processCircles.show()
-            self.form.processHoles.show()
-            self.form.processPerimeter.show()
-        else:
-            self.form.processCircles.hide()
-            self.form.processHoles.hide()
-            self.form.processPerimeter.hide()
-
     def registerSignalHandlers(self, obj):
-        self.form.useCompensation.stateChanged.connect(self.updateVisibility)
+        '''registerSignalHandlers(obj) ... overwrite to register custom signal handlers.
+        In case an update of a model is not the desired operation of a signal invocation
+        (see getSignalsForUpdate(obj)) this function can be used to register signal handlers
+        manually.'''
+        # pylint: disable=unused-argument
+        self.form.visualizeButton.clicked.connect(self.previewWorkingShape)
+
+    # Method for previewing working shapes
+    def previewWorkingShape(self):
+        # FreeCAD.Console.PrintMessage("previewWorkingShape()\n")
+        workingShapes = self.workingShapeList
+        if workingShapes:
+            for (__, __, ds) in workingShapes:
+                self.parent.switch.removeChild(ds.root)
+
+        if self.form.visualizeButton.isChecked():
+            shapes = self.obj.Proxy.shapeIdentification(self.obj, isPreview=True)
+            cnt = 0
+            for (shp, __, detail) in shapes:
+                cnt += 1
+                label = "shape_{}".format(cnt)
+                if detail == 'pathProfile':
+                    shp.translate(FreeCAD.Vector(0.0, 0.0, self.obj.FinalDepth.Value - shp.BoundBox.ZMin))
+                    ds = PathGui.PreviewShape(shp)
+                    self.parent.switch.addChild(ds.root)
+                    workingShapes.append((self.title, label, ds))
+                elif detail == 'OpenEdge':
+                    for edg in shp:
+                        edg.translate(FreeCAD.Vector(0.0, 0.0, self.obj.FinalDepth.Value - edg.BoundBox.ZMin))
+                        extent = self.obj.StartDepth.Value - self.obj.FinalDepth.Value
+                        shape = edg.extrude(FreeCAD.Vector(0.0, 0.0, extent))
+                        ds = PathGui.PreviewShape(shape)
+                        self.parent.switch.addChild(ds.root)
+                        workingShapes.append((self.title, label, ds))
 # Eclass
 
 

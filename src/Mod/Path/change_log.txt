@@ -1,0 +1,22 @@
+Progress/changes within the strategy-based branch:
+* Independent strategy-based class usage currently for Profile and PocketShape - the strategy classes are found in PathStrategies module.
+* Combination of PocketShape, MillFace, and 3D Pocket into a single PocketShape operation.  A checkbox for `Cut 3D Pocket` is available.
+* New PathSelectionProcessing module that contains classes and support functions designed to interpret user input sources.
+* Common Base Geometry and Extensions analysis class, Working2DAreas for Profile, PocketShape, and Adaptive operations.
+* New Base Geometry analysis class, Working3DFaces for preparing 3D pocket envelopes.
+* Working shape previews for Profile (including open edges), PocketShape, and Adaptive operations
+* Functional, but incomplete, overhead collision avoidance for Profile, PocketShape (including 3D pockets), and Adaptive.  The incomplete nature is due to necessary modifications to account for material allowance and INSIDE/OUTSIDE selection.
+* Refactor of open edge code into independent class, OpenEdge, with improvements to the feature.
+* Incorporation of MillFace into PocketShape allows for the BoundaryShape feature to be available to PocketShape
+* Heights and Depths features have been combined as single feature in code and in GUI task panel
+* Cut side selection is fixed for whole-model profiling, allowing inside or outside of entire model
+* The Profile and PocketShape modules are now self-contained, not relying on PathAreaOp module
+* The Adaptive operation is now merged with PocketShape since it is a 2D clearing pattern and not a unique, individual operation.
+
+Additional notes:
+* Current overhead avoidance does not take into account material allowance or non-tool-compensation profile usage, or inside/outside cut side.
+* I have deleted PathAreaOp and PathPocketBase modules temporarily, after re-injecting that code into each affected operation, with the idea that I can go back later and create a simpler form of them once the geometry/selection and strategy code is extracted from all the affected ops are refactored in a satisfactory manner.  Extracting common elements to put back in these two modules does not worry me at the moment.  The benefit now is that Profile, PocketShape, MillFace, and 3D Pocket are all stand-alone modules.
+* I have NOT done any refactoring of GUI modules.  They are still intact apart from combining the Depths and Heights task panels throughout Path workbench.
+* I may combine the PathPocketBaseGui and PathPocketShapeGui modules since PathPocketShapeGui is now only module dependent upon PathPocketBaseGui.
+* Current, known, purposeful regressions include loss of Adaptive Start/Finish for 3D pocket cuts, and loss of ArchPanel support for full model Profile operation.  The ArchPanel support should be moderate to easy to re-implement with current strategy-based structure.  The Adaptive Start/Finish for 3D pockets might be moderate to challenging to re-implement with new code structure.  Both of these regressions will require more studying to determine how to best include them with the new code.
+

@@ -25,11 +25,10 @@
 import FreeCAD
 import Part
 import PathScripts.PathJob as PathJob
-import PathScripts.PathAdaptive as PathAdaptive
-import PathScripts.PathGeom as PathGeom
+import PathScripts.PathPocketShape as PathPocketShape
 from PathTests.PathTestUtils import PathTestBase
 if FreeCAD.GuiUp:
-    import PathScripts.PathAdaptiveGui as PathAdaptiveGui
+    import PathScripts.PathPocketShapeGui as PathPocketShapeGui
     import PathScripts.PathJobGui as PathJobGui
 
 
@@ -57,7 +56,7 @@ class TestPathAdaptive(PathTestBase):
             job.ViewObject.Proxy = PathJobGui.ViewProvider(job.ViewObject)
 
         # Instantiate an Adaptive operation for querying available properties
-        prototype = PathAdaptive.Create("Adaptive")
+        prototype = PathPocketShape.Create("Adaptive")
         prototype.Base = [(doc.Fusion, ["Face3"])]
         prototype.Label = "Prototype"
         _addViewProvider(prototype)
@@ -75,7 +74,8 @@ class TestPathAdaptive(PathTestBase):
         # FreeCAD.Console.PrintMessage("TestPathAdaptive.tearDownClass()\n")
 
         # Close geometry document without saving
-        FreeCAD.closeDocument(FreeCAD.ActiveDocument.Name)
+        # FreeCAD.closeDocument(FreeCAD.ActiveDocument.Name)
+        pass
 
     # Setup and tear down methods called before and after each unit test
     def setUp(self):
@@ -102,158 +102,182 @@ class TestPathAdaptive(PathTestBase):
         '''test01() Verify path generated on Face3.'''
 
         # Instantiate a Adaptive operation and set Base Geometry
-        adaptive = PathAdaptive.Create('Adaptive')
-        adaptive.Base = [(self.doc.Fusion, ["Face3"])]  # (base, subs_list)
-        adaptive.Label = "test01+"
-        adaptive.Comment = "test01() Verify path generated on Face3."
+        op = PathPocketShape.Create('Pocket_Shape')
+        # op.Base = [(self.doc.Fusion, ["Face3"])]  # (base, subs_list)
+        setOpBase(op, self.doc.Fusion, ["Face3"])
+        op.Label = "test01+"
+        op.Comment = "test01() Verify path generated on Face3."
 
         # Set additional operation properties
         # setDepthsAndHeights(adaptive)
-        adaptive.FinishingProfile = False
-        adaptive.HelixAngle = 75.0
-        adaptive.HelixDiameterLimit.Value = 1.0
-        adaptive.LiftDistance.Value = 1.0
-        adaptive.StepOver = 75
-        adaptive.UseOutline = False
-        adaptive.setExpression('StepDown', None)
-        adaptive.StepDown.Value = 20.0  # Have to set expression to None before numerical value assignment
+        op.CutPattern = 'Adaptive'
+        op.FinishingProfile = False
+        op.HelixAngle = 75.0
+        op.HelixDiameterLimit.Value = 1.0
+        op.LiftDistance.Value = 1.0
+        op.StepOver = 75
+        op.ProcessPerimeter = True
+        op.ProcessHoles = True
+        op.ProcessCircles = True
+        op.setExpression('StepDown', None)
+        op.StepDown.Value = 20.0  # Have to set expression to None before numerical value assignment
 
-        _addViewProvider(adaptive)
+        _addViewProvider(op)
         self.doc.recompute()
 
-        # moves = getGcodeMoves(adaptive.Path.Commands, includeRapids=False)
+        # moves = getGcodeMoves(op.Path.Commands, includeRapids=False)
         # operationMoves = ";  ".join(moves)
         # self.con.PrintMessage("test00_moves: " + operationMoves + "\n")
 
         # self.assertTrue(expected_moves_test01 == operationMoves,
         #                "expected_moves_test01: {}\noperationMoves: {}".format(expected_moves_test01, operationMoves))
-        self.assertTrue(len(adaptive.Path.Commands) > 100, "Command count not greater than 100.")
+        self.assertTrue(len(op.Path.Commands) > 100, "Command count not greater than 100.")
 
     def test02(self):
         '''test02() Verify path generated on adjacent, combined Face3 and Face10.  The Z heights are different.'''
 
         # Instantiate a Adaptive operation and set Base Geometry
-        adaptive = PathAdaptive.Create('Adaptive')
-        adaptive.Base = [(self.doc.Fusion, ["Face3", "Face10"])]  # (base, subs_list)
-        adaptive.Label = "test02+"
-        adaptive.Comment = "test02() Verify path generated on adjacent, combined Face3 and Face10.  The Z heights are different."
+        op = PathPocketShape.Create('Pocket_Shape')
+        # op.Base = [(self.doc.Fusion, ["Face3", "Face10"])]  # (base, subs_list)
+        setOpBase(op, self.doc.Fusion, ["Face3", "Face10"])
+        op.Label = "test02+"
+        op.Comment = "test02() Verify path generated on adjacent, combined Face3 and Face10.  The Z heights are different."
 
         # Set additional operation properties
         # setDepthsAndHeights(adaptive)
-        adaptive.FinishingProfile = False
-        adaptive.HelixAngle = 75.0
-        adaptive.HelixDiameterLimit.Value = 1.0
-        adaptive.LiftDistance.Value = 1.0
-        adaptive.StepOver = 75
-        adaptive.UseOutline = False
-        adaptive.setExpression('StepDown', None)
-        adaptive.StepDown.Value = 20.0  # Have to set expression to None before numerical value assignment
+        op.CutPattern = 'Adaptive'
+        op.FinishingProfile = False
+        op.HelixAngle = 75.0
+        op.HelixDiameterLimit.Value = 1.0
+        op.LiftDistance.Value = 1.0
+        op.StepOver = 75
+        op.ProcessPerimeter = True
+        op.ProcessHoles = True
+        op.ProcessCircles = True
+        op.setExpression('StepDown', None)
+        op.StepDown.Value = 20.0  # Have to set expression to None before numerical value assignment
 
-        _addViewProvider(adaptive)
+        _addViewProvider(op)
         self.doc.recompute()
 
-        self.assertTrue(len(adaptive.Path.Commands) > 100, "Command count not greater than 100.")
+        self.assertTrue(len(op.Path.Commands) > 100, "Command count not greater than 100.")
 
     def test03(self):
         '''test03() Verify path generated on adjacent, combined Face3 and Face10.  The Z heights are different.'''
 
         # Instantiate a Adaptive operation and set Base Geometry
-        adaptive = PathAdaptive.Create('Adaptive')
-        adaptive.Base = [(self.doc.Fusion, ["Face3", "Face10"])]  # (base, subs_list)
-        adaptive.Label = "test03+"
-        adaptive.Comment = "test03() Verify path generated on adjacent, combined Face3 and Face10.  The Z heights are different."
+        op = PathPocketShape.Create('Pocket_Shape')
+        # op.Base = [(self.doc.Fusion, ["Face3", "Face10"])]  # (base, subs_list)
+        setOpBase(op, self.doc.Fusion, ["Face3", "Face10"])
+        op.Label = "test03+"
+        op.Comment = "test03() Verify path generated on adjacent, combined Face3 and Face10.  The Z heights are different."
 
         # Set additional operation properties
         # setDepthsAndHeights(adaptive)
-        adaptive.FinishingProfile = False
-        adaptive.HelixAngle = 75.0
-        adaptive.HelixDiameterLimit.Value = 1.0
-        adaptive.LiftDistance.Value = 1.0
-        adaptive.StepOver = 75
-        adaptive.UseOutline = True
-        adaptive.setExpression('StepDown', None)
-        adaptive.StepDown.Value = 20.0  # Have to set expression to None before numerical value assignment
+        op.CutPattern = 'Adaptive'
+        op.FinishingProfile = False
+        op.HelixAngle = 75.0
+        op.HelixDiameterLimit.Value = 1.0
+        op.LiftDistance.Value = 1.0
+        op.StepOver = 75
+        op.ProcessPerimeter = True
+        op.ProcessHoles = False
+        op.ProcessCircles = False
+        op.setExpression('StepDown', None)
+        op.StepDown.Value = 20.0  # Have to set expression to None before numerical value assignment
 
-        _addViewProvider(adaptive)
+        _addViewProvider(op)
         self.doc.recompute()
 
-        self.assertTrue(len(adaptive.Path.Commands) > 100, "Command count not greater than 100.")
+        self.assertTrue(len(op.Path.Commands) > 100, "Command count not greater than 100.")
 
     def test04(self):
         '''test04() Verify path generated non-closed edges with differing Z-heights that are closed with Z=1 projection: "Edge9", "Edge2", "Edge8", "Edge15", "Edge30", "Edge31", "Edge29", "Edge19".'''
 
         # Instantiate a Adaptive operation and set Base Geometry
-        adaptive = PathAdaptive.Create('Adaptive')
-        adaptive.Base = [(self.doc.Fusion, ["Edge9", "Edge2", "Edge8", "Edge15", "Edge30", "Edge31", "Edge29", "Edge19"])]  # (base, subs_list)
-        adaptive.Label = "test04+"
-        adaptive.Comment = 'test04() Verify path generated non-closed edges with differing Z-heights that are closed with Z=1 projection: "Edge9", "Edge2", "Edge8", "Edge15", "Edge30", "Edge31", "Edge29", "Edge19".'
+        op = PathPocketShape.Create('Pocket_Shape')
+        # op.Base = [(self.doc.Fusion, ["Edge9", "Edge2", "Edge8", "Edge15", "Edge30", "Edge31", "Edge29", "Edge19"])]  # (base, subs_list)
+        setOpBase(op, self.doc.Fusion, ["Edge9", "Edge2", "Edge8", "Edge15", "Edge30", "Edge31", "Edge29", "Edge19"])
+        op.Label = "test04+"
+        op.Comment = 'test04() Verify path generated non-closed edges with differing Z-heights that are closed with Z=1 projection: "Edge9", "Edge2", "Edge8", "Edge15", "Edge30", "Edge31", "Edge29", "Edge19".'
 
         # Set additional operation properties
         # setDepthsAndHeights(adaptive)
-        adaptive.FinishingProfile = False
-        adaptive.HelixAngle = 75.0
-        adaptive.HelixDiameterLimit.Value = 1.0
-        adaptive.LiftDistance.Value = 1.0
-        adaptive.StepOver = 75
-        adaptive.UseOutline = False
-        adaptive.setExpression('StepDown', None)
-        adaptive.StepDown.Value = 20.0  # Have to set expression to None before numerical value assignment
+        op.CutPattern = 'Adaptive'
+        op.FinishingProfile = False
+        op.HelixAngle = 75.0
+        op.HelixDiameterLimit.Value = 1.0
+        op.LiftDistance.Value = 1.0
+        op.StepOver = 75
+        op.ProcessPerimeter = True
+        op.ProcessHoles = True
+        op.ProcessCircles = True
+        op.setExpression('StepDown', None)
+        op.StepDown.Value = 20.0  # Have to set expression to None before numerical value assignment
 
-        _addViewProvider(adaptive)
+        _addViewProvider(op)
         self.doc.recompute()
 
-        self.assertTrue(len(adaptive.Path.Commands) > 100, "Command count not greater than 100.")
+        self.assertTrue(len(op.Path.Commands) > 100, "Command count not greater than 100.")
 
     def test05(self):
         '''test05() Verify path generated closed wire with differing Z-heights: "Edge13", "Edge7", "Edge9", "Edge2", "Edge8", "Edge15", "Edge30", "Edge31", "Edge29", "Edge19".'''
 
         # Instantiate a Adaptive operation and set Base Geometry
-        adaptive = PathAdaptive.Create('Adaptive')
-        adaptive.Base = [(self.doc.Fusion, ["Edge13", "Edge7", "Edge9", "Edge2", "Edge8", "Edge15", "Edge30", "Edge31", "Edge29", "Edge19"])]  # (base, subs_list)
-        adaptive.Label = "test05+"
-        adaptive.Comment = 'test05() Verify path generated closed wire with differing Z-heights: "Edge13", "Edge7", "Edge9", "Edge2", "Edge8", "Edge15", "Edge30", "Edge31", "Edge29", "Edge19".'
+        op = PathPocketShape.Create('Pocket_Shape')
+        # op.Base = [(self.doc.Fusion, ["Edge13", "Edge7", "Edge9", "Edge2", "Edge8", "Edge15", "Edge30", "Edge31", "Edge29", "Edge19"])]  # (base, subs_list)
+        setOpBase(op, self.doc.Fusion, ["Edge13", "Edge7", "Edge9", "Edge2", "Edge8", "Edge15", "Edge30", "Edge31", "Edge29", "Edge19"])
+        op.Label = "test05+"
+        op.Comment = 'test05() Verify path generated closed wire with differing Z-heights: "Edge13", "Edge7", "Edge9", "Edge2", "Edge8", "Edge15", "Edge30", "Edge31", "Edge29", "Edge19".'
 
         # Set additional operation properties
         # setDepthsAndHeights(adaptive)
-        adaptive.FinishingProfile = False
-        adaptive.HelixAngle = 75.0
-        adaptive.HelixDiameterLimit.Value = 1.0
-        adaptive.LiftDistance.Value = 1.0
-        adaptive.StepOver = 75
-        adaptive.UseOutline = False
-        adaptive.setExpression('StepDown', None)
-        adaptive.StepDown.Value = 20.0  # Have to set expression to None before numerical value assignment
+        op.CutPattern = 'Adaptive'
+        op.FinishingProfile = False
+        op.HelixAngle = 75.0
+        op.HelixDiameterLimit.Value = 1.0
+        op.LiftDistance.Value = 1.0
+        op.StepOver = 75
+        op.ProcessPerimeter = True
+        op.ProcessHoles = True
+        op.ProcessCircles = True
+        op.setExpression('StepDown', None)
+        op.StepDown.Value = 20.0  # Have to set expression to None before numerical value assignment
 
-        _addViewProvider(adaptive)
+        _addViewProvider(op)
         self.doc.recompute()
 
-        self.assertTrue(len(adaptive.Path.Commands) > 100, "Command count not greater than 100.")
+        self.assertTrue(len(op.Path.Commands) > 100, "Command count not greater than 100.")
 
     def test06(self):
         '''test06() Verify path generated with outer and inner edge loops at same Z height: "Edge15", "Edge30", "Edge31", "Edge29", "Edge19", "Edge18", "Edge35", "Edge32", "Edge34", "Edge33".'''
 
         # Instantiate a Adaptive operation and set Base Geometry
-        adaptive = PathAdaptive.Create('Adaptive')
-        adaptive.Base = [(self.doc.Fusion, ["Edge15", "Edge30", "Edge31", "Edge29", "Edge19", "Edge18", "Edge35", "Edge32", "Edge34", "Edge33"])]  # (base, subs_list)
-        adaptive.Label = "test06+"
-        adaptive.Comment = 'test06() Verify path generated with outer and inner edge loops at same Z height: "Edge15", "Edge30", "Edge31", "Edge29", "Edge19", "Edge18", "Edge35", "Edge32", "Edge34", "Edge33".'
+        op = PathPocketShape.Create('Pocket_Shape')
+        # op.Base = [(self.doc.Fusion, ["Edge15", "Edge30", "Edge31", "Edge29", "Edge19", "Edge18", "Edge35", "Edge32", "Edge34", "Edge33"])]  # (base, subs_list)
+        setOpBase(op, self.doc.Fusion, ["Edge15", "Edge30", "Edge31", "Edge29", "Edge19", "Edge18", "Edge35", "Edge32", "Edge34", "Edge33"])
+        op.Label = "test06+"
+        op.Comment = 'test06() Verify path generated with outer and inner edge loops at same Z height: "Edge15", "Edge30", "Edge31", "Edge29", "Edge19", "Edge18", "Edge35", "Edge32", "Edge34", "Edge33".'
 
         # Set additional operation properties
         # setDepthsAndHeights(adaptive)
-        adaptive.FinishingProfile = False
-        adaptive.HelixAngle = 75.0
-        adaptive.HelixDiameterLimit.Value = 1.0
-        adaptive.LiftDistance.Value = 1.0
-        adaptive.StepOver = 75
-        adaptive.UseOutline = False
-        adaptive.setExpression('StepDown', None)
-        adaptive.StepDown.Value = 20.0  # Have to set expression to None before numerical value assignment
+        op.CutPattern = 'Adaptive'
+        op.FinishingProfile = False
+        op.HelixAngle = 75.0
+        op.HelixDiameterLimit.Value = 1.0
+        op.LiftDistance.Value = 1.0
+        op.StepOver = 75
+        op.ProcessPerimeter = True
+        op.ProcessHoles = True
+        op.ProcessCircles = True
+        op.setExpression('StepDown', None)
+        op.StepDown.Value = 20.0  # Have to set expression to None before numerical value assignment
 
-        _addViewProvider(adaptive)
+        _addViewProvider(op)
         self.doc.recompute()
 
         # Check command count
-        self.assertTrue(len(adaptive.Path.Commands) > 100, "Command count not greater than 100.")
+        self.assertTrue(len(op.Path.Commands) > 100, "Command count not greater than 100.")
 
         # Check if any paths originate inside inner hole of donut.  They should not.
         isInBox = False
@@ -262,7 +286,7 @@ class TestPathAdaptive(PathTestBase):
         sqrBB = square.BoundBox
         minPoint = FreeCAD.Vector(sqrBB.XMin, sqrBB.YMin, 0.0)
         maxPoint = FreeCAD.Vector(sqrBB.XMax, sqrBB.YMax, 0.0)
-        for c in adaptive.Path.Commands:
+        for c in op.Path.Commands:
             if pathOriginatesInBox(c, minPoint, maxPoint):
                 isInBox = True
                 break
@@ -272,26 +296,30 @@ class TestPathAdaptive(PathTestBase):
         '''test07() Verify path generated on donut-shaped Face10.'''
 
         # Instantiate a Adaptive operation and set Base Geometry
-        adaptive = PathAdaptive.Create('Adaptive')
-        adaptive.Base = [(self.doc.Fusion, ["Face10"])]  # (base, subs_list)
-        adaptive.Label = "test07+"
-        adaptive.Comment = "test07() Verify path generated on donut-shaped Face10."
+        op = PathPocketShape.Create('Pocket_Shape')
+        # op.Base = [(self.doc.Fusion, ["Face10"])]  # (base, subs_list)
+        setOpBase(op, self.doc.Fusion, ["Face10"])
+        op.Label = "test07+"
+        op.Comment = "test07() Verify path generated on donut-shaped Face10."
 
         # Set additional operation properties
         # setDepthsAndHeights(adaptive)
-        adaptive.FinishingProfile = False
-        adaptive.HelixAngle = 75.0
-        adaptive.HelixDiameterLimit.Value = 1.0
-        adaptive.LiftDistance.Value = 1.0
-        adaptive.StepOver = 75
-        adaptive.UseOutline = False
-        adaptive.setExpression('StepDown', None)
-        adaptive.StepDown.Value = 20.0  # Have to set expression to None before numerical value assignment
+        op.CutPattern = 'Adaptive'
+        op.FinishingProfile = False
+        op.HelixAngle = 75.0
+        op.HelixDiameterLimit.Value = 1.0
+        op.LiftDistance.Value = 1.0
+        op.StepOver = 75
+        op.ProcessPerimeter = True
+        op.ProcessHoles = True
+        op.ProcessCircles = True
+        op.setExpression('StepDown', None)
+        op.StepDown.Value = 20.0  # Have to set expression to None before numerical value assignment
 
-        _addViewProvider(adaptive)
+        _addViewProvider(op)
         self.doc.recompute()
 
-        self.assertTrue(len(adaptive.Path.Commands) > 100, "Command count not greater than 100.")
+        self.assertTrue(len(op.Path.Commands) > 100, "Command count not greater than 100.")
 
         # Check if any paths originate inside inner hole of donut.  They should not.
         isInBox = False
@@ -300,14 +328,16 @@ class TestPathAdaptive(PathTestBase):
         sqrBB = square.BoundBox
         minPoint = FreeCAD.Vector(sqrBB.XMin, sqrBB.YMin, 0.0)
         maxPoint = FreeCAD.Vector(sqrBB.XMax, sqrBB.YMax, 0.0)
-        for c in adaptive.Path.Commands:
+        for c in op.Path.Commands:
             if pathOriginatesInBox(c, minPoint, maxPoint):
                 isInBox = True
                 break
         self.assertFalse(isInBox, "Paths originating within the inner hole.")
 
         # Set Adaptive op to only use the outline of the face.
-        adaptive.UseOutline = True
+        op.ProcessPerimeter = True
+        op.ProcessHoles = False
+        op.ProcessCircles = False
         self.doc.recompute()
 
         # Check if any paths originate inside inner hole of donut.  They should not.
@@ -317,12 +347,17 @@ class TestPathAdaptive(PathTestBase):
         sqrBB = square.BoundBox
         minPoint = FreeCAD.Vector(sqrBB.XMin, sqrBB.YMin, 0.0)
         maxPoint = FreeCAD.Vector(sqrBB.XMax, sqrBB.YMax, 0.0)
-        for c in adaptive.Path.Commands:
+        for c in op.Path.Commands:
             if pathOriginatesInBox(c, minPoint, maxPoint):
                 isInBox = True
                 break
         self.assertTrue(isInBox, "No paths originating within the inner hole.")
 # Eclass
+
+
+def setOpBase(op, base, subsList):
+    for sub in subsList:
+        op.Proxy.addBase(op, base, sub)
 
 
 def setDepthsAndHeights(op, strDep=20.0, finDep=0.0):
@@ -434,11 +469,12 @@ def pathOriginatesInBox(cmd, minPoint, maxPoint):
     return False
 
 
-def _addViewProvider(adaptiveOp):
+def _addViewProvider(op):
     if FreeCAD.GuiUp:
-        PathOpGui = PathAdaptiveGui.PathOpGui
-        cmdRes = PathAdaptiveGui.Command.res
-        adaptiveOp.ViewObject.Proxy = PathOpGui.ViewProvider(adaptiveOp.ViewObject, cmdRes)
+        PathOpGui = PathPocketShapeGui.PathOpGui
+        cmdRes = PathPocketShapeGui.Command.res
+        op.ViewObject.Proxy = PathOpGui.ViewProvider(op.ViewObject, cmdRes)
+        op.ViewObject.Document.setEdit(op.ViewObject, 5)
 
 
 # Example string literal of expected path moves from an operation

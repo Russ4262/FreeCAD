@@ -1161,7 +1161,7 @@ class ViewProviderDressup(object):
 
 def Create(base, name='DogboneDressup'):
     '''
-    Create(obj, name='DogboneDressup') ... dresses the given PathProfile/PathContour object with dogbones.
+    Create(obj, name='DogboneDressup') ... dresses the given PathProfile object with dogbones.
     '''
     obj = FreeCAD.ActiveDocument.addObject('Path::FeaturePython', name)
     dbo = ObjectDressup(obj, base)

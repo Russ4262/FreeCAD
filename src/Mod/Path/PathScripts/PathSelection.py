@@ -155,39 +155,6 @@ class FACEGate(PathBaseGate):   # formerly PROFILEGate class using allow_ORIG me
 
         return profileable
 
-    def allow_ORIG(self, doc, obj, sub):  # pylint: disable=unused-argument
-
-        profileable = False
-        try:
-            obj = obj.Shape
-        except Exception:  # pylint: disable=broad-except
-            return False
-
-        if obj.ShapeType == 'Edge':
-            profileable = False
-
-        elif obj.ShapeType == 'Compound':
-            if sub and sub[0:4] == 'Face':
-                profileable = True
-
-            if sub and sub[0:4] == 'Edge':
-                profileable = False
-
-        elif obj.ShapeType == 'Face':
-            profileable = False
-
-        elif obj.ShapeType == 'Solid':
-            if sub and sub[0:4] == 'Face':
-                profileable = True
-
-            if sub and sub[0:4] == 'Edge':
-                profileable = False
-
-        elif obj.ShapeType == 'Wire':
-            profileable = False
-
-        return profileable
-
 
 class PROFILEGate(PathBaseGate):
     def allow(self, doc, obj, sub):  # pylint: disable=unused-argument
@@ -242,23 +209,6 @@ class POCKETGate(PathBaseGate):
         return pocketable
 
 
-class ADAPTIVEGate(PathBaseGate):
-    def allow(self, doc, obj, sub):  # pylint: disable=unused-argument
-
-        adaptive = True
-        try:
-            obj = obj.Shape
-        except Exception:  # pylint: disable=broad-except
-            return False
-
-        return adaptive
-
-
-class CONTOURGate(PathBaseGate):
-    def allow(self, doc, obj, sub):  # pylint: disable=unused-argument
-        pass
-
-
 class PROBEGate:
     def allow(self, doc, obj, sub):
         pass
@@ -286,12 +236,6 @@ class ALLGate(PathBaseGate):
         return False
 
 
-def contourselect():
-    FreeCADGui.Selection.addSelectionGate(CONTOURGate())
-    if not PathPreferences.suppressSelectionModeWarning():
-        FreeCAD.Console.PrintWarning("Contour Select Mode\n")
-
-
 def eselect():
     FreeCADGui.Selection.addSelectionGate(EGate())
     if not PathPreferences.suppressSelectionModeWarning():
@@ -310,12 +254,6 @@ def engraveselect():
         FreeCAD.Console.PrintWarning("Engraving Select Mode\n")
 
 
-def fselect():
-    FreeCADGui.Selection.addSelectionGate(FACEGate())  # Was PROFILEGate()
-    if not PathPreferences.suppressSelectionModeWarning():
-        FreeCAD.Console.PrintWarning("Profiling Select Mode\n")
-
-
 def chamferselect():
     FreeCADGui.Selection.addSelectionGate(CHAMFERGate())
     if not PathPreferences.suppressSelectionModeWarning():
@@ -332,12 +270,6 @@ def pocketselect():
     FreeCADGui.Selection.addSelectionGate(POCKETGate())
     if not PathPreferences.suppressSelectionModeWarning():
         FreeCAD.Console.PrintWarning("Pocketing Select Mode\n")
-
-
-def adaptiveselect():
-    FreeCADGui.Selection.addSelectionGate(ADAPTIVEGate())
-    if not PathPreferences.suppressSelectionModeWarning():
-        FreeCAD.Console.PrintWarning("Adaptive Select Mode\n")
 
 
 def slotselect():
@@ -380,22 +312,15 @@ def turnselect():
 
 def select(op):
     opsel = {}
-    opsel['Contour'] = contourselect  # (depreciated)
     opsel['Deburr'] = chamferselect
     opsel['Drilling'] = drillselect
     opsel['Engrave'] = engraveselect
     opsel['Helix'] = drillselect
-    opsel['MillFace'] = pocketselect
-    opsel['Pocket'] = pocketselect
-    opsel['Pocket 3D'] = pocketselect
-    opsel['Pocket Shape'] = pocketselect
-    opsel['Profile Edges'] = eselect  # (depreciated)
-    opsel['Profile Faces'] = fselect  # (depreciated)
+    opsel['Pocket Shape'] = profileselect  # pocketselect
     opsel['Profile'] = profileselect
     opsel['Slot'] = slotselect
     opsel['Surface'] = surfaceselect
     opsel['Waterline'] = surfaceselect
-    opsel['Adaptive'] = adaptiveselect
     opsel['Vcarve'] = vcarveselect
     opsel['Probe'] = probeselect
     opsel['Custom'] = customselect

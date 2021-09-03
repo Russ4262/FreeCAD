@@ -87,8 +87,10 @@ class PathWorkbench (Workbench):
         prepcmdlist = ["Path_Fixture", "Path_Comment", "Path_Stop",
                        "Path_Custom", "Path_Probe"]
         twodopcmdlist = ["Path_Profile", "Path_Pocket_Shape", "Path_Drilling",
-                         "Path_MillFace", "Path_Helix", "Path_Adaptive"]
-        threedopcmdlist = ["Path_Pocket_3D"]
+                         "Path_Helix"]
+        #                "Path_MillFace", "Path_Helix", "Path_Adaptive"]  # MillFace merged with PocketShape, Adaptive merged into PocketShape
+        threedopcmdlist = []
+        # threedopcmdlist = ["Path_Pocket_3D"]  # 3D Pocket merged with PocketShape
         engravecmdlist = ["Path_Engrave", "Path_Deburr", "Path_Vcarve"]
         modcmdlist = ["Path_OperationCopy", "Path_Array", "Path_SimpleCopy"]
         dressupcmdlist = ["Path_DressupAxisMap", "Path_DressupPathBoundary",

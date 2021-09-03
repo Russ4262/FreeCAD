@@ -93,7 +93,7 @@ class ObjectDeburr(PathEngraveBase.ObjectOp):
     '''Proxy class for Deburr operation.'''
 
     def opFeatures(self, obj):
-        return PathOp.FeatureTool | PathOp.FeatureHeights | PathOp.FeatureStepDown | PathOp.FeatureBaseEdges | PathOp.FeatureBaseFaces | PathOp.FeatureCoolant | PathOp.FeatureBaseGeometry
+        return PathOp.FeatureTool | PathOp.FeatureDepths | PathOp.FeatureStepDown | PathOp.FeatureBaseEdges | PathOp.FeatureBaseFaces | PathOp.FeatureCoolant | PathOp.FeatureBaseGeometry
 
     def initOperation(self, obj):
         PathLog.track(obj.Label)

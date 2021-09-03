@@ -29,22 +29,27 @@ from PathTests.TestPathDeburr import TestPathDeburr
 from PathTests.TestPathDepthParams import depthTestCases
 from PathTests.TestPathDressupDogbone import TestDressupDogbone
 from PathTests.TestPathDressupHoldingTags import TestHoldingTags
-from PathTests.TestPathGeom import TestPathGeom
-from PathTests.TestPathHelix import TestPathHelix
-from PathTests.TestPathLog import TestPathLog
-from PathTests.TestPathOpTools import TestPathOpTools
-from PathTests.TestPathPreferences import TestPathPreferences
-from PathTests.TestPathPropertyBag import TestPathPropertyBag
+from PathTests.TestPathGeom  import TestPathGeom
+from PathTests.TestPathHelix  import TestPathHelix
+from PathTests.TestPathLog   import TestPathLog
+from PathTests.TestPathOpTools  import TestPathOpTools
+from PathTests.TestPathPocketShape  import TestPathPocketShape
+from PathTests.TestPathPreferences  import TestPathPreferences
+from PathTests.TestPathProfile  import TestPathProfile
+from PathTests.TestPathPropertyBag  import TestPathPropertyBag
 from PathTests.TestPathSetupSheet import TestPathSetupSheet
+from PathTests.TestPathSlot  import TestPathSlot
 from PathTests.TestPathStock import TestPathStock
-from PathTests.TestPathThreadMilling import TestPathThreadMilling
+from PathTests.TestPathStrategies import TestPathStrategies
+from PathTests.TestPathThreadMilling  import TestPathThreadMilling
 from PathTests.TestPathTool import TestPathTool
-from PathTests.TestPathToolBit import TestPathToolBit
+from PathTests.TestPathToolBit  import TestPathToolBit
 from PathTests.TestPathToolController import TestPathToolController
 from PathTests.TestPathTooltable import TestPathTooltable
 from PathTests.TestPathUtil import TestPathUtil
 from PathTests.TestPathVcarve import TestPathVcarve
 from PathTests.TestPathVoronoi import TestPathVoronoi
+
 
 # dummy usage to get flake8 and lgtm quiet
 False if depthTestCases.__name__ else True
@@ -58,10 +63,14 @@ False if TestPathGeom.__name__ else True
 False if TestPathHelix.__name__ else True
 False if TestPathLog.__name__ else True
 False if TestPathOpTools.__name__ else True
+False if TestPathPocketShape.__name__ else True
 False if TestPathPreferences.__name__ else True
+False if TestPathProfile.__name__ else True
 False if TestPathPropertyBag.__name__ else True
 False if TestPathSetupSheet.__name__ else True
+False if TestPathSlot.__name__ else True
 False if TestPathStock.__name__ else True
+False if TestPathStrategies.__name__ else True
 False if TestPathThreadMilling.__name__ else True
 False if TestPathTool.__name__ else True
 False if TestPathToolBit.__name__ else True

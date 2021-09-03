@@ -35,7 +35,7 @@ __url__ = "https://www.freecadweb.org"
 __doc__ = "Surface operation page controller and command implementation."
 
 
-class TaskPanelOpPage(PathOpGui.TaskPanelPage):
+class TaskPanelOpPage(PathOpGui.TaskPanelGui.TaskPanelPage):
     '''Page controller class for the Surface operation.'''
 
     def initPage(self, obj):
@@ -53,8 +53,8 @@ class TaskPanelOpPage(PathOpGui.TaskPanelPage):
         self.updateToolController(obj, self.form.toolController)
         self.updateCoolant(obj, self.form.coolantController)
 
-        if obj.BoundBox != str(self.form.boundBoxSelect.currentText()):
-            obj.BoundBox = str(self.form.boundBoxSelect.currentText())
+        if obj.BoundaryShape != str(self.form.boundBoxSelect.currentText()):
+            obj.BoundaryShape = str(self.form.boundBoxSelect.currentText())
 
         if obj.ScanType != str(self.form.scanType.currentText()):
             obj.ScanType = str(self.form.scanType.currentText())
@@ -114,7 +114,7 @@ class TaskPanelOpPage(PathOpGui.TaskPanelPage):
         '''setFields(obj) ... transfers obj's property values to UI'''
         self.setupToolController(obj, self.form.toolController)
         self.setupCoolant(obj, self.form.coolantController)
-        self.selectInComboBox(obj.BoundBox, self.form.boundBoxSelect)
+        self.selectInComboBox(obj.BoundaryShape, self.form.boundBoxSelect)
         self.selectInComboBox(obj.ScanType, self.form.scanType)
         self.selectInComboBox(obj.LayerMode, self.form.layerMode)
 

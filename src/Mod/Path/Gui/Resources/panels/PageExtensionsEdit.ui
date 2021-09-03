@@ -15,40 +15,52 @@
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
-    <layout class="QHBoxLayout" name="horizontalLayout_2">
-     <item>
-      <widget class="QPushButton" name="enableExtensions">
-       <property name="text">
-        <string>Click to disable Extensions</string>
-       </property>
-       <property name="checkable">
-        <bool>true</bool>
-       </property>
-       <property name="checked">
-        <bool>true</bool>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QPushButton" name="includeEdges">
-       <property name="text">
-        <string>Ignore Edges and Wires</string>
-       </property>
-       <property name="checkable">
-        <bool>true</bool>
-       </property>
-       <property name="checked">
-        <bool>true</bool>
-       </property>
-      </widget>
-     </item>
-    </layout>
-   </item>
-   <item>
-    <widget class="QLabel" name="enableExtensionsWarning">
-     <property name="text">
-      <string>---</string>
+    <widget class="QGroupBox" name="groupBox">
+     <property name="title">
+      <string/>
      </property>
+     <layout class="QGridLayout" name="gridLayout_2">
+      <item row="2" column="0">
+       <widget class="QCheckBox" name="includeEdges">
+        <property name="text">
+         <string>Include Edge/Wire options</string>
+        </property>
+        <property name="checked">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1">
+       <widget class="QCheckBox" name="includeSpecial">
+        <property name="text">
+         <string>Include special options</string>
+        </property>
+        <property name="checked">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="0" colspan="2">
+       <widget class="QPushButton" name="enableExtensions">
+        <property name="text">
+         <string>Extensions enabled</string>
+        </property>
+        <property name="checkable">
+         <bool>true</bool>
+        </property>
+        <property name="checked">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0" colspan="2">
+       <widget class="QLabel" name="enableExtensionsWarning">
+        <property name="text">
+         <string>---</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
     </widget>
    </item>
    <item>
@@ -69,19 +81,6 @@
       <item>
        <widget class="QWidget" name="widget_2" native="true">
         <layout class="QGridLayout" name="gridLayout">
-         <item row="2" column="1">
-          <widget class="QCheckBox" name="extendCorners">
-           <property name="toolTip">
-            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Extend the corner between two edges of a pocket. If selected adjacent edges are combined.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-           </property>
-           <property name="text">
-            <string>Extend Corners</string>
-           </property>
-           <property name="checked">
-            <bool>true</bool>
-           </property>
-          </widget>
-         </item>
          <item row="3" column="1">
           <widget class="Gui::QuantitySpinBox" name="defaultLength">
            <property name="toolTip">
@@ -95,13 +94,6 @@
            </property>
           </widget>
          </item>
-         <item row="3" column="0">
-          <widget class="QLabel" name="label">
-           <property name="text">
-            <string>Default Length</string>
-           </property>
-          </widget>
-         </item>
          <item row="2" column="0">
           <widget class="QCheckBox" name="showExtensions">
            <property name="toolTip">
@@ -109,6 +101,26 @@
            </property>
            <property name="text">
             <string>Show All</string>
+           </property>
+          </widget>
+         </item>
+         <item row="3" column="0">
+          <widget class="QLabel" name="label">
+           <property name="text">
+            <string>Default Length</string>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="1">
+          <widget class="QCheckBox" name="extendCorners">
+           <property name="toolTip">
+            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Extend the corner between two edges of a pocket. If selected adjacent edges are combined.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+           </property>
+           <property name="text">
+            <string>Extend Corners</string>
+           </property>
+           <property name="checked">
+            <bool>true</bool>
            </property>
           </widget>
          </item>
@@ -181,8 +193,8 @@
  <customwidgets>
   <customwidget>
    <class>Gui::QuantitySpinBox</class>
-   <extends>QDoubleSpinBox</extends>
-   <header>gui_quantityspinbox.h</header>
+   <extends>QWidget</extends>
+   <header>Gui/QuantitySpinBox.h</header>
   </customwidget>
  </customwidgets>
  <resources/>

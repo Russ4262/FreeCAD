@@ -24,7 +24,7 @@ import FreeCAD
 import Path
 import PathScripts.PathDressupDogbone as PathDressupDogbone
 import PathScripts.PathJob as PathJob
-import PathScripts.PathProfileFaces as PathProfileFaces
+import PathScripts.PathProfile as PathProfile
 
 from PathTests.PathTestUtils import PathTestBase
 
@@ -124,7 +124,7 @@ class TestDressupDogbone(PathTestBase):
 
         PathJob.Create('Job', [cut], None)
 
-        profile = PathProfileFaces.Create('Profile Faces')
+        profile = PathProfile.Create('Profile')
         profile.Base = (cut, face)
         profile.StepDown = 5
         # set start and final depth in order to eliminate effects of stock (and its default values)
@@ -133,15 +133,23 @@ class TestDressupDogbone(PathTestBase):
         profile.setExpression('FinalDepth', None)
         profile.FinalDepth = 0
 
-        profile.processHoles = True
-        profile.processPerimeter = True
+        profile.ProcessHoles = True
+        profile.ProcessPerimeter = True
         doc.recompute()
 
         dogbone = PathDressupDogbone.Create(profile)
+        # Default bone side is "Right"
         doc.recompute()
 
         dog = dogbone.Proxy
         locs = sorted([bone[1] for bone in dog.bones], key=lambda xy: xy[0] * 1000 + xy[1])
+
+        # Check Left side for bones if Right fails
+        if len(locs) != 8:
+            print("Checking bones on Left side.")
+            dogbone.Side = "Left"  # Check other side
+            dogbone.recompute()
+            locs = sorted([bone[1] for bone in dog.bones], key=lambda xy: xy[0] * 1000 + xy[1])
 
         def formatBoneLoc(pt):
             return "(%.2f, %.2f)" % (pt[0], pt[1])

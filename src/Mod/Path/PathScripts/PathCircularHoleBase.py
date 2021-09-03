@@ -59,7 +59,6 @@ class ObjectOp(PathOp.ObjectOp):
         return (
             PathOp.FeatureTool
             | PathOp.FeatureDepths
-            | PathOp.FeatureHeights
             | PathOp.FeatureBaseFaces
             | self.circularHoleFeatures(obj)
             | PathOp.FeatureCoolant

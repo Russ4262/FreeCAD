@@ -116,7 +116,7 @@ class PathGeometryGenerator:
                     msg = translate('PathSurfaceSupport',
                         'Cannot calculate the Center Of Mass.')
                     msg += ' ' + translate('PathSurfaceSupport',
-                        'Using Center of Boundbox instead.') + '\n'
+                        'Using Center of BoundBox instead.') + '\n'
                     FreeCAD.Console.PrintError(msg)
                     bbC = self.shape.BoundBox.Center
                     zeroCOM = FreeCAD.Vector(bbC.x, bbC.y, 0.0)
@@ -548,9 +548,9 @@ class ProcessSelectedFaces:
         for m in range(0, lenGRP):
             if self.modelSTLs[m] and not fShapes[m]:
                 PathLog.debug(' -Pre-processing {} as a whole.'.format(GRP[m].Label))
-                if self.obj.BoundBox == 'BaseBoundBox':
+                if self.obj.BoundaryShape == 'BoundBox':
                     base = GRP[m]
-                elif self.obj.BoundBox == 'Stock':
+                elif self.obj.BoundaryShape == 'Stock':
                     base = self.JOB.Stock
 
                 pPEB = self._preProcessEntireBase(base, m)
@@ -585,6 +585,13 @@ class ProcessSelectedFaces:
         return (fShapes, vShapes)
 
     # private class methods
+    def showDebugObject(self, objShape, objName):
+        if self.showDebugObjects:
+            do = FreeCAD.ActiveDocument.addObject('Part::Feature', 'pss_' + objName)
+            do.Shape = objShape
+            do.purgeTouched()
+            self.tempGroup.addObject(do)
+
     def _isReady(self, module):
         '''_isReady(module)... Internal method.
         Checks if required attributes are available for processing obj.Base (the Base Geometry).'''
@@ -690,11 +697,8 @@ class ProcessSelectedFaces:
                         cont = False
 
                 if cont:
-                    if self.showDebugObjects:
-                        T = FreeCAD.ActiveDocument.addObject('Part::Feature', 'tmpCollectiveShape')
-                        T.Shape = cfsL
-                        T.purgeTouched()
-                        self.tempGroup.addObject(T)
+                    # Add debug shape
+                    self.showDebugObject(cfsL, 'tmpCollectiveShape')
 
                     ofstVal = self._calculateOffsetValue(isHole)
                     faceOfstShp = PathUtils.getOffsetArea(
@@ -715,11 +719,10 @@ class ProcessSelectedFaces:
                                 casL = ifL[0]
                             else:
                                 casL = Part.makeCompound(ifL)
-                            if self.showDebugObjects:
-                                C = FreeCAD.ActiveDocument.addObject('Part::Feature', 'tmpCompoundIntFeat')
-                                C.Shape = casL
-                                C.purgeTouched()
-                                self.tempGroup.addObject(C)
+
+                            # Add debug shape
+                            self.showDebugObject(casL, 'tmpCompoundIntFeat')
+
                             ofstVal = self._calculateOffsetValue(isHole=True)
                             intOfstShp = PathUtils.getOffsetArea(
                                 casL, ofstVal, plane=self.wpc)
@@ -809,18 +812,13 @@ class ProcessSelectedFaces:
                 else:
                     avoid = Part.makeCompound(outFCS)
 
-                if self.showDebugObjects:
-                    P = FreeCAD.ActiveDocument.addObject('Part::Feature', 'tmpVoidEnvelope')
-                    P.Shape = avoid
-                    P.purgeTouched()
-                    self.tempGroup.addObject(P)
+                # Add debug shape
+                self.showDebugObject(avoid, 'tmpVoidEnvelope')
 
             if cont:
-                if self.showDebugObjects:
-                    P = FreeCAD.ActiveDocument.addObject('Part::Feature', 'tmpVoidCompound')
-                    P.Shape = avoid
-                    P.purgeTouched()
-                    self.tempGroup.addObject(P)
+                # Add debug shape
+                self.showDebugObject(avoid, 'tmpVoidCompound')
+
                 ofstVal = self._calculateOffsetValue(isHole, isVoid=True)
                 avdOfstShp = PathUtils.getOffsetArea(avoid,
                                                      ofstVal,
@@ -1137,34 +1135,22 @@ def getSliceFromEnvelope(env):
     return tf
 
 
-
-
-def _prepareModelSTLs(self, JOB, obj, m, ocl):
-    """Tessellate model shapes or copy existing meshes into ocl.STLSurf
-    objects"""
-    PathLog.debug('_prepareModelSTLs()')
-    if self.modelSTLs[m] is True:
-        model = JOB.Model.Group[m]
-        if self.modelSTLs[m] is True:
-            self.modelSTLs[m] = _makeSTL(model, obj, ocl, self.modelTypes[m])
-
-
-def _makeSafeSTL(self, JOB, obj, mdlIdx, faceShapes, voidShapes, ocl):
-    '''_makeSafeSTL(JOB, obj, mdlIdx, faceShapes, voidShapes)...
+def _makeSafeSTL(self, obj, mdlIdx, faceShapes, voidShapes, ocl):
+    '''_makeSafeSTL(self, obj, mdlIdx, faceShapes, voidShapes)...
     Creates and OCL.stl object with combined data with waste stock,
     model, and avoided faces.  Travel lines can be checked against this
     STL object to determine minimum travel height to clear stock and model.'''
     PathLog.debug('_makeSafeSTL()')
 
     fuseShapes = list()
-    Mdl = JOB.Model.Group[mdlIdx]
+    Mdl = self.job.Model.Group[mdlIdx]
     mBB = Mdl.Shape.BoundBox
-    sBB = JOB.Stock.Shape.BoundBox
+    sBB = self.job.Stock.Shape.BoundBox
 
     # add Model shape to safeSTL shape
     fuseShapes.append(Mdl.Shape)
 
-    if obj.BoundBox == 'BaseBoundBox':
+    if obj.BoundaryShape == 'BoundBox':
         cont = False
         extFwd = (sBB.ZLength)
         zmin = mBB.ZMin
@@ -1186,13 +1172,17 @@ def _makeSafeSTL(self, JOB, obj, mdlIdx, faceShapes, voidShapes, ocl):
                 PathLog.error(str(eee))
 
         if cont:
-            stckWst = JOB.Stock.Shape.cut(envBB)
+            stckWst = self.job.Stock.Shape.cut(envBB)
             if obj.BoundaryAdjustment > 0.0:
                 cmpndFS = Part.makeCompound(faceShapes)
                 baBB = PathUtils.getEnvelope(partshape=cmpndFS, depthparams=self.depthParams)  # Produces .Shape
                 adjStckWst = stckWst.cut(baBB)
             else:
                 adjStckWst = stckWst
+
+            # Add debug shape
+            self.showDebugObject(adjStckWst, 'adjustStockWaste')
+
             fuseShapes.append(adjStckWst)
         else:
             msg = translate('PathSurfaceSupport',
@@ -1201,11 +1191,12 @@ def _makeSafeSTL(self, JOB, obj, mdlIdx, faceShapes, voidShapes, ocl):
     else:
         # If boundbox is Job.Stock, add hidden pad under stock as base plate
         toolDiam = self.cutter.getDiameter()
-        zMin = JOB.Stock.Shape.BoundBox.ZMin
-        xMin = JOB.Stock.Shape.BoundBox.XMin - toolDiam
-        yMin = JOB.Stock.Shape.BoundBox.YMin - toolDiam
-        bL = JOB.Stock.Shape.BoundBox.XLength + (2 * toolDiam)
-        bW = JOB.Stock.Shape.BoundBox.YLength + (2 * toolDiam)
+        stockBB = self.job.Stock.Shape.BoundBox
+        zMin = stockBB.ZMin
+        xMin = stockBB.XMin - toolDiam
+        yMin = stockBB.YMin - toolDiam
+        bL = stockBB.XLength + (2 * toolDiam)
+        bW = stockBB.YLength + (2 * toolDiam)
         bH = 1.0
         crnr = FreeCAD.Vector(xMin, yMin, zMin - 1.0)
         B = Part.makeBox(bL, bW, bH, crnr, FreeCAD.Vector(0, 0, 1))
@@ -1218,28 +1209,26 @@ def _makeSafeSTL(self, JOB, obj, mdlIdx, faceShapes, voidShapes, ocl):
 
     fused = Part.makeCompound(fuseShapes)
 
-    if self.showDebugObjects:
-        T = FreeCAD.ActiveDocument.addObject('Part::Feature', 'safeSTLShape')
-        T.Shape = fused
-        T.purgeTouched()
-        self.tempGroup.addObject(T)
+    # Add debug shape
+    self.showDebugObject(fused, 'safeSTLShape')
 
+    # Save safe STL
     self.safeSTLs[mdlIdx] = _makeSTL(fused, obj, ocl)
 
 
-def _makeSTL(model, obj, ocl, model_type=None):
+def _makeSTL(model, obj, ocl):
     """Convert a mesh or shape into an OCL STL, using the tessellation
     tolerance specified in obj.LinearDeflection.
     Returns an ocl.STLSurf()."""
-    if model_type == 'M':
+
+    if model.TypeId.startswith('Mesh'):
         facets = model.Mesh.Facets.Points
     else:
         if hasattr(model, 'Shape'):
             shape = model.Shape
         else:
             shape = model
-        vertices, facet_indices = shape.tessellate(
-            obj.LinearDeflection.Value)
+        vertices, facet_indices = shape.tessellate(obj.LinearDeflection.Value)
         facets = ((vertices[f[0]], vertices[f[1]], vertices[f[2]])
                   for f in facet_indices)
     stl = ocl.STLSurf()

@@ -61,54 +61,15 @@ class ObjectSlot(PathOp.ObjectOp):
     def opFeatures(self, obj):
         '''opFeatures(obj) ... return all standard features'''
         return PathOp.FeatureTool | PathOp.FeatureDepths \
-            | PathOp.FeatureHeights | PathOp.FeatureStepDown \
+            | PathOp.FeatureStepDown \
             | PathOp.FeatureCoolant | PathOp.FeatureBaseVertexes \
             | PathOp.FeatureBaseEdges | PathOp.FeatureBaseFaces
-
-    def initOperation(self, obj):
-        '''initOperation(obj) ... Initialize the operation by
-        managing property creation and property editor status.'''
-        self.propertiesReady = False
-
-        self.initOpProperties(obj)  # Initialize operation-specific properties
-
-        # For debugging
-        if PathLog.getLevel(PathLog.thisModule()) != 4:
-            obj.setEditorMode('ShowTempObjects', 2)  # hide
-
-        if not hasattr(obj, 'DoNotSetDefaultValues'):
-            self.opSetEditorModes(obj)
-
-    def initOpProperties(self, obj, warn=False):
-        '''initOpProperties(obj) ... create operation specific properties'''
-        self.addNewProps = list()
-
-        for (prtyp, nm, grp, tt) in self.opPropertyDefinitions():
-            if not hasattr(obj, nm):
-                obj.addProperty(prtyp, nm, grp, tt)
-                self.addNewProps.append(nm)
-
-        # Set enumeration lists for enumeration properties
-        if len(self.addNewProps) > 0:
-            ENUMS = self.opPropertyEnumerations()
-            # ENUMS = self.getActiveEnumerations(obj)
-            for n in ENUMS:
-                if n in self.addNewProps:
-                    setattr(obj, n, ENUMS[n])
-
-            if warn:
-                newPropMsg = translate('PathSlot', 'New property added to')
-                newPropMsg += ' "{}": {}'.format(obj.Label, self.addNewProps) + '. '
-                newPropMsg += translate('PathSlot', 'Check default value(s).')
-                FreeCAD.Console.PrintWarning(newPropMsg + '\n')
-
-        self.propertiesReady = True
 
     def opPropertyDefinitions(self):
         '''opPropertyDefinitions(obj) ... Store operation specific properties'''
 
         return [
-            ("App::PropertyBool", "ShowTempObjects", "Debug",
+            ("App::PropertyBool", "ShowDebugShapes", "Debug",
                 QtCore.QT_TRANSLATE_NOOP("App::Property", "Show the temporary path construction objects when module is in DEBUG mode.")),
 
             ("App::PropertyVectorDistance", "CustomPoint1", "Slot",
@@ -156,7 +117,7 @@ class ObjectSlot(PathOp.ObjectOp):
     def opPropertyDefaults(self, obj, job):
         '''opPropertyDefaults(obj, job) ... returns a dictionary of default values
         for the operation's properties.'''
-        defaults = {
+        return {
             'CustomPoint1': FreeCAD.Vector(0.0, 0.0, 0.0),
             'ExtendPathStart': 0.0,
             'Reference1': 'Center of Mass',
@@ -170,16 +131,14 @@ class ObjectSlot(PathOp.ObjectOp):
             'ReverseDirection': False,
 
             # For debugging
-            'ShowTempObjects': False
+            'ShowDebugShapes': False
         }
-
-        return defaults
 
     def getActiveEnumerations(self, obj):
         """getActiveEnumerations(obj) ...
         Method returns dictionary of property enumerations based on
         active conditions in the operation."""
-        ENUMS = self.opPropertyEnumerations()
+        activeEnums = self.opPropertyEnumerations()
         if hasattr(obj, 'Base'):
             if obj.Base:
                 # (base, subsList) = obj.Base[0]
@@ -187,41 +146,48 @@ class ObjectSlot(PathOp.ObjectOp):
                 subCnt = len(subsList)
                 if subCnt == 1:
                     # Adjust available enumerations
-                    ENUMS['Reference1'] = self._makeReference1Enumerations(subsList[0], True)
+                    activeEnums['Reference1'] = self._makeReference1Enumerations(subsList[0], True)
                 elif subCnt == 2:
                     # Adjust available enumerations
-                    ENUMS['Reference1'] = self._makeReference1Enumerations(subsList[0])
-                    ENUMS['Reference2'] = self._makeReference2Enumerations(subsList[1])
-        return ENUMS
+                    activeEnums['Reference1'] = self._makeReference1Enumerations(subsList[0])
+                    activeEnums['Reference2'] = self._makeReference2Enumerations(subsList[1])
+        return activeEnums
 
-    def updateEnumerations(self, obj):
-        """updateEnumerations(obj) ...
-        Method updates property enumerations based on active conditions
-        in the operation.  Returns the updated enumerations dictionary.
-        Existing property values must be stored, and then restored after
-        the assignment of updated enumerations."""
-        PathLog.debug('updateEnumerations()')
-        # Save existing values
-        pre_Ref1 = obj.Reference1
-        pre_Ref2 = obj.Reference2
+    def opSetDefaultValues(self, obj, job):
+        '''opSetDefaultValues(obj, job) ... initialize defaults'''
+        job = PathUtils.findParentJob(obj)
 
-        # Update enumerations
-        ENUMS = self.getActiveEnumerations(obj)
-        obj.Reference1 = ENUMS['Reference1']
-        obj.Reference2 = ENUMS['Reference2']
-
-        # Restore pre-existing values if available with active enumerations.
-        # If not, set to first element in active enumeration list.
-        if pre_Ref1 in ENUMS['Reference1']:
-            obj.Reference1 = pre_Ref1
+        # need to overwrite the default depth calculations for facing
+        d = None
+        if job:
+            if job.Stock:
+                d = PathUtils.guessDepths(job.Stock.Shape, None)
+                PathLog.debug("job.Stock exists")
+            else:
+                PathLog.debug("job.Stock NOT exist")
         else:
-            obj.Reference1 = ENUMS['Reference1'][0]
-        if pre_Ref2 in ENUMS['Reference2']:
-            obj.Reference2 = pre_Ref2
-        else:
-            obj.Reference2 = ENUMS['Reference2'][0]
+            PathLog.debug("job NOT exist")
 
-        return ENUMS
+        if d is not None:
+            obj.OpFinalDepth.Value = d.final_depth
+            obj.OpStartDepth.Value = d.start_depth
+        else:
+            obj.OpFinalDepth.Value = -10
+            obj.OpStartDepth.Value = 10
+
+    def opUpdateDepths(self, obj):
+        if hasattr(obj, 'Base') and obj.Base:
+            base, sublist = obj.Base[0]
+            fbb = base.Shape.getElement(sublist[0]).BoundBox
+            zmin = fbb.ZMax
+            for base, sublist in obj.Base:
+                for sub in sublist:
+                    try:
+                        fbb = base.Shape.getElement(sub).BoundBox
+                        zmin = min(zmin, fbb.ZMin)
+                    except Part.OCCError as e:
+                        PathLog.error(e)
+            obj.OpFinalDepth = zmin
 
     def opSetEditorModes(self, obj):
         # Used to hide inputs in properties list
@@ -242,97 +208,63 @@ class ObjectSlot(PathOp.ObjectOp):
         obj.setEditorMode('Reference2', B)
         obj.setEditorMode('ExtendRadius', C)
 
+        # For debugging
+        if PathLog.getLevel(PathLog.thisModule()) != 4:
+            obj.setEditorMode('ShowDebugShapes', 2)  # hide
+
     def onChanged(self, obj, prop):
-        if hasattr(self, 'propertiesReady'):
-            if self.propertiesReady:
-                if prop in ['Base']:
-                    self.updateEnumerations(obj)
-                    self.opSetEditorModes(obj)
+        if self.propertiesReady:
+            if prop in ['Base']:
+                self.updateEnumerations(obj)
+                self.opSetEditorModes(obj)
 
     def opOnDocumentRestored(self, obj):
-        self.propertiesReady = False
         job = PathUtils.findParentJob(obj)
 
-        self.initOpProperties(obj, warn=True)
-        self.opApplyPropertyDefaults(obj, job, self.addNewProps)
-
         mode = 2 if PathLog.getLevel(PathLog.thisModule()) != 4 else 0
-        obj.setEditorMode('ShowTempObjects', mode)
+        obj.setEditorMode('ShowDebugShapes', mode)
 
         # Repopulate enumerations in case of changes
-        ENUMS = self.updateEnumerations(obj)
-        for n in ENUMS:
+        activeEnums = self.updateEnumerations(obj)
+        for n in activeEnums:
             restore = False
             if hasattr(obj, n):
                 val = obj.getPropertyByName(n)
                 restore = True
-            setattr(obj, n, ENUMS[n])  # set the enumerations list
+            setattr(obj, n, activeEnums[n])  # set the enumerations list
             if restore:
                 setattr(obj, n, val)  # restore the value
 
         self.opSetEditorModes(obj)
 
-    def opApplyPropertyDefaults(self, obj, job, propList):
-        # Set standard property defaults
-        PROP_DFLTS = self.opPropertyDefaults(obj, job)
-        for n in PROP_DFLTS:
-            if n in propList:
-                prop = getattr(obj, n)
-                val = PROP_DFLTS[n]
-                setVal = False
-                if hasattr(prop, 'Value'):
-                    if isinstance(val, int) or isinstance(val, float):
-                        setVal = True
-                if setVal:
-                    # propVal = getattr(prop, 'Value')
-                    setattr(prop, 'Value', val)
-                else:
-                    setattr(obj, n, val)
+    def updateEnumerations(self, obj):
+        """updateEnumerations(obj) ...
+        Method updates property enumerations based on active conditions
+        in the operation.  Returns the updated enumerations dictionary.
+        Existing property values must be stored, and then restored after
+        the assignment of updated enumerations."""
+        PathLog.debug('updateEnumerations()')
+        # Save existing values
+        pre_Ref1 = obj.Reference1
+        pre_Ref2 = obj.Reference2
 
-    def opSetDefaultValues(self, obj, job):
-        '''opSetDefaultValues(obj, job) ... initialize defaults'''
-        job = PathUtils.findParentJob(obj)
+        # Update enumerations
+        activeEnums = self.getActiveEnumerations(obj)
+        obj.Reference1 = activeEnums['Reference1']
+        obj.Reference2 = activeEnums['Reference2']
 
-        self.opApplyPropertyDefaults(obj, job, self.addNewProps)
-
-        # need to overwrite the default depth calculations for facing
-        d = None
-        if job:
-            if job.Stock:
-                d = PathUtils.guessDepths(job.Stock.Shape, None)
-                PathLog.debug("job.Stock exists")
-            else:
-                PathLog.debug("job.Stock NOT exist")
+        # Restore pre-existing values if available with active enumerations.
+        # If not, set to first element in active enumeration list.
+        if pre_Ref1 in activeEnums['Reference1']:
+            obj.Reference1 = pre_Ref1
         else:
-            PathLog.debug("job NOT exist")
-
-        if d is not None:
-            obj.OpFinalDepth.Value = d.final_depth
-            obj.OpStartDepth.Value = d.start_depth
+            obj.Reference1 = activeEnums['Reference1'][0]
+        if pre_Ref2 in activeEnums['Reference2']:
+            obj.Reference2 = pre_Ref2
         else:
-            obj.OpFinalDepth.Value = -10
-            obj.OpStartDepth.Value = 10
+            obj.Reference2 = activeEnums['Reference2'][0]
 
-        PathLog.debug('Default OpFinalDepth: {}'.format(obj.OpFinalDepth.Value))
-        PathLog.debug('Defualt OpStartDepth: {}'.format(obj.OpStartDepth.Value))
-
-    def opApplyPropertyLimits(self, obj):
-        '''opApplyPropertyLimits(obj) ... Apply necessary limits to user input property values before performing main operation.'''
-        pass
-
-    def opUpdateDepths(self, obj):
-        if hasattr(obj, 'Base') and obj.Base:
-            base, sublist = obj.Base[0]
-            fbb = base.Shape.getElement(sublist[0]).BoundBox
-            zmin = fbb.ZMax
-            for base, sublist in obj.Base:
-                for sub in sublist:
-                    try:
-                        fbb = base.Shape.getElement(sub).BoundBox
-                        zmin = min(zmin, fbb.ZMin)
-                    except Part.OCCError as e:
-                        PathLog.error(e)
-            obj.OpFinalDepth = zmin
+        return activeEnums
 
     def opExecute(self, obj):
         '''opExecute(obj) ... process surface operation'''
@@ -368,7 +300,7 @@ class ObjectSlot(PathOp.ObjectOp):
 
         # Setup debugging group for temp objects, when in DEBUG mode
         if self.isDebug:
-            self.showDebugObjects = obj.ShowTempObjects
+            self.showDebugObjects = obj.ShowDebugShapes
         if self.showDebugObjects:
             FCAD = FreeCAD.ActiveDocument
             for grpNm in ['tmpDebugGrp', 'tmpDebugGrp001']:
@@ -392,9 +324,6 @@ class ObjectSlot(PathOp.ObjectOp):
         self.commandlist.append(Path.Command('G0', {'Z': obj.ClearanceHeight.Value, 'F': self.vertRapid}))
         if obj.UseStartPoint is True:
             self.commandlist.append(Path.Command('G0', {'X': obj.StartPoint.x, 'Y': obj.StartPoint.y, 'F': self.horizRapid}))
-
-        # Impose property limits
-        self.opApplyPropertyLimits(obj)
 
         # Calculate default depthparams for operation
         self.depthParams = PathUtils.depth_params(obj.ClearanceHeight.Value, obj.SafeHeight.Value, obj.StartDepth.Value, obj.StepDown.Value, 0.0, obj.FinalDepth.Value)
@@ -428,7 +357,7 @@ class ObjectSlot(PathOp.ObjectOp):
         if not hasattr(obj, 'Base'):
             msg = translate('PathSlot',
                     'No Base Geometry object in the operation.')
-            FreeCAD.Console.PrintError(msg + '\n')
+            PathLog.debug(msg)
             return False
 
         if not obj.Base:
@@ -438,7 +367,7 @@ class ObjectSlot(PathOp.ObjectOp):
             if p1 == p2:
                 msg = translate('PathSlot',
                         'Custom points are identical.')
-                FreeCAD.Console.PrintError(msg + '\n')
+                PathLog.error(msg)
                 return False
             elif p1.z == p2.z:
                 pnts = (p1, p2)
@@ -446,7 +375,7 @@ class ObjectSlot(PathOp.ObjectOp):
             else:
                 msg = translate('PathSlot',
                         'Custom points not at same Z height.')
-                FreeCAD.Console.PrintError(msg + '\n')
+                PathLog.error(msg)
                 return False
         else:
             baseGeom = obj.Base[0]
@@ -498,7 +427,7 @@ class ObjectSlot(PathOp.ObjectOp):
             if newRadius <= 0:
                 msg = translate('PathSlot',
                         'Current Extend Radius value produces negative arc radius.')
-                FreeCAD.Console.PrintError(msg + '\n')
+                PathLog.error(msg + '\n')
                 return False
             else:
                 (p1, p2) = pnts
@@ -544,8 +473,8 @@ class ObjectSlot(PathOp.ObjectOp):
         if self._arcCollisionCheck(obj, p1, p2, self.arcCenter, self.newRadius):
             msg = obj.Label + ' '
             msg += translate('PathSlot',
-                    'operation collides with model.')
-            FreeCAD.Console.PrintError(msg + '\n')
+                    'Operation collides with model.')
+            PathLog.error(msg + '\n')
 
         # PathLog.warning('Unable to create G-code.  _makeArcGCode() is incomplete.')
         cmds = self._makeArcGCode(obj, p1, p2)
@@ -749,7 +678,7 @@ class ObjectSlot(PathOp.ObjectOp):
             if not pnts:
                 msg = translate('PathSlot',
                     'The selected face is inaccessible.')
-                FreeCAD.Console.PrintError(msg + '\n')
+                PathLog.info(msg)
                 return False
 
             if pnts:
@@ -766,7 +695,7 @@ class ObjectSlot(PathOp.ObjectOp):
         elif cat1 == 'Vert':
             msg = translate('PathSlot',
                 'Only a vertex selected. Add another feature to the Base Geometry.')
-            FreeCAD.Console.PrintError(msg + '\n')
+            PathLog.info(msg)
 
         if done:
             return (p1, p2)
@@ -791,7 +720,7 @@ class ObjectSlot(PathOp.ObjectOp):
         if len(shape.Edges) < 4:
             msg = translate('PathSlot',
                 'A single selected face must have four edges minimum.')
-            FreeCAD.Console.PrintError(msg + '\n')
+            PathLog.error(msg)
             return False
 
         # Create tuples as (edge index, length, angle)
@@ -850,7 +779,7 @@ class ObjectSlot(PathOp.ObjectOp):
         if pairCnt == 0:
             msg = translate('PathSlot',
                 'No parallel edges identified.')
-            FreeCAD.Console.PrintError(msg + '\n')
+            PathLog.error(msg)
             return False
         elif pairCnt == 1:
             # One pair of parallel edges identified
@@ -874,8 +803,8 @@ class ObjectSlot(PathOp.ObjectOp):
             else:
                 msg = 'Reference1 '
                 msg += translate('PathSlot',
-                    'value error.')
-                FreeCAD.Console.PrintError(msg + '\n')
+                    'Value error.')
+                PathLog.error(msg)
                 return False
 
         (p1, p2) = self._getOppMidPoints(same)
@@ -939,7 +868,7 @@ class ObjectSlot(PathOp.ObjectOp):
             if self.tool.Diameter > holeDiam:
                 msg = translate('PathSlot',
                         'Current tool larger than arc diameter.')
-                FreeCAD.Console.PrintError(msg + '\n')
+                PathLog.error(msg)
                 return True
             return False
 
@@ -1024,8 +953,8 @@ class ObjectSlot(PathOp.ObjectOp):
             return (p1, p2)
         else :
             msg = translate('PathSlot','Failed, slot from edge only accepts lines, arcs and circles.')
-            FreeCAD.Console.PrintError(msg + '\n')
-
+            PathLog.info(msg)
+           
             return False  # not line , not circle
 
     # Methods for processing double geometry
@@ -1044,7 +973,7 @@ class ObjectSlot(PathOp.ObjectOp):
         if not feature1:
             msg = translate('PathSlot',
                 'Failed to determine point 1 from')
-            FreeCAD.Console.PrintError(msg + ' {}.\n'.format(sub1))
+            PathLog.info(msg + ' {}.\n'.format(sub1))
             return False
         (p1, dYdX1, shpType) = feature1
         self.shapeType1 = shpType
@@ -1055,7 +984,7 @@ class ObjectSlot(PathOp.ObjectOp):
         if not feature2:
             msg = translate('PathSlot',
                 'Failed to determine point 2 from')
-            FreeCAD.Console.PrintError(msg + ' {}.\n'.format(sub2))
+            PathLog.info(msg + ' {}.\n'.format(sub2))
             return False
         (p2, dYdX2, shpType) = feature2
         self.shapeType2 = shpType
@@ -1069,7 +998,7 @@ class ObjectSlot(PathOp.ObjectOp):
                 if self.shapeType1 != 'Edge' or self.shapeType2 != 'Edge':
                     msg = translate('PathSlot',
                         'Selected geometry not parallel.')
-                    FreeCAD.Console.PrintError(msg + '\n')
+                    PathLog.info(msg + '\n')
                     return False
 
         if p2:
@@ -1189,7 +1118,7 @@ class ObjectSlot(PathOp.ObjectOp):
             if norm.z != 0:
                 msg = translate('PathSlot',
                     'The selected face is not oriented vertically:')
-                FreeCAD.Console.PrintError(msg + ' {}.\n'.format(sub))
+                PathLog.info(msg + ' {}.\n'.format(sub))
                 return False
 
             if Ref == 'Center of Mass':
@@ -1697,7 +1626,7 @@ class ObjectSlot(PathOp.ObjectOp):
             if newRadius <= 0:
                 msg = translate('PathSlot',
                         'Current offset value produces negative radius.')
-                FreeCAD.Console.PrintError(msg + '\n')
+                PathLog.info(msg + '\n')
                 return False
             else:
                 (pA, pB) = self._makeOffsetArc(p1, p2, arcCenter, newRadius)
@@ -1710,7 +1639,7 @@ class ObjectSlot(PathOp.ObjectOp):
             if newRadius <= 0:
                 msg = translate('PathSlot',
                         'Current offset value produces negative radius.')
-                FreeCAD.Console.PrintError(msg + '\n')
+                PathLog.info(msg + '\n')
                 return False
             else:
                 (pC, pD) = self._makeOffsetArc(p1, p2, arcCenter, newRadius)
@@ -1764,7 +1693,7 @@ class ObjectSlot(PathOp.ObjectOp):
 
 def SetupProperties():
     ''' SetupProperties() ... Return list of properties required for operation.'''
-    return [tup[1] for tup in ObjectSlot.opPropertyDefinitions(False)]
+    return [tup[1] for tup in ObjectSlot.opPropertyDefinitions(None)]
 
 
 def Create(name, obj=None, parentJob=None):

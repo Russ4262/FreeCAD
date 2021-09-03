@@ -202,7 +202,7 @@ class ObjectVcarve(PathEngraveBase.ObjectOp):
 
     def opFeatures(self, obj):
         '''opFeatures(obj) ... return all standard features and edges based geomtries'''
-        return PathOp.FeatureTool | PathOp.FeatureHeights | PathOp.FeatureDepths | PathOp.FeatureBaseFaces | PathOp.FeatureCoolant
+        return PathOp.FeatureTool | PathOp.FeatureDepths | PathOp.FeatureBaseFaces | PathOp.FeatureCoolant
 
     def setupAdditionalProperties(self, obj):
         if not hasattr(obj, 'BaseShapes'):

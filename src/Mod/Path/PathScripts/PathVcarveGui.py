@@ -47,7 +47,7 @@ def translate(context, text, disambig=None):
     return QtCore.QCoreApplication.translate(context, text, disambig)
 
 
-class TaskPanelBaseGeometryPage(PathOpGui.TaskPanelBaseGeometryPage):
+class TaskPanelBaseGeometryPage(PathOpGui.TaskPanelGui.TaskPanelBaseGeometryPage):
     '''Enhanced base geometry page to also allow special base objects.'''
 
     def super(self):
@@ -113,7 +113,7 @@ class TaskPanelBaseGeometryPage(PathOpGui.TaskPanelBaseGeometryPage):
         return self.super().updateBase()
 
 
-class TaskPanelOpPage(PathOpGui.TaskPanelPage):
+class TaskPanelOpPage(PathOpGui.TaskPanelGui.TaskPanelPage):
     '''Page controller class for the Vcarve operation.'''
 
     def getForm(self):

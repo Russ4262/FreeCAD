@@ -470,32 +470,6 @@ class Extension(object):
 # Eclass
 
 
-def initialize_properties(obj):
-    """initialize_properties(obj)... Adds feature properties to object argument"""
-    if not hasattr(obj, 'ExtensionLengthDefault'):
-        obj.addProperty('App::PropertyDistance', 'ExtensionLengthDefault', 'Extension', QtCore.QT_TRANSLATE_NOOP('PathPocketShape', 'Default length of extensions.'))
-    if not hasattr(obj, 'ExtensionFeature'):
-        obj.addProperty('App::PropertyLinkSubListGlobal', 'ExtensionFeature', 'Extension', QtCore.QT_TRANSLATE_NOOP('PathPocketShape', 'List of features to extend.'))
-    if not hasattr(obj, 'ExtensionCorners'):
-        obj.addProperty('App::PropertyBool', 'ExtensionCorners', 'Extension', QtCore.QT_TRANSLATE_NOOP('PathPocketShape', 'When enabled connected extension edges are combined to wires.'))
-        obj.ExtensionCorners = True
-
-    obj.setEditorMode('ExtensionFeature', 2)
-
-
-def set_default_property_values(obj, job):
-    """set_default_property_values(obj, job) ... set default values for feature properties"""
-    obj.ExtensionCorners = True
-    obj.setExpression('ExtensionLengthDefault', 'OpToolDiameter / 2.0')
-
-
-def SetupProperties():
-    """SetupProperties()... Returns list of feature property names"""
-    setup = ['ExtensionLengthDefault', 'ExtensionFeature',
-             'ExtensionCorners']
-    return setup
-
-
 # Extend outline face generation function
 def getExtendOutlineFace(base_shape, face, extension, remHoles=False, offset_tolerance=1e-4):
     """getExtendOutlineFace(obj, base_shape, face, extension, remHoles) ...
@@ -561,6 +535,7 @@ def getExtendOutlineFace(base_shape, face, extension, remHoles=False, offset_tol
     PathLog.error("No bottom face for extend outline.")
     return None
 
+
 # Waterline extension face generation function
 def getWaterlineFace(base_shape, face):
     """getWaterlineFace(base_shape, face) ...
@@ -610,3 +585,37 @@ def getWaterlineFace(base_shape, face):
         return Part.makeCompound(faces)
 
     return None
+
+# Extensions feature property management functions
+def extensionsPropertyDefinitions():
+    """extensionsPropertyDefinitions()... Adds feature properties to object argument"""
+    return [
+        ('App::PropertyDistance', 'ExtensionLengthDefault', 'Extensions', QtCore.QT_TRANSLATE_NOOP('PathPocketShape', 'Default length of extensions.')),
+        ('App::PropertyLinkSubListGlobal', 'ExtensionFeature', 'Extensions', QtCore.QT_TRANSLATE_NOOP('PathPocketShape', 'List of features to extend.')),
+        ('App::PropertyBool', 'ExtensionCorners', 'Extensions', QtCore.QT_TRANSLATE_NOOP('PathPocketShape', 'When enabled connected extension edges are combined to wires.'))
+    ]
+
+
+def extensionsSetEditorModes(obj):
+    obj.setEditorMode('ExtensionFeature', 2)
+
+
+def setDefaultPropertyValues(obj, job):
+    """setDefaultPropertyValues(obj, job) ... set default values for feature properties"""
+    obj.ExtensionCorners = True
+    obj.setExpression('ExtensionLengthDefault', 'OpToolDiameter / 2.0')
+
+
+def extensionsDefaultPropertyValues(obj, job):
+    """extensionsDefaultPropertyValues(obj, job) ... return a dictionary of default values for extensions feature properties"""
+    return {
+        'ExtensionCorners': True,
+        'ExtensionLengthDefault': 'OpToolDiameter / 2.0'
+    }
+
+
+def SetupProperties():
+    """SetupProperties()... Returns list of feature property names"""
+    setup = ['ExtensionLengthDefault', 'ExtensionFeature',
+             'ExtensionCorners']
+    return setup

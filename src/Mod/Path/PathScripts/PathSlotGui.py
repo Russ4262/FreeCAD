@@ -44,7 +44,7 @@ def debugMsg(msg):
         FreeCAD.Console.PrintMessage('PathSlotGui:: ' + msg + '\n')
 
 
-class TaskPanelOpPage(PathOpGui.TaskPanelPage):
+class TaskPanelOpPage(PathOpGui.TaskPanelGui.TaskPanelPage):
     '''Page controller class for the Slot operation.'''
 
     def getForm(self):

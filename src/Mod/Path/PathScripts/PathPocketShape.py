@@ -2,6 +2,8 @@
 # ***************************************************************************
 # *   Copyright (c) 2017 sliptonic <shopinthewoods@gmail.com>               *
 # *                                                                         *
+# *   This file is part of the FreeCAD CAx development system.              *
+# *                                                                         *
 # *   This program is free software; you can redistribute it and/or modify  *
 # *   it under the terms of the GNU Lesser General Public License (LGPL)    *
 # *   as published by the Free Software Foundation; either version 2 of     *
@@ -21,22 +23,16 @@
 # ***************************************************************************
 
 import FreeCAD
-import PathScripts.PathGeom as PathGeom
+import Path
 import PathScripts.PathLog as PathLog
 import PathScripts.PathOp as PathOp
-import PathScripts.PathPocketBase as PathPocketBase
+import PathScripts.PathUtils as PathUtils
+import PathScripts.strategies.PathStrategyClearing as StrategyClearing
+import PathScripts.PathSelectionProcessing as SelectionProcessing
+import PathScripts.PathUtils as PathUtils
+import Part
 
 from PySide import QtCore
-
-# lazily loaded modules
-from lazy_loader.lazy_loader import LazyLoader
-Part = LazyLoader('Part', globals(), 'Part')
-TechDraw = LazyLoader('TechDraw', globals(), 'TechDraw')
-math = LazyLoader('math', globals(), 'math')
-PathUtils = LazyLoader('PathScripts.PathUtils', globals(), 'PathScripts.PathUtils')
-FeatureExtensions = LazyLoader('PathScripts.PathFeatureExtensions',
-                                globals(),
-                                'PathScripts.PathFeatureExtensions')
 
 
 __title__ = "Path Pocket Shape Operation"
@@ -54,200 +50,614 @@ def translate(context, text, disambig=None):
     return QtCore.QCoreApplication.translate(context, text, disambig)
 
 
-class ObjectPocket(PathPocketBase.ObjectPocket):
-    '''Proxy object for Pocket operation.'''
+class ObjectPocket(PathOp.ObjectOp):
+    """Proxy object for Pocket operation."""
 
-    def areaOpFeatures(self, obj):
-        return super(self.__class__, self).areaOpFeatures(obj) | PathOp.FeatureLocations
+    def opFeatures(self, obj):
+        """opFeatures(obj) ... returns the base features supported by all Path.Area based operations."""
+        return (
+            PathOp.FeatureTool
+            | PathOp.FeatureDepths
+            | PathOp.FeatureStepDown
+            | PathOp.FeatureStartPoint
+            | PathOp.FeatureCoolant
+            | PathOp.FeatureBaseEdges
+            | PathOp.FeatureBaseFaces
+            | PathOp.FeatureFinishDepth
+            | PathOp.FeatureExtensions
+        )
 
-    def initPocketOp(self, obj):
-        '''initPocketOp(obj) ... setup receiver'''
-        if not hasattr(obj, 'UseOutline'):
-            obj.addProperty('App::PropertyBool', 'UseOutline', 'Pocket', QtCore.QT_TRANSLATE_NOOP('PathPocketShape', 'Uses the outline of the base geometry.'))
+    def initOperation(self, obj):
+        """initOperation(obj) ... implement to extend class `__init__()` contructor,
+        like create additional properties."""
+        self.isDebug = True if PathLog.getLevel(PathLog.thisModule()) == 4 else False
 
-        FeatureExtensions.initialize_properties(obj)
+    def opPropertyDefinitions(self):
+        """opProperties() ... returns a tuples.
+        Each tuple contains property declaration information in the
+        form of (prototype, name, section, tooltip)."""
+        props = [
+            (
+                "App::PropertyEnumeration",
+                "CutDirection",
+                "PathOptions",
+                QtCore.QT_TRANSLATE_NOOP(
+                    "App::Property",
+                    "The direction that the toolpath should go around the part: Climb or Conventional.",
+                ),
+            ),
+            (
+                "App::PropertyDistance",
+                "MaterialAllowance",
+                "PathOptions",
+                QtCore.QT_TRANSLATE_NOOP(
+                    "App::Property",
+                    "Extra offset to apply to the operation. Direction is operation dependent.",
+                ),
+            ),
+            (
+                "App::PropertyEnumeration",
+                "StartAt",
+                "PathOptions",
+                QtCore.QT_TRANSLATE_NOOP(
+                    "App::Property", "Start pocketing at center or boundary"
+                ),
+            ),
+            (
+                "App::PropertyDistance",
+                "StepOver",
+                "PathOptions",
+                QtCore.QT_TRANSLATE_NOOP(
+                    "App::Property",
+                    "Percent of cutter diameter to step over on each pass",
+                ),
+            ),
+            (
+                "App::PropertyFloat",
+                "CutPatternAngle",
+                "PathOptions",
+                QtCore.QT_TRANSLATE_NOOP(
+                    "App::Property", "Angle of the zigzag pattern"
+                ),
+            ),
+            (
+                "App::PropertyEnumeration",
+                "CutPattern",
+                "PathOptions",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Clearing pattern to use"),
+            ),
+            (
+                "App::PropertyBool",
+                "MinTravel",
+                "PathOptions",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Use 3D Sorting of Path"),
+            ),
+            (
+                "App::PropertyBool",
+                "KeepToolDown",
+                "PathOptions",
+                QtCore.QT_TRANSLATE_NOOP(
+                    "App::Property", "Attempts to avoid unnecessary retractions."
+                ),
+            ),
+            (
+                "App::PropertyBool",
+                "CutPatternReversed",
+                "PathOptions",
+                QtCore.QT_TRANSLATE_NOOP(
+                    "App::Property",
+                    "Reverse the cut order of the stepover paths. For circular cut patterns, begin at the outside and work toward the center.",
+                ),
+            ),
+            (
+                "App::PropertyVectorDistance",
+                "PatternCenterCustom",
+                "PathOptions",
+                QtCore.QT_TRANSLATE_NOOP(
+                    "App::Property", "Set the start point for the cut pattern."
+                ),
+            ),
+            (
+                "App::PropertyEnumeration",
+                "PatternCenterAt",
+                "PathOptions",
+                QtCore.QT_TRANSLATE_NOOP(
+                    "App::Property",
+                    "Choose location of the center point for starting the cut pattern.",
+                ),
+            ),
+            (
+                "App::PropertyBool",
+                "Cut3DPocket",
+                "Operation",
+                QtCore.QT_TRANSLATE_NOOP(
+                    "App::Property",
+                    "Enable to cut a 3D pocket instead of the standard 2D pocket",
+                ),
+            ),
+            (
+                "App::PropertyBool",
+                "UseComp",
+                "PathOptions",
+                QtCore.QT_TRANSLATE_NOOP(
+                    "App::Property", "Make True, if using Cutter Radius Compensation"
+                ),
+            ),
+            (
+                "App::PropertyEnumeration",
+                "BoundaryShape",
+                "SelectionOptions",
+                QtCore.QT_TRANSLATE_NOOP(
+                    "App::Property", "Shape to use for calculating Boundary"
+                ),
+            ),
+            (
+                "App::PropertyEnumeration",
+                "HandleMultipleFeatures",
+                "SelectionOptions",
+                QtCore.QT_TRANSLATE_NOOP(
+                    "PathPocket",
+                    "Choose how to process multiple Base Geometry features.",
+                ),
+            ),
+            (
+                "App::PropertyBool",
+                "ProcessPerimeter",
+                "SelectionOptions",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Profile the outline"),
+            ),
+            (
+                "App::PropertyBool",
+                "ProcessHoles",
+                "SelectionOptions",
+                QtCore.QT_TRANSLATE_NOOP(
+                    "App::Property", "Profile holes as well as the outline"
+                ),
+            ),
+            (
+                "App::PropertyBool",
+                "ProcessCircles",
+                "SelectionOptions",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Profile round holes"),
+            ),
+            (
+                "App::PropertyString",
+                "AreaParams",
+                "Debug",
+                QtCore.QT_TRANSLATE_NOOP(
+                    "App::Property",
+                    "Debug property that stores parameters passed to Path.Area() for this operation.",
+                ),
+            ),
+            (
+                "App::PropertyString",
+                "PathParams",
+                "Debug",
+                QtCore.QT_TRANSLATE_NOOP(
+                    "App::Property",
+                    "Debug property that stores parameters passed to Path.fromShapes() for this operation.",
+                ),
+            ),
+            (
+                "App::PropertyBool",
+                "ShowDebugShapes",
+                "Debug",
+                QtCore.QT_TRANSLATE_NOOP(
+                    "App::Property",
+                    "Show the temporary path construction objects when module is in DEBUG mode.",
+                ),
+            ),
+        ]
+        props.extend(StrategyClearing.StrategyAdaptive.adaptivePropertyDefinitions())
+        return props
 
-    def areaOpOnDocumentRestored(self, obj):
-        '''opOnDocumentRestored(obj) ... adds the UseOutline property if it doesn't exist.'''
-        self.initPocketOp(obj)
+    def opPropertyEnumerations(self):
+        """opPropertyEnumerations() ... returns a dictionary of enumeration lists
+        for the operation's enumeration type properties."""
+        # Enumeration lists for App::PropertyEnumeration properties
+        enums = {
+            "CutDirection": ["Climb", "Conventional"],
+            "StartAt": ["Center", "Edge"],
+            "CutPattern": [
+                "Adaptive",
+                "Circular",
+                "CircularZigZag",
+                "Grid",
+                "Line",
+                "LineOffset",
+                "Offset",
+                "Spiral",
+                "Triangle",
+                "ZigZag",
+                "ZigZagOffset",
+            ],
+            "BoundaryShape": ["Boundbox", "Face Region", "Perimeter", "Stock"],
+            "HandleMultipleFeatures": ["Collectively", "Individually"],
+            "PatternCenterAt": [
+                "CenterOfMass",
+                "CenterOfBoundBox",
+                "XminYmin",
+                "Custom",
+            ],
+        }
+        for (
+            k,
+            v,
+        ) in StrategyClearing.StrategyAdaptive.adaptivePropertyEnumerations().items():
+            enums[k] = v
+        return enums
 
-    def pocketInvertExtraOffset(self):
-        return False
+    def opPropertyDefaults(self, obj, job):
+        """opPropertyDefaults(obj, job) ... returns a dictionary of default values
+        for the operation's properties."""
+        defaults = {
+            "CutDirection": "Conventional",
+            "MaterialAllowance": 0.0,
+            "StartAt": "Center",
+            "StepOver": 50.0,
+            "CutPatternAngle": 0.0,
+            "CutPattern": "ZigZag",
+            "UseComp": True,
+            "MinTravel": False,
+            "KeepToolDown": False,
+            "Cut3DPocket": False,
+            "CutPatternReversed": False,
+            "PatternCenterCustom": FreeCAD.Vector(0.0, 0.0, 0.0),
+            "PatternCenterAt": "CenterOfBoundBox",
+            "BoundaryShape": "Face Region",
+            "HandleMultipleFeatures": "Collectively",
+            "ProcessPerimeter": True,
+            "ProcessHoles": True,
+            "ProcessCircles": True,
+            "AreaParams": "",
+            "PathParams": "",
+            "ShowDebugShapes": False,
+        }
+        for k, v in StrategyClearing.StrategyAdaptive.adaptivePropertyDefaults(
+            obj, job
+        ).items():
+            defaults[k] = v
+        return defaults
 
-    def areaOpSetDefaultValues(self, obj, job):
-        '''areaOpSetDefaultValues(obj, job) ... set default values'''
-        obj.StepOver = 100
-        obj.ZigZagAngle = 45
-        obj.UseOutline = False
-        FeatureExtensions.set_default_property_values(obj, job)
+    def opSetDefaultValues(self, obj, job):
+        """opSetDefaultValues(obj) ... base implementation, do not overwrite.
+        The base implementation sets the depths and heights based on the
+        opShapeForDepths() return value."""
+        PathLog.debug("opSetDefaultValues(%s, %s)" % (obj.Label, job.Label))
 
-    def areaOpShapes(self, obj):
-        '''areaOpShapes(obj) ... return shapes representing the solids to be removed.'''
+        shape = None
+        try:
+            shape = self.opShapeForDepths(obj, job)
+        except Exception as ee:  # pylint: disable=broad-except
+            PathLog.error(ee)
+
+        # Set initial start and final depths
+        if shape is None:
+            PathLog.debug("shape is None")
+            startDepth = 1.0
+            finalDepth = 0.0
+        else:
+            bb = job.Stock.Shape.BoundBox
+            startDepth = bb.ZMax
+            finalDepth = bb.ZMin
+
+        obj.OpStartDepth.Value = startDepth
+        obj.OpFinalDepth.Value = finalDepth
+
+    def opSetEditorModes(self, obj):
+        """opSetEditorModes(obj, porp) ... Process operation-specific changes to properties visibility."""
+
+        # Always hidden
+        if PathLog.getLevel(PathLog.thisModule()) != 4:
+            obj.setEditorMode("ShowDebugShapes", 2)
+        # obj.setEditorMode('JoinType', 2)
+        # obj.setEditorMode('MiterLimit', 2)
+        hide = (
+            False
+            if hasattr(obj, "CutPattern") and obj.CutPattern == "Adaptive"
+            else True
+        )
+        StrategyClearing.StrategyAdaptive.adaptiveSetEditorModes(obj, hide)
+
+    def opShapeForDepths(self, obj, job):
+        """opShapeForDepths(obj) ... returns the shape used to make an initial calculation for the depths being used.
+        The default implementation returns the job's Base.Shape"""
+        if job:
+            if job.Stock:
+                PathLog.debug(
+                    "job=%s base=%s shape=%s" % (job, job.Stock, job.Stock.Shape)
+                )
+                return job.Stock.Shape
+            else:
+                PathLog.warning(
+                    translate("PathAreaOp", "job %s has no Base.") % job.Label
+                )
+        else:
+            PathLog.warning(
+                translate("PathAreaOp", "no job for op %s found.") % obj.Label
+            )
+        return None
+
+    def opUpdateDepths(self, obj):
+        # PathLog.info("opUpdateDepths()")
+        if obj.Cut3DPocket:
+            zMins = list()
+            if not hasattr(obj, "Base") or not obj.Base:
+                zMins = [
+                    min([base.Shape.BoundBox.ZMin for base in self.job.Model.Group])
+                ]
+            else:
+                for base, subsList in obj.Base:
+                    zMins.append(
+                        min([base.Shape.getElement(s).BoundBox.ZMin for s in subsList])
+                    )
+            obj.OpFinalDepth.Value = min(zMins)
+            # PathLog.debug("Cut 3D pocket update final depth: {} mm\n".format(obj.OpFinalDepth.Value))
+
+    def opOnDocumentRestored(self, obj):
+        """opOnDocumentRestored(obj) ... implement if an op needs special handling."""
+        self.isDebug = True if PathLog.getLevel(PathLog.thisModule()) == 4 else False
+
+    def opExecute(self, obj, getsim=False):  # pylint: disable=arguments-differ
+        """opExecute(obj, getsim=False) ... implementation of Path.Area ops.
+        determines the parameters for _buildPathArea().
+        """
         PathLog.track()
-        self.removalshapes = []
+        self.commandlist = list()
+        sims = None
+        # Initiate depthparams and calculate operation heights for operation
+        finish_step = obj.FinishDepth.Value if hasattr(obj, "FinishDepth") else 0.0
+        self.depthparams = PathUtils.depth_params(
+            clearance_height=obj.ClearanceHeight.Value,
+            safe_height=obj.SafeHeight.Value,
+            start_depth=obj.StartDepth.Value,
+            step_down=obj.StepDown.Value,
+            z_finish_step=finish_step,
+            final_depth=obj.FinalDepth.Value,
+            user_depths=None,
+        )
 
-        # self.isDebug = True if PathLog.getLevel(PathLog.thisModule()) == 4 else False
-        self.removalshapes = []
-        avoidFeatures = list()
+        sims = self.opExecuteArea(obj, getsim)
 
-        # Get extensions and identify faces to avoid
-        extensions = FeatureExtensions.getExtensions(obj)
-        for e in extensions:
-            if e.avoid:
-                avoidFeatures.append(e.feature)
+        # PathLog.debug("obj.Name: {}".format(obj.Name))
+        if self.removalshapes:
+            obj.WorkingShape = Part.makeCompound(
+                [trio[0] for trio in self.removalshapes]
+            )
 
-        if obj.Base:
-            PathLog.debug('base items exist.  Processing...')
-            self.horiz = []
-            self.vert = []
-            for (base, subList) in obj.Base:
-                for sub in subList:
-                    if 'Face' in sub:
-                        if sub not in avoidFeatures and not self.clasifySub(base, sub):
-                            PathLog.error(translate('PathPocket', 'Pocket does not support shape %s.%s') % (base.Label, sub))
+        return sims
 
-            # Convert horizontal faces to use outline only if requested
-            if obj.UseOutline and self.horiz:
-                horiz = [Part.Face(f.Wire1) for f in self.horiz]
-                self.horiz = horiz
-
-            # Check if selected vertical faces form a loop
-            if len(self.vert) > 0:
-                self.vertical = PathGeom.combineConnectedShapes(self.vert)
-                self.vWires = [TechDraw.findShapeOutline(shape, 1, FreeCAD.Vector(0, 0, 1)) for shape in self.vertical]
-                for wire in self.vWires:
-                    w = PathGeom.removeDuplicateEdges(wire)
-                    face = Part.Face(w)
-                    # face.tessellate(0.1)
-                    if PathGeom.isRoughly(face.Area, 0):
-                        PathLog.error(translate('PathPocket', 'Vertical faces do not form a loop - ignoring'))
-                    else:
-                        self.horiz.append(face)
-
-            # Add faces for extensions
-            self.exts = [] # pylint: disable=attribute-defined-outside-init
-            for ext in extensions:
-                if not ext.avoid:
-                    wire = ext.getWire()
-                    if wire:
-                        faces = ext.getExtensionFaces(wire)
-                        for f in faces:
-                            self.horiz.append(f)
-                            self.exts.append(f)
-
-            # check all faces and see if they are touching/overlapping and combine and simplify
-            self.horizontal = PathGeom.combineHorizontalFaces(self.horiz)
-
-            # Move all faces to final depth before extrusion
-            for h in self.horizontal:
-                h.translate(FreeCAD.Vector(0.0, 0.0, obj.FinalDepth.Value - h.BoundBox.ZMin))
-
-            # extrude all faces up to StartDepth and those are the removal shapes
-            extent = FreeCAD.Vector(0, 0, obj.StartDepth.Value - obj.FinalDepth.Value)
-            self.removalshapes = [(face.removeSplitter().extrude(extent), False) for face in self.horizontal]
-
-        else:  # process the job base object as a whole
-            PathLog.debug("processing the whole job base object")
-            self.outlines = [Part.Face(TechDraw.findShapeOutline(base.Shape, 1, FreeCAD.Vector(0, 0, 1))) for base in self.model]
-            stockBB = self.stock.Shape.BoundBox
-
-            self.bodies = []
-            for outline in self.outlines:
-                outline.translate(FreeCAD.Vector(0, 0, stockBB.ZMin - 1))
-                body = outline.extrude(FreeCAD.Vector(0, 0, stockBB.ZLength + 2))
-                self.bodies.append(body)
-                self.removalshapes.append((self.stock.Shape.cut(body), False))
-
-        # Tessellate all working faces
-        # for (shape, hole) in self.removalshapes:
-        #    shape.tessellate(0.05)  # originally 0.1
+    def opExecuteArea(self, obj, getsim=False):  # pylint: disable=arguments-differ
+        """opExecute(obj, getsim=False) ... Apply non-adaptive cut patterns to 2D extruded envelopes."""
+        PathLog.debug("opExecuteArea()")
 
         if self.removalshapes:
             obj.removalshape = Part.makeCompound([tup[0] for tup in self.removalshapes])
 
         return self.removalshapes
 
-    # Support methods
-    def isVerticalExtrusionFace(self, face):
-        fBB = face.BoundBox
-        if PathGeom.isRoughly(fBB.ZLength, 0.0):
-            return False
-        extr = face.extrude(FreeCAD.Vector(0.0, 0.0, fBB.ZLength))
-        if hasattr(extr, "Volume"):
-            if PathGeom.isRoughly(extr.Volume, 0.0):
-                return True
-        return False
+        # Set start point
+        if obj.UseStartPoint:
+            startPoint = obj.StartPoint
 
-    def clasifySub(self, bs, sub):
-        '''clasifySub(bs, sub)...
-        Given a base and a sub-feature name, returns True
-        if the sub-feature is a horizontally oriented flat face.
-        '''
-        face = bs.Shape.getElement(sub)
+        viewObject = None
+        if hasattr(obj, "ViewObject"):
+            viewObject = obj.ViewObject
 
-        if type(face.Surface) == Part.Plane:
-            PathLog.debug('type() == Part.Plane')
-            if PathGeom.isVertical(face.Surface.Axis):
-                PathLog.debug('  -isVertical()')
-                # it's a flat horizontal face
-                self.horiz.append(face)
-                return True
+        shapes = self.shapeIdentification(
+            obj
+        )  # pylint: disable=assignment-from-no-return
 
-            elif PathGeom.isHorizontal(face.Surface.Axis):
-                PathLog.debug('  -isHorizontal()')
-                self.vert.append(face)
-                return True
+        # Sort operations
+        if len(shapes) > 1:
+            jobs = list()
+            for s in shapes:
+                shp = s[0]
+                jobs.append(
+                    {"x": shp.BoundBox.XMax, "y": shp.BoundBox.YMax, "shape": s}
+                )
+
+            jobs = PathUtils.sort_jobs(jobs, ["x", "y"])
+
+            shapes = [j["shape"] for j in jobs]
+
+        sims = []
+        for shape, isHole, details in shapes:
+            strategy = StrategyClearing.StrategyClearVolume(
+                self,
+                shape,
+                obj.ClearanceHeight.Value,
+                obj.SafeHeight.Value,
+                obj.PatternCenterAt,
+                obj.PatternCenterCustom,
+                obj.CutPatternReversed,
+                obj.CutPatternAngle,
+                obj.CutPattern,
+                obj.CutDirection,
+                obj.StepOver.Value if hasattr(obj.StepOver, "Value") else obj.StepOver,
+                obj.MaterialAllowance.Value,
+                obj.MinTravel,
+                obj.KeepToolDown,
+                obj.ToolController,
+                startPoint,
+                self.depthparams,
+                self.job.GeometryTolerance.Value,
+            )
+
+            if obj.CutPattern == "Adaptive":
+                # set adaptive-dependent attributes
+                strategy.setAdaptiveAttributes(
+                    obj.StartDepth.Value,
+                    obj.FinalDepth.Value,
+                    obj.StepDown.Value,
+                    obj.FinishDepth.Value,
+                    obj.OperationType,
+                    obj.CutSide,
+                    obj.DisableHelixEntry,
+                    obj.ForceInsideOut,
+                    obj.LiftDistance.Value,
+                    obj.FinishingProfile,
+                    obj.HelixAngle.Value,
+                    obj.HelixConeAngle.Value,
+                    obj.UseHelixArcs,
+                    obj.HelixDiameterLimit.Value,
+                    obj.KeepToolDownRatio.Value,
+                    obj.Stopped,
+                    obj.StopProcessing,
+                    obj.Tolerance,
+                    self.stock,
+                    self.job,
+                    obj.AdaptiveOutputState,
+                    obj.AdaptiveInputState,
+                    viewObject,
+                )
+
+            strategy.isDebug = self.isDebug  # Transfer debug status
+
+            try:
+                # Generate the path commands
+                rtn = strategy.execute()
+            except Exception as e:  # pylint: disable=broad-except
+                FreeCAD.Console.PrintError(str(e) + "\n")
+                FreeCAD.Console.PrintError(
+                    "Something unexpected happened. Check project and tool config. 1\n"
+                )
 
             else:
-                return False
+                # Transfer some values from strategy class back to operation
+                if (
+                    obj.PatternCenterAt != "Custom"
+                    and strategy.centerOfPattern is not None
+                ):
+                    obj.PatternCenterCustom = strategy.centerOfPattern
+                self.endVector = strategy.endVector
+                obj.AreaParams = strategy.areaParams  # save area parameters
+                obj.PathParams = strategy.pathParams  # save path parameters
+                # Save path commands to operation command list
+                self.commandlist.extend(strategy.commandList)
+                if getsim:
+                    sims.append(strategy.simObj)
 
-        elif type(face.Surface) == Part.Cylinder and PathGeom.isVertical(face.Surface.Axis):
-            PathLog.debug('type() == Part.Cylinder')
-            # vertical cylinder wall
-            if any(e.isClosed() for e in face.Edges):
-                PathLog.debug('  -e.isClosed()')
-                # complete cylinder
-                circle = Part.makeCircle(face.Surface.Radius, face.Surface.Center)
-                disk = Part.Face(Part.Wire(circle))
-                disk.translate(FreeCAD.Vector(0, 0, face.BoundBox.ZMin - disk.BoundBox.ZMin))
-                self.horiz.append(disk)
-                return True
+            if self.endVector is not None and len(self.commandlist) > 1:
+                self.endVector[2] = obj.ClearanceHeight.Value
+                self.commandlist.append(
+                    Path.Command(
+                        "G0", {"Z": obj.ClearanceHeight.Value, "F": self.vertRapid}
+                    )
+                )
 
-            else:
-                PathLog.debug('  -none isClosed()')
-                # partial cylinder wall
-                self.vert.append(face)
-                return True
+        return sims
 
-        elif type(face.Surface) == Part.SurfaceOfExtrusion:
-            # extrusion wall
-            PathLog.debug('type() == Part.SurfaceOfExtrusion')
-            # Save face to self.horiz for processing or display error
-            if self.isVerticalExtrusionFace(face):
-                self.vert.append(face)
-                return True
-            else:
-                PathLog.error(translate("Path", "Failed to identify vertical face from {}.".format(sub)))
+    def shapeIdentification(self, obj, isPreview=False, facesOnly=False):
+        """shapeIdentification(obj) ... return shapes representing the solids to be removed."""
+        PathLog.track()
+        self.removalshapes = []
+        workingAreas = None
+        extensions = None
 
+        self._setMisingClassVariables(obj)
+        self.isDebug = True if PathLog.getLevel(PathLog.thisModule()) == 4 else False
+
+        if obj.Base:
+            baseObjList = obj.Base
+            extensions = PathOp.PathFeatureExtensions.getExtensions(obj)
         else:
-            PathLog.debug('  -type(face.Surface): {}'.format(type(face.Surface)))
-            return False
+            baseObjList = [(base, list()) for base in self.model]
+
+        # Process user inputs via Base Geometry and Extensions into pocket areas
+        if obj.Cut3DPocket:
+            PathLog.debug("shapeIdentification() for 3D pocket")
+            if isPreview:
+                self.opUpdateDepths(obj)
+
+            pac = SelectionProcessing.Working3DFaces(
+                baseObjList,
+                extensions,
+                processPerimeter=obj.ProcessPerimeter,
+                processHoles=obj.ProcessHoles,
+                processCircles=obj.ProcessCircles,
+                handleMultipleFeatures=obj.HandleMultipleFeatures,
+                startDepth=obj.StartDepth.Value + obj.StepDown.Value,
+                finalDepth=obj.FinalDepth.Value,
+            )
+        else:
+            PathLog.debug("shapeIdentification()")
+            pac = SelectionProcessing.Working2DAreas(
+                baseObjList,
+                extensions,
+                processPerimeter=obj.ProcessPerimeter,
+                processHoles=obj.ProcessHoles,
+                processCircles=obj.ProcessCircles,
+                handleMultipleFeatures=obj.HandleMultipleFeatures,
+                boundaryShape=obj.BoundaryShape,
+                stockShape=self.job.Stock.Shape,
+                finalDepth=obj.FinalDepth.Value,
+            )
+        pac.isDebug = (
+            self.isDebug
+        )  #  You can force True here to set debug mode for SelectionProcessing class
+        pac.showDebugShapes = (
+            obj.ShowDebugShapes
+        )  #  You can force True here to show debug shapes for SelectionProcessing class
+        workingAreas = pac.getWorkingAreas(avoidOverhead=True)
+        workingSolids = pac.getWorkingSolids(avoidOverhead=True)
+        self.exts = pac.getExtensionFaces()
+
+        if workingAreas:
+            if facesOnly:
+                self.removalshapes.extend(
+                    [(wa, False, "pocketShape") for wa in workingAreas]
+                )
+            else:
+                # Translate pocket area faces to final depth plus envelope padding
+                # The padding is a buffer for later internal rounding issues - *path data are unaffected*
+                envPad = self.radius * 0.1
+                envDepth = obj.FinalDepth.Value - envPad
+                for f in workingAreas:
+                    f.translate(FreeCAD.Vector(0.0, 0.0, envDepth - f.BoundBox.ZMin))
+                extent = FreeCAD.Vector(
+                    0, 0, (obj.StartDepth.Value - obj.FinalDepth.Value) + 2 * envPad
+                )
+
+                # extrude all pocket area faces up to StartDepth plus padding and those are the removal shapes with padding
+                self.removalshapes.extend(
+                    [
+                        (face.removeSplitter().extrude(extent), False, "pocketShape")
+                        for face in workingAreas
+                    ]
+                )
+
+        if workingSolids:
+            # add working solids as prepared envelopes for 3D Pocket
+            self.removalshapes.extend(
+                [(env, False, "pocket3D") for env in workingSolids]
+            )
+            # for env in workingSolids:
+            #    PathLog.info("workingSolid ZMin: {}".format(env.BoundBox.ZMin))
+            # [Part.show(env) for env in workingSolids]
+
+        return self.removalshapes
+
+
 # Eclass
 
 
 def SetupProperties():
-    setup = PathPocketBase.SetupProperties()  # Add properties from PocketBase module
-    setup.extend(FeatureExtensions.SetupProperties())  # Add properties from Extensions Feature
-
-    # Add properties initialized here in PocketShape
-    setup.append('UseOutline')
+    setup = list()
+    setup.extend([tup[1] for tup in ObjectPocket.opPropertyDefinitions(None)])
+    setup.extend(
+        [
+            tup[1]
+            for tup in StrategyClearing.StrategyAdaptive.adaptivePropertyDefinitions()
+        ]
+    )
     return setup
 
 
 def Create(name, obj=None, parentJob=None):
-    '''Create(name) ... Creates and returns a Pocket operation.'''
+    """Create(name) ... Creates and returns a Pocket operation."""
     if obj is None:
-        obj = FreeCAD.ActiveDocument.addObject('Path::FeaturePython', name)
+        obj = FreeCAD.ActiveDocument.addObject("Path::FeaturePython", name)
     obj.Proxy = ObjectPocket(obj, name, parentJob)
     return obj
 
