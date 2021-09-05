@@ -206,6 +206,9 @@ class ViewProvider:
     def claimChildren(self):
         children = []
         children.append(self.obj.Operations)
+        if hasattr(self.obj, "TargetShapes"):
+            # when loading a job that didn't have a setup sheet they might not've been created yet
+            children.append(self.obj.TargetShapes)
         if hasattr(self.obj, "Model"):
             # unfortunately this function is called before the object has been fully loaded
             # which means we could be dealing with an old job which doesn't have the new Model
@@ -218,6 +221,8 @@ class ViewProvider:
             children.append(self.obj.SetupSheet)
         if hasattr(self.obj, "Tools"):
             children.append(self.obj.Tools)
+        if hasattr(self.obj, "Rotation"):
+            children.append(self.obj.Rotation)
         return children
 
     def onDelete(self, vobj, arg2=None):
@@ -330,6 +335,7 @@ class StockEdit(object):
         obj.Stock = stock
         if stock.ViewObject and stock.ViewObject.Proxy:
             stock.ViewObject.Proxy.onEdit(_OpenCloseResourceEditor)
+        obj.Proxy.setupInitialClonePlacement(stock)
 
     def setLengthField(self, widget, prop):
         widget.setText(
@@ -699,6 +705,7 @@ class TaskPanel:
         self.getFields()
         self.setupGlobal.accept()
         self.setupOps.accept()
+        self._updateModelAndStockInitValues()
         FreeCAD.ActiveDocument.commitTransaction()
         self.cleanup(resetEdit)
 
@@ -1616,6 +1623,11 @@ class TaskPanel:
             no_tool_txt = translate("Path_Job", "This job has no tool.")
             if _displayWarningWindow(no_tool_txt) == 1:
                 self.toolControllerAdd()
+
+    def _updateModelAndStockInitValues(self):
+        for mdl in self.obj.Model.Group:
+            self.obj.Proxy.setupInitialClonePlacement(mdl)
+        self.obj.Proxy.setupInitialClonePlacement(self.obj.Stock)
 
     # SelectionObserver interface
     def addSelection(self, doc, obj, sub, pnt):

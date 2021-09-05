@@ -382,31 +382,35 @@ def turnselect():
 
 def select(op):
     opsel = {}
-    opsel["Contour"] = contourselect  # deprecated
+    opsel["Adaptive"] = adaptiveselect
+    opsel["Clearing"] = profileselect
+    opsel["Contour"] = contourselect  # (depreciated)
+    opsel["Custom"] = customselect
     opsel["Deburr"] = chamferselect
     opsel["Drilling"] = drillselect
     opsel["Engrave"] = engraveselect
+    opsel["Facing"] = profileselect
     opsel["Helix"] = drillselect
     opsel["MillFace"] = pocketselect
-    opsel["Pocket"] = pocketselect
+    opsel["Perimeter"] = profileselect
     opsel["Pocket 3D"] = pocketselect
-    opsel["Pocket3D"] = pocketselect  # deprecated
     opsel["Pocket Shape"] = pocketselect
-    opsel["Profile Edges"] = eselect  # deprecated
-    opsel["Profile Faces"] = fselect  # deprecated
+    opsel["Pocket"] = pocketselect
+    opsel["Pocket3D"] = pocketselect  # deprecated
+    opsel["Probe"] = probeselect
+    opsel["Profile Edges"] = eselect  # (depreciated)
+    opsel["Profile Faces"] = fselect  # (depreciated)
     opsel["Profile"] = profileselect
     opsel["Slot"] = slotselect
     opsel["Surface"] = surfaceselect
-    opsel["Waterline"] = surfaceselect
-    opsel["Adaptive"] = adaptiveselect
-    opsel["Vcarve"] = vcarveselect
-    opsel["Probe"] = probeselect
-    opsel["Custom"] = customselect
+    opsel["TargetGeometry"] = profileselect
     opsel["ThreadMilling"] = drillselect
     opsel["TurnFace"] = turnselect
-    opsel["TurnProfile"] = turnselect
     opsel["TurnPartoff"] = turnselect
+    opsel["TurnProfile"] = turnselect
     opsel["TurnRough"] = turnselect
+    opsel["Vcarve"] = vcarveselect
+    opsel["Waterline"] = surfaceselect
     return opsel[op]
 
 

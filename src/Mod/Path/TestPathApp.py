@@ -30,6 +30,7 @@ from PathTests.TestPathDressupDogbone import TestDressupDogbone
 from PathTests.TestPathDressupHoldingTags import TestHoldingTags
 from PathTests.TestPathDrillable import TestPathDrillable
 from PathTests.TestPathDrillGenerator import TestPathDrillGenerator
+from PathTests.TestPathHelixGenerator import TestPathHelixGenerator
 from PathTests.TestPathGeom import TestPathGeom
 
 # from PathTests.TestPathHelix import TestPathHelix
@@ -45,6 +46,7 @@ from PathTests.TestPathPropertyBag import TestPathPropertyBag
 from PathTests.TestPathRotationGenerator import TestPathRotationGenerator
 from PathTests.TestPathSetupSheet import TestPathSetupSheet
 from PathTests.TestPathStock import TestPathStock
+from PathTests.TestPathStrategies import TestPathStrategies
 from PathTests.TestPathThreadMilling import TestPathThreadMilling
 from PathTests.TestPathThreadMillingGenerator import TestPathThreadMillingGenerator
 from PathTests.TestPathTool import TestPathTool
@@ -55,6 +57,16 @@ from PathTests.TestPathTooltable import TestPathTooltable
 from PathTests.TestPathUtil import TestPathUtil
 from PathTests.TestPathVcarve import TestPathVcarve
 from PathTests.TestPathVoronoi import TestPathVoronoi
+
+from PathTests.TestPathClearingLineGenerator import TestPathClearingLineGenerator
+from PathTests.TestPathClearingOffsetGenerator import TestPathClearingOffsetGenerator
+from PathTests.TestPathClearingZigZagGenerator import TestPathClearingZigZagGenerator
+from PathTests.TestPathClearingCircularGenerator import (
+    TestPathClearingCircularGenerator,
+)
+from PathTests.TestPathClearingCircularZigZagGenerator import (
+    TestPathClearingCircularZigZagGenerator,
+)
 
 # dummy usage to get flake8 and lgtm quiet
 False if depthTestCases.__name__ else True
@@ -77,6 +89,7 @@ False if TestPathPropertyBag.__name__ else True
 False if TestPathRotationGenerator.__name__ else True
 False if TestPathSetupSheet.__name__ else True
 False if TestPathStock.__name__ else True
+False if TestPathStrategies.__name__ else True
 False if TestPathThreadMilling.__name__ else True
 False if TestPathThreadMillingGenerator.__name__ else True
 False if TestPathTool.__name__ else True
@@ -89,3 +102,9 @@ False if TestPathVcarve.__name__ else True
 False if TestPathVoronoi.__name__ else True
 False if TestPathDrillGenerator.__name__ else True
 False if TestPathHelixGenerator.__name__ else True
+
+False if TestPathClearingLineGenerator.__name__ else True
+False if TestPathClearingZigZagGenerator.__name__ else True
+False if TestPathClearingCircularGenerator.__name__ else True
+False if TestPathClearingCircularZigZagGenerator.__name__ else True
+False if TestPathClearingOffsetGenerator.__name__ else True

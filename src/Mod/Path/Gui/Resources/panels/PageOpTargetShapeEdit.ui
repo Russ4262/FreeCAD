@@ -1,0 +1,272 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>Form</class>
+ <widget class="QWidget" name="Form">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>398</width>
+    <height>435</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Form</string>
+  </property>
+  <layout class="QGridLayout" name="gridLayout_4">
+   <item row="1" column="0">
+    <widget class="QWidget" name="selectionOptions" native="true">
+     <layout class="QGridLayout" name="gridLayout_5">
+      <item row="1" column="1">
+       <widget class="QComboBox" name="handleMultipleFeatures">
+        <item>
+         <property name="text">
+          <string>Collectively</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Individually</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+      <item row="7" column="1">
+       <widget class="QCheckBox" name="processCircles">
+        <property name="text">
+         <string>Process Circles</string>
+        </property>
+        <property name="checked">
+         <bool>false</bool>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="1">
+       <widget class="QCheckBox" name="processPerimeter">
+        <property name="text">
+         <string>Process Perimeter</string>
+        </property>
+        <property name="checked">
+         <bool>false</bool>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="0">
+       <widget class="QCheckBox" name="useBasesOnly">
+        <property name="text">
+         <string>Use bases only</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="1">
+       <widget class="QComboBox" name="shapeType">
+        <property name="toolTip">
+         <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Select the shape type to be created as the Target Shape.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+        </property>
+        <item>
+         <property name="text">
+          <string>2D Wire</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>2D Area</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>2D Extrusion</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>3D Volume</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="handleMultipleFeatures_label">
+        <property name="text">
+         <string>Handle Multiple Features</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="0">
+       <widget class="QLabel" name="boundaryShape_label">
+        <property name="text">
+         <string>Boundary Shape</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1">
+       <widget class="QComboBox" name="boundaryShape">
+        <property name="toolTip">
+         <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Specify if the facing should be restricted by the actual shape of the selected face (or the part if no face is selected), or if the bounding box should be faced off.&lt;/p&gt;&lt;p&gt;The latter can be used to face of the entire stock area to ensure uniform heights for the following operations.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+        </property>
+        <item>
+         <property name="text">
+          <string>Boundbox</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Face Region</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Perimeter</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Stock</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+      <item row="3" column="0">
+       <widget class="QLabel" name="shapeType_label">
+        <property name="text">
+         <string>Shape Type</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="0" colspan="2">
+       <widget class="QLabel" name="selectionOptions_label">
+        <property name="font">
+         <font>
+          <weight>75</weight>
+          <bold>true</bold>
+         </font>
+        </property>
+        <property name="text">
+         <string>Selection Options</string>
+        </property>
+        <property name="alignment">
+         <set>Qt::AlignCenter</set>
+        </property>
+       </widget>
+      </item>
+      <item row="6" column="1">
+       <widget class="QCheckBox" name="processHoles">
+        <property name="text">
+         <string>Process Holes</string>
+        </property>
+        <property name="checked">
+         <bool>false</bool>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="1">
+       <widget class="QSpinBox" name="avoidXFeatures">
+        <property name="toolTip">
+         <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;The shape builder will avoid X number of features in the Base Geometry list.  Positive is from the top of the list, and negative is from the bottom.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+        </property>
+        <property name="minimum">
+         <number>-99999</number>
+        </property>
+        <property name="maximum">
+         <number>99999</number>
+        </property>
+        <property name="singleStep">
+         <number>1</number>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="0">
+       <widget class="QLabel" name="avoidXFeatures_label">
+        <property name="text">
+         <string>Avoid X Features</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item row="3" column="0">
+    <widget class="QWidget" name="otherOptions" native="true">
+     <property name="styleSheet">
+      <string notr="true">background-color: rgb(220, 220, 165);</string>
+     </property>
+     <layout class="QGridLayout" name="gridLayout_2">
+      <item row="1" column="0">
+       <widget class="QLabel" name="materialAllowance_label">
+        <property name="text">
+         <string>Material Allowance</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="Gui::QuantitySpinBox" name="materialAllowance">
+        <property name="unit" stdset="0">
+         <string notr="true"/>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1">
+       <widget class="QCheckBox" name="forceFinalDepthLow">
+        <property name="text">
+         <string>Force Final Depth low</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="0" colspan="2">
+       <widget class="QLabel" name="otherOptions_label">
+        <property name="font">
+         <font>
+          <weight>75</weight>
+          <bold>true</bold>
+         </font>
+        </property>
+        <property name="text">
+         <string>Other Options</string>
+        </property>
+        <property name="alignment">
+         <set>Qt::AlignCenter</set>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item row="5" column="0">
+    <spacer name="verticalSpacer">
+     <property name="orientation">
+      <enum>Qt::Vertical</enum>
+     </property>
+     <property name="sizeHint" stdset="0">
+      <size>
+       <width>20</width>
+       <height>40</height>
+      </size>
+     </property>
+    </spacer>
+   </item>
+   <item row="4" column="0">
+    <widget class="QPushButton" name="visualizeTargetShape">
+     <property name="text">
+      <string>Visualize Target Shape</string>
+     </property>
+     <property name="checkable">
+      <bool>true</bool>
+     </property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <customwidgets>
+  <customwidget>
+   <class>Gui::QuantitySpinBox</class>
+   <extends>QWidget</extends>
+   <header>Gui/QuantitySpinBox.h</header>
+  </customwidget>
+ </customwidgets>
+ <tabstops>
+  <tabstop>handleMultipleFeatures</tabstop>
+  <tabstop>boundaryShape</tabstop>
+ </tabstops>
+ <resources/>
+ <connections/>
+</ui>

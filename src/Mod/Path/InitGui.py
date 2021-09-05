@@ -131,6 +131,7 @@ class PathWorkbench(Workbench):
         # modcmdmore = ["Path_Hop",]
         # remotecmdlist = ["Path_Remote"]
         specialcmdlist = []
+        expericmdlist = []
 
         if PathPreferences.toolsUseLegacyTools():
             toolcmdlist.append("Path_ToolLibraryEdit")
@@ -155,6 +156,10 @@ class PathWorkbench(Workbench):
             extracmdlist.extend(["Path_Area", "Path_Area_Workplane"])
             specialcmdlist.append("Path_ThreadMilling")
             twodopcmdlist.append("Path_Slot")
+            expericmdlist.append("Path_TargetGeometry")
+            expericmdlist.append("Path_Perimeter")
+            expericmdlist.append("Path_Clearing")
+            expericmdlist.append("Path_Facing")
 
         if PathPreferences.advancedOCLFeaturesEnabled():
             try:
@@ -175,15 +180,35 @@ class PathWorkbench(Workbench):
                 if not PathPreferences.suppressOpenCamLibWarning():
                     FreeCAD.Console.PrintError("OpenCamLib is not working!\n")
 
-        self.appendToolbar(QT_TRANSLATE_NOOP("Workbench", "Project Setup"), projcmdlist)
-        self.appendToolbar(QT_TRANSLATE_NOOP("Workbench", "Tool Commands"), toolcmdlist)
+        self.appendToolbar(QT_TRANSLATE_NOOP("Path", "Project Setup"), projcmdlist)
+        self.appendToolbar(QT_TRANSLATE_NOOP("Path", "Tool Commands"), toolcmdlist)
         self.appendToolbar(
-            QT_TRANSLATE_NOOP("Workbench", "New Operations"),
+            QT_TRANSLATE_NOOP("Path", "New Operations"),
             twodopcmdlist + engravecmdgroup + threedcmdgroup,
         )
-        self.appendToolbar(
-            QT_TRANSLATE_NOOP("Workbench", "Path Modification"), modcmdlist
+        self.appendToolbar(QT_TRANSLATE_NOOP("Path", "Path Modification"), modcmdlist)
+
+        # Add Experimental drop-down group
+        expericmdgroup = ["Path_Experimental"]
+        FreeCADGui.addCommand(
+            "Path_Experimental",
+            PathCommandGroup(
+                expericmdlist,
+                QT_TRANSLATE_NOOP("Path", "Experimental tools and operations"),
+            ),
         )
+
+        if extracmdlist:
+            self.appendToolbar(
+                QT_TRANSLATE_NOOP("Workbench", "Helpful Tools"), extracmdlist
+            )
+
+        # Add Experimental drop-down group
+        if expericmdlist:
+            self.appendToolbar(
+                QT_TRANSLATE_NOOP("Workbench", "Experimental Tools"), expericmdlist
+            )
+
         if extracmdlist:
             self.appendToolbar(
                 QT_TRANSLATE_NOOP("Workbench", "Helpful Tools"), extracmdlist
@@ -204,8 +229,15 @@ class PathWorkbench(Workbench):
         )
         self.appendMenu(
             [
-                QT_TRANSLATE_NOOP("Workbench", "&Path"),
-                QT_TRANSLATE_NOOP("Workbench", "Path Dressup"),
+                QT_TRANSLATE_NOOP("Path", "&Path"),
+                QT_TRANSLATE_NOOP("Path", "Experimental"),
+            ],
+            expericmdlist,
+        )
+        self.appendMenu(
+            [
+                QT_TRANSLATE_NOOP("Path", "&Path"),
+                QT_TRANSLATE_NOOP("Path", "Path Dressup"),
             ],
             dressupcmdlist,
         )

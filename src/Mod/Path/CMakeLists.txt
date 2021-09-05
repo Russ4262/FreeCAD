@@ -107,6 +107,7 @@ SET(PathScripts_SRCS
     PathScripts/PathPropertyEditor.py
     PathScripts/PathSanity.py
     PathScripts/PathSelection.py
+    PathScripts/PathSelectionProcessing.py
     PathScripts/PathSetupSheet.py
     PathScripts/PathSetupSheetGui.py
     PathScripts/PathSetupSheetOpPrototype.py
@@ -145,6 +146,11 @@ SET(PathScripts_SRCS
 )
 
 SET(Generator_SRCS
+    Generators/clearing_circular_generator.py
+    Generators/clearing_circular_zigzag_generator.py
+    Generators/clearing_line_generator.py
+    Generators/clearing_offset_generator.py
+    Generators/clearing_zigzag_generator.py
     Generators/drill_generator.py
     Generators/helix_generator.py
     Generators/rotation_generator.py
@@ -177,6 +183,52 @@ SET(PathScripts_post_SRCS
 SET(PathPythonGui_SRCS
     PathPythonGui/__init__.py
     PathPythonGui/simple_edit_panel.py
+)
+
+SET(PathScripts_strategies_SRCS
+    PathScripts/strategies/__init__.py
+    PathScripts/strategies/PathGeometryGenerator.py
+    PathScripts/strategies/PathStrategyAdaptive.py
+    PathScripts/strategies/PathStrategyClearing.py
+    PathScripts/strategies/PathStrategyOCL.py
+    PathScripts/strategies/PathStrategyProfile.py
+    PathScripts/strategies/PathStrategySlicing.py
+    PathScripts/strategies/PathBuildTarget.py
+    PathScripts/strategies/PathTarget2DArea.py
+    PathScripts/strategies/PathTarget2DEnvelope.py
+    PathScripts/strategies/PathTarget3DShape.py
+    PathScripts/strategies/PathTargetBuildUtils.py
+    PathScripts/strategies/PathTargetOpenEdge.py
+)
+
+SET(PathScripts_operations_SRCS
+    PathScripts/operations/__init__.py
+    PathScripts/operations/PathClearing.py
+    PathScripts/operations/PathClearingGui.py
+    PathScripts/operations/PathFacing.py
+    PathScripts/operations/PathFacingGui.py
+    PathScripts/operations/PathOp2.py
+    PathScripts/operations/PathOpGui2.py
+    PathScripts/operations/PathPerimeter.py
+    PathScripts/operations/PathPerimeterGui.py
+    PathScripts/operations/PathTargetGeometry.py
+    PathScripts/operations/PathTargetGeometryGui.py
+)
+
+SET(PathScripts_job_SRCS
+    PathScripts/job/__init__.py
+    PathScripts/job/PathJobRotation.py
+)
+
+SET(PathScripts_taskpanels_SRCS
+    PathScripts/taskpanels/__init__.py
+    PathScripts/taskpanels/PathTaskPanel.py
+    PathScripts/taskpanels/PathTaskPanelPage.py
+    PathScripts/taskpanels/PathTaskPanelBaseGeometryPage.py
+    PathScripts/taskpanels/PathTaskPanelBaseLocationPage.py
+    PathScripts/taskpanels/PathTaskPanelHeightsDepthsPage.py
+    PathScripts/taskpanels/PathTaskPanelDiametersPage.py
+    PathScripts/taskpanels/PathTaskPanelExtensionPage.py
 )
 
 SET(Tools_SRCS
@@ -222,30 +274,36 @@ SET(PathTests_SRCS
     PathTests/test_holes00.fcstd
     PathTests/test_linuxcnc_00.ngc
     PathTests/TestPathAdaptive.py
+    PathTests/TestPathClearingCircularGenerator.py
+    PathTests/TestPathClearingCircularZigZagGenerator.py
+    PathTests/TestPathClearingLineGenerator.py
+    PathTests/TestPathClearingOffsetGenerator.py
+    PathTests/TestPathClearingZigZagGenerator.py
     PathTests/TestPathCore.py
     PathTests/TestPathDeburr.py
     PathTests/TestPathDepthParams.py
     PathTests/TestPathDressupDogbone.py
     PathTests/TestPathDressupHoldingTags.py
-    PathTests/TestPathDrillGenerator.py
     PathTests/TestPathDrillable.py
-    PathTests/TestPathRotationGenerator.py
+    PathTests/TestPathDrillGenerator.py
     PathTests/TestPathGeom.py
     PathTests/TestPathHelix.py
-    PathTests/TestPathHelpers.py
     PathTests/TestPathHelixGenerator.py
+    PathTests/TestPathHelpers.py
     PathTests/TestPathLog.py
     PathTests/TestPathOpTools.py
     PathTests/TestPathPost.py
     PathTests/TestPathPreferences.py
     PathTests/TestPathPropertyBag.py
+    PathTests/TestPathRotationGenerator.py
     PathTests/TestPathSetupSheet.py
     PathTests/TestPathStock.py
-    PathTests/TestPathToolChangeGenerator.py
+    PathTests/TestPathStrategies.py
     PathTests/TestPathThreadMilling.py
     PathTests/TestPathThreadMillingGenerator.py
     PathTests/TestPathTool.py
     PathTests/TestPathToolBit.py
+    PathTests/TestPathToolChangeGenerator.py
     PathTests/TestPathToolController.py
     PathTests/TestPathTooltable.py
     PathTests/TestPathUtil.py
@@ -254,10 +312,16 @@ SET(PathTests_SRCS
     PathTests/Tools/Bit/test-path-tool-bit-bit-00.fctb
     PathTests/Tools/Library/test-path-tool-bit-library-00.fctl
     PathTests/Tools/Shape/test-path-tool-bit-shape-00.fcstd
+    PathTests/TestPathClearingCircularGenerator.py
+    PathTests/TestPathClearingCircularZigZagGenerator.py
+    PathTests/TestPathClearingLineGenerator.py
+    PathTests/TestPathClearingOffsetGenerator.py
+    PathTests/TestPathClearingZigZagGenerator.py
 )
 
 SET(PathImages_Ops
     Images/Ops/chamfer.svg
+    Images/Ops/Path-DepthsAndHeights.gif
 )
 
 SET(PathImages_Tools
@@ -290,6 +354,10 @@ SET(all_files
     ${Generator_SRCS}
     ${PathScripts_post_SRCS}
     ${PathPythonGui_SRCS}
+    ${PathScripts_operations_SRCS}
+    ${PathScripts_job_SRCS}
+    ${PathScripts_taskpanels_SRCS}
+    ${PathScripts_strategies_SRCS}
     ${Tools_SRCS}
     ${Tools_Bit_SRCS}
     ${Tools_Library_SRCS}
@@ -355,6 +423,34 @@ INSTALL(
         ${PathPythonGui_SRCS}
     DESTINATION
         Mod/Path/PathPythonGui
+)
+
+INSTALL(
+    FILES
+        ${PathScripts_strategies_SRCS}
+    DESTINATION
+        Mod/Path/PathScripts/strategies
+)
+
+INSTALL(
+    FILES
+        ${PathScripts_operations_SRCS}
+    DESTINATION
+        Mod/Path/PathScripts/operations
+)
+
+INSTALL(
+    FILES
+        ${PathScripts_job_SRCS}
+    DESTINATION
+        Mod/Path/PathScripts/job
+)
+
+INSTALL(
+    FILES
+        ${PathScripts_taskpanels_SRCS}
+    DESTINATION
+        Mod/Path/PathScripts/taskpanels
 )
 
 INSTALL(

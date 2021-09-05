@@ -21,6 +21,7 @@
 # ***************************************************************************
 
 import PathScripts.PathLog as PathLog
+import PathScripts.PathPreferences as PathPreferences
 
 LOGLEVEL = False
 
@@ -77,6 +78,11 @@ def Startup():
         from PathScripts import PathUtilsGui
         from PathScripts import PathVcarveGui
 
+        if PathPreferences.experimentalFeaturesEnabled():
+            from PathScripts.operations import PathClearingGui
+            from PathScripts.operations import PathFacingGui
+            from PathScripts.operations import PathPerimeterGui
+            from PathScripts.operations import PathTargetGeometryGui
         Processed = True
     else:
         PathLog.debug("Skipping PathGui initialisation")

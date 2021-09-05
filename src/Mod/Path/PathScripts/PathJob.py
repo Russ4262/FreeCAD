@@ -30,6 +30,7 @@ import PathScripts.PathSetupSheet as PathSetupSheet
 import PathScripts.PathStock as PathStock
 import PathScripts.PathToolController as PathToolController
 import PathScripts.PathUtil as PathUtil
+import PathScripts.job.PathJobRotation as PathJobRotation
 import json
 import time
 import Path
@@ -39,6 +40,12 @@ import Path
 from lazy_loader.lazy_loader import LazyLoader
 
 Draft = LazyLoader("Draft", globals(), "Draft")
+math = LazyLoader("math", globals(), "math")
+
+__title__ = "Base class for all Path Jobs."
+__author__ = "Yorik van Havre <yorik@uncreated.net>"
+__url__ = "https://www.freecadweb.org"
+__doc__ = "Base class and properties implementation for all Path Jobs."
 
 
 if False:
@@ -78,6 +85,7 @@ def isResourceClone(obj, propLink, resourceName):
 
 
 def createResourceClone(obj, orig, name, icon):
+
     clone = Draft.clone(orig)
     clone.Label = "%s-%s" % (name, orig.Label)
     clone.addProperty("App::PropertyString", "PathResource")
@@ -106,10 +114,6 @@ Notification = NotificationClass()
 class ObjectJob:
     def __init__(self, obj, models, templateFile=None):
         self.obj = obj
-        self.tooltip = None
-        self.tooltipArgs = None
-        obj.Proxy = self
-
         obj.addProperty(
             "App::PropertyFile",
             "PostProcessorOutputFile",
@@ -234,9 +238,11 @@ class ObjectJob:
         obj.PostProcessorArgs = PathPreferences.defaultPostProcessorArgs()
         obj.GeometryTolerance = PathPreferences.defaultGeometryTolerance()
 
+        self.setupTargetShapesGroup(obj)
         self.setupOperations(obj)
         self.setupSetupSheet(obj)
         self.setupBaseModel(obj, models)
+        self.setupRotation(obj)
         self.setupToolTable(obj)
         self.setFromTemplateFile(obj, templateFile)
         self.setupStock(obj)
@@ -280,6 +286,24 @@ class ObjectJob:
 
         return data
 
+    def setupTargetShapesGroup(self, obj):
+        if not hasattr(obj, "TargetShapes"):
+            obj.addProperty(
+                "App::PropertyLink",
+                "TargetShapes",
+                "Base",
+                QtCore.QT_TRANSLATE_NOOP(
+                    "PathJob", "The target shape objects for all operations"
+                ),
+            )
+            group = FreeCAD.ActiveDocument.addObject(
+                "App::DocumentObjectGroup", "TargetShapes"
+            )
+            group.Label = "Target Shapes"
+            if group.ViewObject:
+                group.ViewObject.Visibility = False
+            obj.TargetShapes = group
+
     def setupOperations(self, obj):
         """setupOperations(obj)... setup the Operations group for the Job object."""
         # ops = FreeCAD.ActiveDocument.addObject(
@@ -312,13 +336,10 @@ class ObjectJob:
                 PathScripts.PathIconViewProvider.Attach(
                     obj.SetupSheet.ViewObject, "SetupSheet"
                 )
-            obj.SetupSheet.Label = "SetupSheet"
         self.setupSheet = obj.SetupSheet.Proxy
 
     def setupBaseModel(self, obj, models=None):
         PathLog.track(obj.Label, models)
-        addModels = False
-
         if not hasattr(obj, "Model"):
             obj.addProperty(
                 "App::PropertyLink",
@@ -328,22 +349,17 @@ class ObjectJob:
                     "App::Property", "The base objects for all operations"
                 ),
             )
-            addModels = True
-        elif obj.Model is None:
-            addModels = True
-
-        if addModels:
             model = FreeCAD.ActiveDocument.addObject(
                 "App::DocumentObjectGroup", "Model"
             )
             if model.ViewObject:
                 model.ViewObject.Visibility = False
             if models:
-                model.addObjects(
-                    [createModelResourceClone(obj, base) for base in models]
-                )
+                for base in models:
+                    model.addObject(createModelResourceClone(obj, base))
+                    clone = FreeCAD.ActiveDocument.ActiveObject
+                    self.setupInitialClonePlacement(clone)
             obj.Model = model
-            obj.Model.Label = "Model"
 
         if hasattr(obj, "Base"):
             PathLog.info(
@@ -354,7 +370,6 @@ class ObjectJob:
             obj.removeProperty("Base")
 
     def setupToolTable(self, obj):
-        addTable = False
         if not hasattr(obj, "Tools"):
             obj.addProperty(
                 "App::PropertyLink",
@@ -364,11 +379,6 @@ class ObjectJob:
                     "App::Property", "Collection of all tool controllers for the job"
                 ),
             )
-            addTable = True
-        elif obj.Tools is None:
-            addTable = True
-
-        if addTable:
             toolTable = FreeCAD.ActiveDocument.addObject(
                 "App::DocumentObjectGroup", "Tools"
             )
@@ -420,6 +430,7 @@ class ObjectJob:
                 ):
                     PathUtil.clearExpressionEngine(op)
                     doc.removeObject(op.Name)
+
             obj.Operations.Group = []
             doc.removeObject(obj.Operations.Name)
             obj.Operations = None
@@ -460,6 +471,11 @@ class ObjectJob:
             doc.removeObject(obj.SetupSheet.Name)
             obj.SetupSheet = None
 
+        # Rotation doesn't depend on anything inside job
+        if getattr(obj, "Rotation", None):
+            doc.removeObject(obj.Rotation.Name)
+            obj.Rotation = None
+
         return True
 
     def fixupOperations(self, obj):
@@ -477,18 +493,18 @@ class ObjectJob:
                 obj.Operations.Group = []
                 obj.Operations = ops
                 FreeCAD.ActiveDocument.removeObject(name)
-                if label == "Unnamed":
-                    ops.Label = "Operations"
-                else:
-                    ops.Label = label
+                ops.Label = label
 
     def onDocumentRestored(self, obj):
+        self.setupTargetShapesGroup(obj)
         self.setupBaseModel(obj)
         self.fixupOperations(obj)
         self.setupSetupSheet(obj)
         self.setupToolTable(obj)
         self.integrityCheck(obj)
 
+        self.setupRotation(obj)
+        self.updateModelProperties(obj)
         obj.setEditorMode("Operations", 2)  # hide
         obj.setEditorMode("Placement", 2)
 
@@ -555,10 +571,40 @@ class ObjectJob:
             )
 
     def onChanged(self, obj, prop):
+        # print("Job.onChanged({})".format(prop))
         if prop == "PostProcessor" and obj.PostProcessor:
             processor = PostProcessor.load(obj.PostProcessor)
             self.tooltip = processor.tooltip
             self.tooltipArgs = processor.tooltipArgs
+        elif prop == "ResetModelOrientation" and obj.ResetModelOrientation is True:
+            # print("Job.onChanged() reset model orientation")
+            if len(obj.Model.Group) > 0:
+                for mdl in obj.Model.Group:
+                    mdl.Placement.Base = mdl.InitBase
+                    mdl.Placement.Rotation = FreeCAD.Rotation(
+                        mdl.InitAxis, mdl.InitAngle
+                    )
+                    mdl.recompute()
+                    mdl.purgeTouched()
+            if obj.Stock:
+                obj.Stock.Placement.Base = obj.Stock.InitBase
+                obj.Stock.Placement.Rotation = FreeCAD.Rotation(
+                    obj.Stock.InitAxis, obj.Stock.InitAngle
+                )
+                obj.Stock.purgeTouched()
+            obj.ResetModelOrientation = False
+        elif prop == "EnableRotation":
+            if len(obj.Operations.Group) > 0:
+                msg = "Consider recomputing {}'s operations due to changing '{}.EnableRotation' property.".format(
+                    obj.Label, obj.Name
+                )
+                PathLog.error(translate("Path", msg))
+                for op in obj.Operations.Group:
+                    if hasattr(op, "EnableRotation"):
+                        op.EnableRotation = obj.EnableRotation
+        elif prop == "Stock":
+            if obj.Stock:
+                self.setupInitialClonePlacement(obj.Stock)
 
     def baseObject(self, obj, base):
         """Return the base object, not its clone."""
@@ -616,6 +662,11 @@ class ObjectJob:
                     obj.Stock = PathStock.CreateFromTemplate(
                         obj, attrs.get(JobTemplate.Stock)
                     )
+                if hasattr(JobTemplate, "EnableRotation"):
+                    if attrs.get(JobTemplate.EnableRotation):
+                        obj.EnableRotation = attrs.get(JobTemplate.EnableRotation)
+                else:
+                    self.setupRotation(obj)
 
                 if attrs.get(JobTemplate.Fixtures):
                     obj.Fixtures = [
@@ -655,6 +706,7 @@ class ObjectJob:
         attrs[JobTemplate.GeometryTolerance] = str(obj.GeometryTolerance.Value)
         if obj.Description:
             attrs[JobTemplate.Description] = obj.Description
+        attrs[JobTemplate.EnableRotation] = obj.EnableRotation.Value
         return attrs
 
     def __getstate__(self):
@@ -721,13 +773,40 @@ class ObjectJob:
             self.obj.Operations.Group = group
             # op.Path.Center = self.obj.Operations.Path.Center
 
+    def addTargetGeometry(self, ts, before=None, removeBefore=False):
+        group = self.obj.TargetShapes.Group
+        if ts not in group:
+            if before:
+                try:
+                    group.insert(group.index(before), ts)
+                    if removeBefore:
+                        group.remove(before)
+                except Exception as e:  # pylint: disable=broad-except
+                    PathLog.error(e)
+                    group.append(ts)
+            else:
+                group.append(ts)
+            self.obj.TargetShapes.Group = group
+
+    def addTargetGeometry(self, ts, before=None, removeBefore=False):
+        group = self.obj.TargetShapes.Group
+        if ts not in group:
+            if before:
+                try:
+                    group.insert(group.index(before), ts)
+                    if removeBefore:
+                        group.remove(before)
+                except Exception as e:  # pylint: disable=broad-except
+                    PathLog.error(e)
+                    group.append(ts)
+            else:
+                group.append(ts)
+            self.obj.TargetShapes.Group = group
+
     def nextToolNumber(self):
         # returns the next available toolnumber in the job
         group = self.obj.Tools.Group
-        if len(group) > 0:
-            return sorted([t.ToolNumber for t in group])[-1] + 1
-        else:
-            return 1
+        return sorted([t.ToolNumber for t in group])[-1] + 1
 
     def addToolController(self, tc):
         group = self.obj.Tools.Group
@@ -823,6 +902,278 @@ class ObjectJob:
                 errorMessage("Tools", job)
                 return False
         return True
+
+    def setupRotation(self, obj):
+        if not hasattr(obj, "Rotation"):
+            obj.addProperty(
+                "App::PropertyLink",
+                "Rotation",
+                "Rotation",
+                QtCore.QT_TRANSLATE_NOOP("PathJob", "Rotation management object."),
+            )
+            obj.Rotation = FreeCAD.ActiveDocument.addObject(
+                "Path::FeaturePython", "Rotation"
+            )
+            obj.Rotation.Label = "Rotation"
+            # obj.Rotation.Proxy = PathJobRotation.ObjectRotation(obj)
+
+        if not hasattr(obj, "EnableRotation"):
+            obj.addProperty(
+                "App::PropertyEnumeration",
+                "EnableRotation",
+                "Rotation",
+                QtCore.QT_TRANSLATE_NOOP(
+                    "App::Property",
+                    "Enable rotation to gain access to pockets/areas not normal to Z axis.",
+                ),
+            )
+            obj.EnableRotation = ["Off", "A(x)", "B(y)", "A & B"]
+            obj.EnableRotation = "Off"
+        if not hasattr(obj, "ResetModelOrientation"):
+            obj.addProperty(
+                "App::PropertyBool",
+                "ResetModelOrientation",
+                "Rotation",
+                QtCore.QT_TRANSLATE_NOOP(
+                    "PathJob", "Resets the job model(s) to original orientation."
+                ),
+            )
+            obj.ResetModelOrientation = False
+
+    def setupInitialClonePlacement(self, clone):
+        # print("Job.setupInitialClonePlacement()")
+        if clone is None:
+            # print("Job.setupInitialClonePlacement() clone is None")
+            return
+        if not hasattr(clone, "InitBase"):
+            clone.addProperty(
+                "App::PropertyVectorDistance",
+                "InitBase",
+                "InitialPlacement",
+                translate(
+                    "PathSetupSheet", "Initial base.Placement.Base values for model."
+                ),
+            )
+        if not hasattr(clone, "InitAxis"):
+            clone.addProperty(
+                "App::PropertyVectorDistance",
+                "InitAxis",
+                "InitialPlacement",
+                translate(
+                    "PathSetupSheet",
+                    "Initial base.Placement.Rotation.Axis values for model.",
+                ),
+            )
+        if not hasattr(clone, "InitAngle"):
+            clone.addProperty(
+                "App::PropertyFloat",
+                "InitAngle",
+                "InitialPlacement",
+                translate(
+                    "PathSetupSheet",
+                    "Initial base.Placement.Rotation.Angle value for model.",
+                ),
+            )
+        if not hasattr(clone, "InitLock"):
+            clone.addProperty(
+                "App::PropertyBool",
+                "InitLock",
+                "InitialPlacement",
+                translate(
+                    "PathSetupSheet", "Initial base.Placement.Base values for model."
+                ),
+            )
+        clone.setEditorMode("InitBase", 0)  # visible, read & write permission
+        clone.setEditorMode("InitAxis", 0)
+        clone.setEditorMode("InitAngle", 0)
+        clone.setEditorMode("InitLock", 0)
+        clone.InitBase.x = clone.Placement.Base.x
+        clone.InitBase.y = clone.Placement.Base.y
+        clone.InitBase.z = clone.Placement.Base.z
+        clone.InitAxis.x = clone.Placement.Rotation.Axis.x
+        clone.InitAxis.y = clone.Placement.Rotation.Axis.y
+        clone.InitAxis.z = clone.Placement.Rotation.Axis.z
+        clone.InitAngle = math.degrees(clone.Placement.Rotation.Angle)
+        clone.setEditorMode("InitBase", 1)  # visible, read-only permission
+        clone.setEditorMode("InitAxis", 1)
+        clone.setEditorMode("InitAngle", 1)
+        clone.setEditorMode("InitLock", 1)
+
+    def updateModelProperties(self, obj):
+        print("Job.updateModelProperties()")
+        for m in obj.Model.Group:
+            if not hasattr(m, "InitBase"):
+                self.setupInitialClonePlacement(m)
+
+    def showRestShape_ORIG(self, obj):
+        restShape = obj.Stock.Shape
+        for op in obj.Operations.Group:
+            if hasattr(op, "RemovalShape") and op.RemovalShape:
+                for ss in op.RemovalShape.SubShapes:
+                    cut = restShape.cut(ss)
+                    restShape = cut
+        jrs = FreeCAD.ActiveDocument.addObject("Part::Feature", "Job_Rest_Shape")
+        jrs.Shape = restShape
+        jrs.purgeTouched()
+
+    def showRestShape(self, obj):
+        restShape = obj.Stock.Shape
+        jrs = FreeCAD.ActiveDocument.addObject("Part::Feature", "Job_Rest_Shape")
+        jrs.Shape = restShape
+        jrs.purgeTouched()
+        for op in obj.Operations.Group:
+            if hasattr(op, "RemovalShape") and op.RemovalShape:
+                opjrs = FreeCAD.ActiveDocument.addObject(
+                    "Part::Feature", "Job_Rest_Shape"
+                )
+                opjrs.Shape = op.RemovalShape
+                opjrs.purgeTouched()
+
+    def setupRotation(self, obj):
+        if not hasattr(obj, "Rotation"):
+            obj.addProperty(
+                "App::PropertyLink",
+                "Rotation",
+                "Rotation",
+                QtCore.QT_TRANSLATE_NOOP("PathJob", "Rotation management object."),
+            )
+            obj.Rotation = FreeCAD.ActiveDocument.addObject(
+                "Path::FeaturePython", "Rotation"
+            )
+            obj.Rotation.Label = "Rotation"
+            # obj.Rotation.Proxy = PathJobRotation.ObjectRotation(obj)
+
+        if not hasattr(obj, "EnableRotation"):
+            obj.addProperty(
+                "App::PropertyEnumeration",
+                "EnableRotation",
+                "Rotation",
+                QtCore.QT_TRANSLATE_NOOP(
+                    "App::Property",
+                    "Enable rotation to gain access to pockets/areas not normal to Z axis.",
+                ),
+            )
+            obj.EnableRotation = ["Off", "A(x)", "B(y)", "A & B"]
+            obj.EnableRotation = "Off"
+        if not hasattr(obj, "ResetModelOrientation"):
+            obj.addProperty(
+                "App::PropertyBool",
+                "ResetModelOrientation",
+                "Rotation",
+                QtCore.QT_TRANSLATE_NOOP(
+                    "PathJob", "Resets the job model(s) to original orientation."
+                ),
+            )
+            obj.ResetModelOrientation = False
+
+    def setupInitialClonePlacement(self, clone):
+        # print("Job.setupInitialClonePlacement()")
+        if clone is None:
+            # print("Job.setupInitialClonePlacement() clone is None")
+            return
+        if not hasattr(clone, "InitBase"):
+            clone.addProperty(
+                "App::PropertyVectorDistance",
+                "InitBase",
+                "InitialPlacement",
+                translate(
+                    "PathSetupSheet", "Initial base.Placement.Base values for model."
+                ),
+            )
+        if not hasattr(clone, "InitAxis"):
+            clone.addProperty(
+                "App::PropertyVectorDistance",
+                "InitAxis",
+                "InitialPlacement",
+                translate(
+                    "PathSetupSheet",
+                    "Initial base.Placement.Rotation.Axis values for model.",
+                ),
+            )
+        if not hasattr(clone, "InitAngle"):
+            clone.addProperty(
+                "App::PropertyFloat",
+                "InitAngle",
+                "InitialPlacement",
+                translate(
+                    "PathSetupSheet",
+                    "Initial base.Placement.Rotation.Angle value for model.",
+                ),
+            )
+        if not hasattr(clone, "InitLock"):
+            clone.addProperty(
+                "App::PropertyBool",
+                "InitLock",
+                "InitialPlacement",
+                translate(
+                    "PathSetupSheet", "Initial base.Placement.Base values for model."
+                ),
+            )
+        clone.setEditorMode("InitBase", 0)  # visible, read & write permission
+        clone.setEditorMode("InitAxis", 0)
+        clone.setEditorMode("InitAngle", 0)
+        clone.setEditorMode("InitLock", 0)
+        clone.InitBase.x = clone.Placement.Base.x
+        clone.InitBase.y = clone.Placement.Base.y
+        clone.InitBase.z = clone.Placement.Base.z
+        clone.InitAxis.x = clone.Placement.Rotation.Axis.x
+        clone.InitAxis.y = clone.Placement.Rotation.Axis.y
+        clone.InitAxis.z = clone.Placement.Rotation.Axis.z
+        clone.InitAngle = math.degrees(clone.Placement.Rotation.Angle)
+        clone.setEditorMode("InitBase", 1)  # visible, read-only permission
+        clone.setEditorMode("InitAxis", 1)
+        clone.setEditorMode("InitAngle", 1)
+        clone.setEditorMode("InitLock", 1)
+
+    def updateModelProperties(self, obj):
+        print("Job.updateModelProperties()")
+        for m in obj.Model.Group:
+            if not hasattr(m, "InitBase"):
+                self.setupInitialClonePlacement(m)
+
+    def showRestShape_ORIG(self, obj):
+        restShape = obj.Stock.Shape
+        for op in obj.Operations.Group:
+            if hasattr(op, "RemovalShape") and op.RemovalShape:
+                for ss in op.RemovalShape.SubShapes:
+                    cut = restShape.cut(ss)
+                    restShape = cut
+        jrs = FreeCAD.ActiveDocument.addObject("Part::Feature", "Job_Rest_Shape")
+        jrs.Shape = restShape
+        jrs.purgeTouched()
+
+    def showAllRestShapes(self, obj):
+        restShape = obj.Stock.Shape
+        jrs = FreeCAD.ActiveDocument.addObject("Part::Feature", "Job_Rest_Shape")
+        jrs.Shape = restShape
+        jrs.purgeTouched()
+        for op in obj.Operations.Group:
+            if hasattr(op, "RemovalShape") and op.RemovalShape:
+                opjrs = FreeCAD.ActiveDocument.addObject(
+                    "Part::Feature", "Job_Rest_Shape"
+                )
+                opjrs.Shape = op.RemovalShape
+                opjrs.purgeTouched()
+
+    def showRestShape(self, obj):
+        shapes = list()
+        for op in obj.Operations.Group:
+            if hasattr(op, "Shape"):
+                if op.Shape:
+                    shapes.append(op.Shape.copy())
+                else:
+                    PathLog.info("{} Rest Shape is empty.".format(op.Label))
+        if len(shapes) == 0:
+            PathLog.info("No rest shapes to fuse.")
+            return
+        elif len(shapes) == 1:
+            restShape = shapes[0]
+        else:
+            seed = shapes[0]
+            restShape = seed.fuse(shapes[1:])
+        rs = FreeCAD.ActiveDocument.addObject("Part::Feature", "Rest_Shape")
+        rs.Shape = restShape
+        rs.purgeTouched()
 
     @classmethod
     def baseCandidates(cls):

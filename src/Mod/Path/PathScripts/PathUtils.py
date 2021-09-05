@@ -447,7 +447,10 @@ def addToJob(obj, jobname=None):
             job = UserInput.chooseJob(jobs)
 
     if obj and job:
-        job.Proxy.addOperation(obj)
+        if obj.Name.startswith("TargetGeometry"):
+            job.Proxy.addTargetGeometry(obj)
+        else:
+            job.Proxy.addOperation(obj)
     return job
 
 
