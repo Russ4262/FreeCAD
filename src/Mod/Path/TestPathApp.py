@@ -35,6 +35,7 @@ from PathTests.TestPathGeom import TestPathGeom
 # from PathTests.TestPathHelix import TestPathHelix
 from PathTests.TestPathHelpers import TestPathHelpers
 from PathTests.TestPathHelixGenerator import TestPathHelixGenerator
+from PathTests.TestPathHelixGenerator import TestPathHelixGenerator
 from PathTests.TestPathLog import TestPathLog
 from PathTests.TestPathOpTools import TestPathOpTools
 
@@ -68,6 +69,18 @@ from PathTests.TestRefactoredGrblPost import TestRefactoredGrblPost
 from PathTests.TestRefactoredLinuxCNCPost import TestRefactoredLinuxCNCPost
 from PathTests.TestRefactoredMach3Mach4Post import TestRefactoredMach3Mach4Post
 from PathTests.TestRefactoredTestPost import TestRefactoredTestPost
+
+# Clearing patterns
+from PathTests.TestPathClearingLineGenerator import TestPathClearingLineGenerator
+from PathTests.TestPathClearingOffsetGenerator import TestPathClearingOffsetGenerator
+from PathTests.TestPathClearingZigZagGenerator import TestPathClearingZigZagGenerator
+from PathTests.TestPathClearingCircularGenerator import (
+    TestPathClearingCircularGenerator,
+)
+from PathTests.TestPathClearingCircularZigZagGenerator import (
+    TestPathClearingCircularZigZagGenerator,
+)
+
 
 # dummy usage to get flake8 and lgtm quiet
 False if depthTestCases.__name__ else True
@@ -114,3 +127,9 @@ False if TestRefactoredGrblPost.__name__ else True
 False if TestRefactoredLinuxCNCPost.__name__ else True
 False if TestRefactoredMach3Mach4Post.__name__ else True
 False if TestRefactoredTestPost.__name__ else True
+# Clearing patterns
+False if TestPathClearingLineGenerator.__name__ else True
+False if TestPathClearingZigZagGenerator.__name__ else True
+False if TestPathClearingCircularGenerator.__name__ else True
+False if TestPathClearingCircularZigZagGenerator.__name__ else True
+False if TestPathClearingOffsetGenerator.__name__ else True

@@ -154,6 +154,14 @@ SET(Generator_SRCS
     Generators/rotation_generator.py
     Generators/threadmilling_generator.py
     Generators/toolchange_generator.py
+    Generators/clearing_circular_generator.py
+    Generators/clearing_circular_zigzag_generator.py
+    Generators/clearing_line_generator.py
+    Generators/clearing_offset_generator.py
+    Generators/clearing_zigzag_generator.py
+    Generators/PathGeometryGenerator.py
+    Generators/PathStrategyAdaptive.py
+    Generators/PathStrategyClearing.py
 )
 
 SET(PathScripts_post_SRCS
@@ -243,6 +251,11 @@ SET(PathTests_SRCS
     PathTests/TestLinuxCNCPost.py
     PathTests/TestMach3Mach4Post.py
     PathTests/TestPathAdaptive.py
+    PathTests/TestPathClearingCircularGenerator.py
+    PathTests/TestPathClearingCircularZigZagGenerator.py
+    PathTests/TestPathClearingLineGenerator.py
+    PathTests/TestPathClearingOffsetGenerator.py
+    PathTests/TestPathClearingZigZagGenerator.py
     PathTests/TestPathCore.py
     PathTests/TestPathDeburr.py
     PathTests/TestPathDepthParams.py
