@@ -718,6 +718,20 @@ class depth_params(object):
             )[1:]
 
         depths.reverse()
+
+        # Check if any two consecutive depths are roughly equal.
+        # If so, remove the first of the two.
+        # This occurs if step down is equal to start-final depth within float rounding error.
+        if len(depths) > 1:
+            removeIndexes = list()
+            for i in range(1, len(depths)):
+                if PathGeom.isRoughly(depths[i - 1], depths[i]):
+                    removeIndexes.append(i - 1)
+            if removeIndexes:
+                removeIndexes.sort(reverse=True)
+                for ri in removeIndexes:
+                    depths.pop(ri)
+
         return depths
 
     def __equal_steps(self, start, stop, max_size):
