@@ -1583,7 +1583,7 @@ class TaskPanel:
         self.updateSelection()
 
 
-def Create(base, template=None):
+def Create(base, template=None, useGui=True):
     """Create(base, template) ... creates a job instance for the given base object
     using template to configure it."""
     FreeCADGui.addModule("PathScripts.PathJob")
@@ -1594,7 +1594,12 @@ def Create(base, template=None):
         obj.ViewObject.addExtension("Gui::ViewProviderGroupExtensionPython")
         FreeCAD.ActiveDocument.commitTransaction()
         obj.Document.recompute()
-        obj.ViewObject.Proxy.editObject(obj.Stock)
+
+        if useGui:
+            obj.ViewObject.Proxy.editObject(obj.Stock)
+        else:
+            obj.ViewObject.Proxy.deleteOnReject = False
+
         return obj
     except Exception as exc:
         PathLog.error(exc)
