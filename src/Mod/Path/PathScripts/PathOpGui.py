@@ -219,8 +219,8 @@ class TaskPanelPage(object):
         return hasattr(self.form, "toolController")
 
     def setParent(self, parent):
-        '''setParent() ... used to transfer parent object link to child class.
-        Do not overwrite.'''
+        """setParent() ... used to transfer parent object link to child class.
+        Do not overwrite."""
         self.parent = parent
 
     def onDirtyChanged(self, callback):
@@ -1381,7 +1381,12 @@ def Create(res):
             obj.ViewObject.Visibility = True
             FreeCAD.ActiveDocument.commitTransaction()
 
-            obj.ViewObject.Document.setEdit(obj.ViewObject, 0)
+            if getattr(res, "useGui", False):
+                obj.ViewObject.Document.setEdit(obj.ViewObject, 0)
+            else:
+                res.useGui = True  # Restore default task panel usage for creation
+                obj.ViewObject.Proxy.deleteOnReject = False
+
             return obj
     except PathUtils.PathNoTCExistsException:
         msg = translate(
@@ -1441,6 +1446,7 @@ class CommandResources:
         self.accelKey = accelKey
         self.toolTip = toolTip
         self.job = None
+        self.useGui = True  # Set False to mute task panel use at op creation
 
 
 def SetupOperation(
