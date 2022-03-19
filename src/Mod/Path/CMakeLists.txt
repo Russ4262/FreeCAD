@@ -107,7 +107,6 @@ SET(PathScripts_SRCS
     PathScripts/PathPropertyEditor.py
     PathScripts/PathSanity.py
     PathScripts/PathSelection.py
-    PathScripts/PathSelectionProcessing.py
     PathScripts/PathSetupSheet.py
     PathScripts/PathSetupSheetGui.py
     PathScripts/PathSetupSheetOpPrototype.py
