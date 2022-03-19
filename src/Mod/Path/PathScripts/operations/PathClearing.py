@@ -81,6 +81,12 @@ class ObjectClearing(PathOp2.ObjectOp2):
                 "Operation",
                 QtCore.QT_TRANSLATE_NOOP("App::Property", "Enable to use OpenCAM Lib"),
             ),
+            (
+                "App::PropertyBool",
+                "MakeRestShape",
+                "Operation",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Enable to use OpenCAM Lib"),
+            ),
             # Path option properties
             (
                 "App::PropertyEnumeration",
@@ -336,6 +342,7 @@ class ObjectClearing(PathOp2.ObjectOp2):
             "AreaParams": "",
             "PathParams": "",
             "UseOCL": False,
+            "MakeRestShape": False,
             "SampleInterval": 1.0,
             "AngularDeflection": 0.25,  # AngularDeflection is unused
             "LinearDeflection": 0.001,  # Reasonable compromise between speed & precision
@@ -489,7 +496,7 @@ class ObjectClearing(PathOp2.ObjectOp2):
         restShapes = []
         startTime = datetime.datetime.now()
         self.endVector = None
-        restShapeEnabled = True if obj.StepOver.Value < 99.9 else False
+        restShapeEnabled = True if obj.StepOver.Value < 99.9 and obj.MakeRestShape else False
 
         # Set start point
         startPoint = None
@@ -565,7 +572,7 @@ class ObjectClearing(PathOp2.ObjectOp2):
                 useShape = shape.extrude(FreeCAD.Vector(0.0, 0.0, obj.StartDepth.Value - obj.FinalDepth.Value))
                 useShape.translate(FreeCAD.Vector(0.0, 0.0, obj.FinalDepth.Value - useShape.BoundBox.ZMin))
 
-            if removalShape:
+            if removalShape and obj.MakeRestShape:
                 removalShapes.append(removalShape)
                 # Part.show(removalShape, "RemovalShape")
             else:
