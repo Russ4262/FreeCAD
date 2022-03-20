@@ -560,25 +560,26 @@ class ObjectClearing(PathOp2.ObjectOp2):
             # Save path geometry
             pathGeom = Part.makeCompound(commands_pathGeom_tuple[1])
             pathGeometry.append(pathGeom)
+            PathLog.debug("Path geometry saved.")
 
             # Show path geometry (wires)
             # Part.show(Part.makeCompound(commands_pathGeom_tuple[1]), "PathGeometry")
-
-            # Make and save removal shape
-            # removalShape = makeRemovalShape(pathGeom, obj.ToolController, depths)
-            removalShape = makeRemovalShape_new(commands_pathGeom_tuple[1], obj.ToolController, depths)
 
             if obj.UseOCL:
                 useShape = shape.extrude(FreeCAD.Vector(0.0, 0.0, obj.StartDepth.Value - obj.FinalDepth.Value))
                 useShape.translate(FreeCAD.Vector(0.0, 0.0, obj.FinalDepth.Value - useShape.BoundBox.ZMin))
 
-            if removalShape and obj.MakeRestShape:
-                removalShapes.append(removalShape)
-                # Part.show(removalShape, "RemovalShape")
-            else:
-                PathLog.error("No removalShape returned")
-                Part.show(Part.makeCompound(commands_pathGeom_tuple[1]), "PathGeometry")
-                Part.show(useShape, "TargetShape")
+            if obj.MakeRestShape:
+                # Make and save removal shape
+                # removalShape = makeRemovalShape(pathGeom, obj.ToolController, depths)
+                removalShape = makeRemovalShape_new(commands_pathGeom_tuple[1], obj.ToolController, depths)
+                if removalShape and obj.MakeRestShape:
+                    removalShapes.append(removalShape)
+                    # Part.show(removalShape, "RemovalShape")
+                else:
+                    PathLog.error("No removalShape returned")
+                    # Part.show(Part.makeCompound(commands_pathGeom_tuple[1]), "PathGeometry")
+                    # Part.show(useShape, "TargetShape")
 
             if restShapeEnabled and removalShape:
                 cont = True
@@ -644,7 +645,7 @@ class ObjectClearing(PathOp2.ObjectOp2):
                 print("Rest Shape exists.")
                 obj.Shape = Part.makeCompound(restShapes)
         else:
-            PathLog.warning("Rest shape disabled due to 100% step over.")
+            PathLog.warning("Rest shape disabled due to 100% step over, or Make Rest Shape property disabled.")
 
         if obj.ShowCutPattern and obj.CutPatternShape:
             showPattern(obj)
@@ -652,7 +653,11 @@ class ObjectClearing(PathOp2.ObjectOp2):
         printElapsedTime(startTime)
 
     def getClearingPaths(self, obj, baseObj, shape, startPoint):
+        PathLog.debug("getClearingPaths()")
         slices = sliceShape(shape, [d for d in self.depthparams])
+        noAdaptivePreview = True
+
+        PathLog.debug(f"slices present: {True if slices else False}")
 
         strategy = PathStrategyClearing.StrategyClearVolume(
             self,
@@ -680,6 +685,7 @@ class ObjectClearing(PathOp2.ObjectOp2):
         strategy.baseShape = baseObj.Shape
 
         if obj.CutPattern == "Adaptive":
+            PathLog.debug("Passing Adaptive-specific values to clearing strategy.")
             # set adaptive-dependent attributes
             strategy.setAdaptiveAttributes(
                 obj.OperationType,
@@ -700,14 +706,16 @@ class ObjectClearing(PathOp2.ObjectOp2):
                 self.job,
                 obj.AdaptiveOutputState,
                 obj.AdaptiveInputState,
-                None if hasattr(obj, "ViewObject") else obj.ViewObject,
+                None if noAdaptivePreview else getattr(obj, "ViewObject", None),
             )
 
         # OCL dependencies
         strategy.useOCL = obj.UseOCL
         strategy.job = self.job
 
-        strategy.isDebug = self.isDebug  # Transfer debug status
+        # Transfer debug status
+        strategy.isDebug = self.isDebug
+
         if obj.UseOCL and obj.KeepToolDown:
             # strategy.safeBaseShape = obj.Base[0][
             #    0
@@ -878,6 +886,7 @@ def makeRemovalShape_new(pathGeomList, ToolController, depths):
 
 def sliceShape(shape, depths):
     """sliceShape(shape, depths) ..."""
+    PathLog.debug(f"sliceShape(shape, depths: {depths})")
 
     if len(depths) == 0:
         PathLog.error("No depth parameters")
@@ -888,7 +897,17 @@ def sliceShape(shape, depths):
         PathLog.error("StrategyClearing: No volume in working shape.")
         return list()
 
-    return PathStrategySlicing.sliceSolid(shape, depths)
+    slices = PathStrategySlicing.sliceShape(shape, depths, None, True)
+
+    if not slices:
+        PathLog.debug("sliceShape() No slices returned.")
+        return list()
+
+    # for s in slices:
+    #    Part.show(s, "slice")
+
+    return slices
+
 
 
 def printElapsedTime(startTime):

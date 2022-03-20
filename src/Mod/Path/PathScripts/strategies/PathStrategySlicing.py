@@ -69,9 +69,12 @@ def getBottomFaces(shape):
 
 
 def getSliceShape(shape, zmin, thickness):
-    return PathGeom.makeBoundBoxFace(shape.BoundBox, 5.0, zmin).extrude(
-        FreeCAD.Vector(0.0, 0.0, thickness)
-    )
+    try:
+        face = PathGeom.makeBoundBoxFace(shape.BoundBox, 5.0, zmin)
+    except Exception as ee:
+        PathLog.error(f"{ee}")
+        return None
+    return face.extrude(FreeCAD.Vector(0.0, 0.0, thickness))
 
 
 def getSliceProfile(shape):
@@ -96,12 +99,13 @@ def sliceShape(fullShape, depthParams, region=None, findCommon=True):
         depths.pop()
         depths.append(shapeMin)
 
-    PathLog.info(
-        "final depth: {};  shape depth: {}".format(
+    PathLog.debug(
+        "sliceShape() final depth: {};  shape depth: {}".format(
             lastDep,
             shapeMin,
         )
     )
+    PathLog.debug(f"sliceShape() depths: {depths}")
 
     if region:
         # prep region
@@ -116,22 +120,34 @@ def sliceShape(fullShape, depthParams, region=None, findCommon=True):
         shape = fullShape.common(regExt)
     else:
         shape = fullShape
+    
+    # shapeZMin = shape.BoundBox.ZMin
+    # shapeZMax = shape.BoundBox.ZMax
+    
+    # Part.show(shape, "SlicingSourceShape")
 
     thickness = depths[0] - depths[1]
-
     for i in range(0, lenDP):
         d = depths[i]
         # PathLog.info("slicing at {} mm with thickness of {} mm".format(d, thickness))
         # print("Layer Depth: {}".format(round(d, 6)))
 
-        slicingShape = getSliceShape(shape, d, thickness)
+        sliceLayer = getSliceShape(shape, d, thickness)
+        if sliceLayer is None:
+            break
+        # Part.show(sliceLayer, f"SliceLayer-{round(d,1)}")
+
         if findCommon:
-            common = shape.common(slicingShape)  # .removeSplitter()
+            common = shape.common(sliceLayer)  # .removeSplitter()
         else:
-            common = slicingShape.cut(shape).removeSplitter()
+            common = sliceLayer.cut(shape).removeSplitter()
+
         # common.translate(FreeCAD.Vector(0.0, 0.0, d - common.BoundBox.ZMin))
         # print("Common ZMin: {}".format(round(common.BoundBox.ZMin, 6)))
         lenSolids = len(common.Solids)
+
+        # PathLog.debug(f"Common solids count is {lenSolids}")
+
         if lenSolids == 1:
             bottomFaces = getBottomFaces(common.Solids[0].copy())
             if bottomFaces:
@@ -159,6 +175,7 @@ def sliceShape(fullShape, depthParams, region=None, findCommon=True):
                     if subSlices:
                         slices.extend(subSlices)
                 else:
+                    PathLog.error("sliceShape() NoneType topFace")
                     Part.show(s, "NoneType topFace")
             if findCommon:
                 break  # uncomment for regular use.
@@ -168,7 +185,7 @@ def sliceShape(fullShape, depthParams, region=None, findCommon=True):
 
         # update thickness
         if i > 0:
-            thickness = depths[i - 1] - depths[i]
+            thickness = depths[i - 1] - d
     # Efor
 
     return slices

@@ -578,7 +578,7 @@ def initialize_properties(obj):
             "App::PropertyDistance",
             "ExtensionLengthDefault",
             "Extension",
-            QtCore.QT_TRANSLATE_NOOP(
+            QT_TRANSLATE_NOOP(
                 "PathPocketShape", "Default length of extensions."
             ),
         )
@@ -587,14 +587,14 @@ def initialize_properties(obj):
             "App::PropertyLinkSubListGlobal",
             "ExtensionFeature",
             "Extension",
-            QtCore.QT_TRANSLATE_NOOP("PathPocketShape", "List of features to extend."),
+            QT_TRANSLATE_NOOP("PathPocketShape", "List of features to extend."),
         )
     if not hasattr(obj, "ExtensionCorners"):
         obj.addProperty(
             "App::PropertyBool",
             "ExtensionCorners",
             "Extension",
-            QtCore.QT_TRANSLATE_NOOP(
+            QT_TRANSLATE_NOOP(
                 "PathPocketShape",
                 "When enabled connected extension edges are combined to wires.",
             ),
@@ -621,7 +621,7 @@ def extensionsPropertyDefinitions():
             "App::PropertyDistance",
             "ExtensionLengthDefault",
             "Extensions",
-            QtCore.QT_TRANSLATE_NOOP(
+            QT_TRANSLATE_NOOP(
                 "PathPocketShape", "Default length of extensions."
             ),
         ),
@@ -629,13 +629,13 @@ def extensionsPropertyDefinitions():
             "App::PropertyLinkSubListGlobal",
             "ExtensionFeature",
             "Extensions",
-            QtCore.QT_TRANSLATE_NOOP("PathPocketShape", "List of features to extend."),
+            QT_TRANSLATE_NOOP("PathPocketShape", "List of features to extend."),
         ),
         (
             "App::PropertyBool",
             "ExtensionCorners",
             "Extensions",
-            QtCore.QT_TRANSLATE_NOOP(
+            QT_TRANSLATE_NOOP(
                 "PathPocketShape",
                 "When enabled connected extension edges are combined to wires.",
             ),
@@ -673,19 +673,19 @@ def extensionsInitProperties(obj):
         "App::PropertyDistance",
         "ExtensionLengthDefault",
         "Extensions",
-        QtCore.QT_TRANSLATE_NOOP("PathPocketShape", "Default length of extensions."),
+        QT_TRANSLATE_NOOP("PathPocketShape", "Default length of extensions."),
     )
     obj.addProperty(
         "App::PropertyLinkSubListGlobal",
         "ExtensionFeature",
         "Extensions",
-        QtCore.QT_TRANSLATE_NOOP("PathPocketShape", "List of features to extend."),
+        QT_TRANSLATE_NOOP("PathPocketShape", "List of features to extend."),
     )
     obj.addProperty(
         "App::PropertyBool",
         "ExtensionCorners",
         "Extensions",
-        QtCore.QT_TRANSLATE_NOOP(
+        QT_TRANSLATE_NOOP(
             "PathPocketShape",
             "When enabled connected extension edges are combined to wires.",
         ),

@@ -138,6 +138,12 @@ class ObjectPerimeter(PathOp2.ObjectOp2):
                     "App::Property", "Shape to use for calculating Boundary"
                 ),
             ),
+            (
+                "App::PropertyBool",
+                "MakeRestShape",
+                "Operation",
+                QtCore.QT_TRANSLATE_NOOP("App::Property", "Enable to use OpenCAM Lib"),
+            ),
             # (
             #    "App::PropertyBool",
             #    "UseBasesOnly",
@@ -232,6 +238,7 @@ class ObjectPerimeter(PathOp2.ObjectOp2):
             "MaterialAllowance": 0.0,
             "CutSide": "Outside",
             "UseComp": True,
+            "MakeRestShape": False,
             # "UseBasesOnly": False,
             # "ProcessCircles": False,
             # "ProcessHoles": False,
@@ -601,31 +608,34 @@ class ObjectPerimeter(PathOp2.ObjectOp2):
             self.endVector = endVector
             pathGeometry.append(pathGeom)
 
-            # Make and save removal face
-            removalShape = makeRemovalShape(pathGeom, obj.ToolController, depths)
-            removalShapes.append(removalShape)
-            # Part.show(removalShape, "RemovalShape")
+            if obj.MakeRestShape:
+                # Make and save removal face
+                removalShape = makeRemovalShape(pathGeom, obj.ToolController, depths)
+                removalShapes.append(removalShape)
+                # Part.show(removalShape, "RemovalShape")
 
-            # Make and save REST face
-            if len(removalShape.SubShapes) == 1:
-                rawRestShape = activeShape.cut(removalShape.SubShapes)
-            elif len(removalShape.SubShapes) > 1:
-                rawRestShape = activeShape.cut(removalShape.SubShapes[0])
-                for ss in removalShape.SubShapes[1:]:
-                    cut = rawRestShape.cut(ss)
-                    rawRestShape = cut
-            # Part.show(rawRestShape, "RawRestShape")
+                # Make and save REST face
+                if len(removalShape.SubShapes) == 1:
+                    rawRestShape = activeShape.cut(removalShape.SubShapes)
+                elif len(removalShape.SubShapes) > 1:
+                    rawRestShape = activeShape.cut(removalShape.SubShapes[0])
+                    for ss in removalShape.SubShapes[1:]:
+                        cut = rawRestShape.cut(ss)
+                        rawRestShape = cut
+                # Part.show(rawRestShape, "RawRestShape")
 
-            # restShape = cleanVolume(rawRestShape)
-            restShape = rawRestShape
-            activeShape = rawRestShape
-            if rotateSource:
-                # Save rest shape at transition to new source shape
-                restShapes.append(restShape)
-                self.targetShapes.append((restShape, baseObj, details))
-                # saveRest = 0
-                rotateSource = False
-            # Part.show(restShape, "RestShape")
+                # restShape = cleanVolume(rawRestShape)
+                restShape = rawRestShape
+                activeShape = rawRestShape
+                if rotateSource:
+                    # Save rest shape at transition to new source shape
+                    restShapes.append(restShape)
+                    self.targetShapes.append((restShape, baseObj, details))
+                    # saveRest = 0
+                    rotateSource = False
+                # Part.show(restShape, "RestShape")
+            else:
+                saveRest = -1
 
             if self.endVector is not None and len(self.commandlist) > 1:
                 # self.endVector[2] = obj.ClearanceHeight.Value

@@ -785,13 +785,13 @@ class StrategyAdaptive:
                 for e in w.Edges:
                     self.pathArray.append([self._discretize(e)])
 
-        if FreeCAD.GuiUp:
+        if FreeCAD.GuiUp and self.viewObject:
             self.sceneGraph = FreeCADGui.ActiveDocument.ActiveView.getSceneGraph()
 
         # hide old toolpaths during recalculation
         # self.obj.Path = Path.Path("(Calculating...)")  # self.obj.Path should change to self.Path
 
-        if FreeCAD.GuiUp:
+        if FreeCAD.GuiUp and self.viewObject:
             # store old visibility state
             oldObjVisibility = self.viewObject.Visibility
             oldJobVisibility = self.job.ViewObject.Visibility
@@ -870,7 +870,7 @@ class StrategyAdaptive:
         # progress callback fn, if return true it will stop processing
         def progressFn(tpaths):
             motionCutting = area.AdaptiveMotionType.Cutting
-            if FreeCAD.GuiUp:
+            if FreeCAD.GuiUp and self.viewObject:
                 for (
                     path
                 ) in (
@@ -927,7 +927,7 @@ class StrategyAdaptive:
                 pass
 
         finally:
-            if FreeCAD.GuiUp:
+            if FreeCAD.GuiUp and self.viewObject:
                 self.viewObject.Visibility = oldObjVisibility
                 self.job.ViewObject.Visibility = oldJobVisibility
                 self._sceneClean()

@@ -80,9 +80,9 @@ class PathWorkbench(Workbench):
         FreeCADGui.addLanguagePath(":/translations")
         FreeCADGui.addIconPath(":/icons")
         from PathScripts import PathGuiInit
-        from PathScripts import PathJobCmd
+        # from PathScripts import PathJobCmd
 
-        from PathScripts import PathToolBitCmd
+        # from PathScripts import PathToolBitCmd
         from PathScripts import PathToolBitLibraryCmd
 
         from PySide.QtCore import QT_TRANSLATE_NOOP
@@ -131,7 +131,7 @@ class PathWorkbench(Workbench):
         # modcmdmore = ["Path_Hop",]
         # remotecmdlist = ["Path_Remote"]
         specialcmdlist = []
-        expericmdlist = []
+        experimentalcmdlist = []
 
         if PathPreferences.toolsUseLegacyTools():
             toolcmdlist.append("Path_ToolLibraryEdit")
@@ -156,10 +156,11 @@ class PathWorkbench(Workbench):
             extracmdlist.extend(["Path_Area", "Path_Area_Workplane"])
             specialcmdlist.append("Path_ThreadMilling")
             twodopcmdlist.append("Path_Slot")
-            expericmdlist.append("Path_TargetGeometry")
-            expericmdlist.append("Path_Perimeter")
-            expericmdlist.append("Path_Clearing")
-            expericmdlist.append("Path_Facing")
+            # Add experimental tools
+            experimentalcmdlist.append("Path_TargetGeometry")
+            experimentalcmdlist.append("Path_Perimeter")
+            experimentalcmdlist.append("Path_Clearing")
+            experimentalcmdlist.append("Path_Facing")
 
         if PathPreferences.advancedOCLFeaturesEnabled():
             try:
@@ -180,39 +181,37 @@ class PathWorkbench(Workbench):
                 if not PathPreferences.suppressOpenCamLibWarning():
                     FreeCAD.Console.PrintError("OpenCamLib is not working!\n")
 
-        self.appendToolbar(QT_TRANSLATE_NOOP("Path", "Project Setup"), projcmdlist)
-        self.appendToolbar(QT_TRANSLATE_NOOP("Path", "Tool Commands"), toolcmdlist)
+        if experimentalcmdlist:
+            # experimentalcmdgroup = ["Path_ExperimentalOps"]
+            FreeCADGui.addCommand(
+                "Path_ExperimentalOps",
+                PathCommandGroup(
+                    experimentalcmdlist,
+                    QT_TRANSLATE_NOOP("Path_ExperimentalOps", "Experimental Operations"),
+                ),
+            )
+
+
+        self.appendToolbar(QT_TRANSLATE_NOOP("Workbench", "Project Setup"), projcmdlist)
+        self.appendToolbar(QT_TRANSLATE_NOOP("Workbench", "Tool Commands"), toolcmdlist)
         self.appendToolbar(
-            QT_TRANSLATE_NOOP("Path", "New Operations"),
+            QT_TRANSLATE_NOOP("Workbench", "New Operations"),
             twodopcmdlist + engravecmdgroup + threedcmdgroup,
         )
-        self.appendToolbar(QT_TRANSLATE_NOOP("Path", "Path Modification"), modcmdlist)
-
-        # Add Experimental drop-down group
-        expericmdgroup = ["Path_Experimental"]
-        FreeCADGui.addCommand(
-            "Path_Experimental",
-            PathCommandGroup(
-                expericmdlist,
-                QT_TRANSLATE_NOOP("Path", "Experimental tools and operations"),
-            ),
+        self.appendToolbar(
+            QT_TRANSLATE_NOOP("Workbench", "Path Modification"), modcmdlist
         )
-
         if extracmdlist:
             self.appendToolbar(
                 QT_TRANSLATE_NOOP("Workbench", "Helpful Tools"), extracmdlist
             )
 
-        # Add Experimental drop-down group
-        if expericmdlist:
+        if experimentalcmdlist:
             self.appendToolbar(
-                QT_TRANSLATE_NOOP("Workbench", "Experimental Tools"), expericmdlist
+                # QT_TRANSLATE_NOOP("Workbench", "Experimental Operations"), experimentalcmdgroup
+                QT_TRANSLATE_NOOP("Workbench", "Experimental Operations"), experimentalcmdlist
             )
 
-        if extracmdlist:
-            self.appendToolbar(
-                QT_TRANSLATE_NOOP("Workbench", "Helpful Tools"), extracmdlist
-            )
 
         self.appendMenu(
             [QT_TRANSLATE_NOOP("Workbench", "&Path")],
@@ -229,15 +228,8 @@ class PathWorkbench(Workbench):
         )
         self.appendMenu(
             [
-                QT_TRANSLATE_NOOP("Path", "&Path"),
-                QT_TRANSLATE_NOOP("Path", "Experimental"),
-            ],
-            expericmdlist,
-        )
-        self.appendMenu(
-            [
-                QT_TRANSLATE_NOOP("Path", "&Path"),
-                QT_TRANSLATE_NOOP("Path", "Path Dressup"),
+                QT_TRANSLATE_NOOP("Workbench", "&Path"),
+                QT_TRANSLATE_NOOP("Workbench", "Path Dressup"),
             ],
             dressupcmdlist,
         )

@@ -1010,7 +1010,7 @@ class StrategyClearVolume:
                     rtn = strategy.execute()
                 except Exception as e:  # pylint: disable=broad-except
                     FreeCAD.Console.PrintError(str(e) + "\n")
-                    FreeCAD.Console.PrintError(
+                    PathLog.error(
                         "Something unexpected happened. Check project and tool config. 3\n"
                     )
                 else:
