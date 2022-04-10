@@ -23,8 +23,11 @@
 import FreeCAD
 import PathScripts.PathJob as PathJob
 import PathScripts.PathPocketShape as PathPocketShape
-import PathScripts.PathGeom as PathGeom
 from PathTests.PathTestUtils import PathTestBase
+
+if FreeCAD.GuiUp:
+    import PathScripts.PathJobGui as PathJobGui
+    import PathScripts.PathPocketShapeGui as PathPocketShapeGui
 
 
 class TestPathPocketShape(PathTestBase):
@@ -36,7 +39,7 @@ class TestPathPocketShape(PathTestBase):
         This method is called upon instantiation of this test class.  Add code and objects here
         that are needed for the duration of the test() methods in this class.  In other words,
         set up the 'global' test environment here; use the `setUp()` method to set up a 'local'
-        test environment. 
+        test environment.
         This method does not have access to the class `self` reference, but it
         is able to call static methods within this same class.
         """
@@ -47,11 +50,16 @@ class TestPathPocketShape(PathTestBase):
         # cls._createTestGeometry(doc)
 
         # Open existing document with test geometry
-        doc = FreeCAD.open(FreeCAD.getHomePath() + 'Mod/Path/PathTests/test_pocketshape.fcstd')
+        doc = FreeCAD.open(
+            FreeCAD.getHomePath() + "Mod/Path/PathTests/test_pocketshape.fcstd"
+        )
 
         # Create Job object, adding geometry objects from file opened above
-        job = PathJob.Create('Job', [doc.Fuse0r, doc.Box2, doc.Body, doc.Body001], None)
+        job = PathJob.Create("Job", [doc.Fuse0r, doc.Box2, doc.Body, doc.Body001], None)
         job.GeometryTolerance.Value = 0.001
+        if FreeCAD.GuiUp:
+            job.ViewObject.Proxy = PathJobGui.ViewProvider(job.ViewObject)
+            job.ViewObject.addExtension("Gui::ViewProviderGroupExtensionPython")
         doc.recompute()
 
     @classmethod
@@ -65,7 +73,7 @@ class TestPathPocketShape(PathTestBase):
         # FreeCAD.Console.PrintMessage("TestPathPocketShape.tearDownClass()\n")
 
         # Comment out to leave test file open and objects and paths intact after all tests finish
-        FreeCAD.closeDocument(FreeCAD.ActiveDocument.Name)
+        # FreeCAD.closeDocument(FreeCAD.ActiveDocument.Name)
         pass
 
     @staticmethod
@@ -76,16 +84,19 @@ class TestPathPocketShape(PathTestBase):
         """
 
         # Create a square donut
-        box0 = doc.addObject('Part::Box', 'Box0')  # Box
+        box0 = doc.addObject("Part::Box", "Box0")  # Box
         box0.Length = 50.0
         box0.Width = 50.0
         box0.Height = 10.0
-        box1 = doc.addObject('Part::Box', 'Box1')  # Box001
+        box1 = doc.addObject("Part::Box", "Box1")  # Box001
         box1.Length = 10.0  # X
         box1.Width = 10.0  # Y
         box1.Height = 20.0  # Z
-        box1.Placement = FreeCAD.Placement(FreeCAD.Vector(10.0, 10.0, -5.0), FreeCAD.Rotation(FreeCAD.Vector(0,0,1), 0))
-        cut0 = doc.addObject('Part::Cut', 'Cut0')
+        box1.Placement = FreeCAD.Placement(
+            FreeCAD.Vector(10.0, 10.0, -5.0),
+            FreeCAD.Rotation(FreeCAD.Vector(0, 0, 1), 0),
+        )
+        cut0 = doc.addObject("Part::Cut", "Cut0")
         cut0.Base = box0
         cut0.Tool = box1
         doc.recompute()
@@ -108,10 +119,10 @@ class TestPathPocketShape(PathTestBase):
 
     # Unit tests
     def test00(self):
-        '''PocketShape check basic functionality with Body001:Face18 and OffsetPattern=Offset; StepOver=50'''
+        """PocketShape check basic functionality with Body001:Face18 and OffsetPattern=Offset; StepOver=50"""
 
         # Instantiate a PocketShape operation and set Base Geometry
-        pocketShape = PathPocketShape.Create('PocketShape')
+        pocketShape = PathPocketShape.Create("PocketShape")
         pocketShape.Base = (self.doc.Body001, ["Face18"])  # (base, subs_list)
         pocketShape.OffsetPattern = "Offset"  # "ZigZagOffset"
         pocketShape.StepOver = 50
@@ -121,21 +132,25 @@ class TestPathPocketShape(PathTestBase):
         pocketShape.Label = "test00_"
         pocketShape.Comment = "PocketShape check basic functionality with Body001:Face18 and OffsetPattern=Offset; StepOver=50"
 
+        addViewProvider(pocketShape)
         self.doc.recompute()
-        
+
         moves = self._get_gcode_moves(pocketShape.Path.Commands, includeRapids=False)
         strMoves = ";  ".join(moves)
         # self.con.PrintMessage("test00_moves: " + strMoves + "\n")
 
-        self.assertTrue(expected_moves_test00 == strMoves,
-                        "expected_moves_test00: {} strMoves:{}".format(expected_moves_test00,
-                                                               strMoves))
+        self.assertTrue(
+            expected_moves_test00 == strMoves,
+            "expected_moves_test00:{} \nstrMoves:{}".format(
+                expected_moves_test00, strMoves
+            ),
+        )
 
     def test01(self):
-        '''PocketShape verify overhang is ignored with Body001:Face16 and OffsetPattern=Offset; StepOver=50'''
+        """PocketShape verify overhang is ignored with Body001:Face16 and OffsetPattern=Offset; StepOver=50"""
 
         # Instantiate a PocketShape operation and set Base Geometry
-        pocketShape = PathPocketShape.Create('PocketShape')
+        pocketShape = PathPocketShape.Create("PocketShape")
         pocketShape.Base = (self.doc.Body001, ["Face16"])  # (base, subs_list)
         pocketShape.OffsetPattern = "Offset"
         pocketShape.StepOver = 50
@@ -145,23 +160,27 @@ class TestPathPocketShape(PathTestBase):
         pocketShape.Label = "test01_"
         pocketShape.Comment = "PocketShape verify overhang is ignored with Body001:Face16 and OffsetPattern=Offset; StepOver=50"
 
+        addViewProvider(pocketShape)
         self.doc.recompute()
-        
+
         moves = self._get_gcode_moves(pocketShape.Path.Commands, includeRapids=False)
         strMoves = ";  ".join(moves)
         # self.con.PrintMessage("test01_moves: " + strMoves + "\n")
 
-        self.assertTrue(expected_moves_test01 == strMoves,
-                        "expected_moves_test01: {} strMoves:{}".format(expected_moves_test01,
-                                                               strMoves))
+        self.assertTrue(
+            expected_moves_test01 == strMoves,
+            "expected_moves_test01:{} \nstrMoves:{}".format(
+                expected_moves_test01, strMoves
+            ),
+        )
 
     def test02(self):
-        '''PocketShape verify Extra Offset with Body001:Face18 and OffsetPattern=Spiral; StepOver=50; ExtraOffset=-2.5'''
+        """PocketShape verify Extra Offset with Body001:Face18 and OffsetPattern=Offset; StepOver=50; ExtraOffset=-2.5"""
 
         # Instantiate a PocketShape operation and set Base Geometry
-        pocketShape = PathPocketShape.Create('PocketShape')
+        pocketShape = PathPocketShape.Create("PocketShape")
         pocketShape.Base = (self.doc.Body001, ["Face18"])  # (base, subs_list)
-        pocketShape.OffsetPattern = "Spiral"  # "ZigZagOffset"
+        pocketShape.OffsetPattern = "Offset"  # "ZigZagOffset"
         pocketShape.StepOver = 50
         pocketShape.ExtraOffset = -2.5
 
@@ -169,23 +188,27 @@ class TestPathPocketShape(PathTestBase):
         self._set_depths_and_heights(pocketShape, finDep=15)
         # pocketShape.FinalDepth.Value = 15.0
         pocketShape.Label = "test02_"
-        pocketShape.Comment = "PocketShape verify Extra Offset with Body001:Face18 and OffsetPattern=Spiral; StepOver=50; ExtraOffset=-2.5"
+        pocketShape.Comment = "PocketShape verify Extra Offset with Body001:Face18 and OffsetPattern=Offset; StepOver=50; ExtraOffset=-2.5"
 
+        addViewProvider(pocketShape)
         self.doc.recompute()
-        
+
         moves = self._get_gcode_moves(pocketShape.Path.Commands, includeRapids=False)
         strMoves = ";  ".join(moves)
         # self.con.PrintMessage("test02_moves: " + ";  \\\n".join(moves) + "\n")
 
-        self.assertTrue(expected_moves_test02 == strMoves,
-                        "expected_moves_test02: {} strMoves:{}".format(expected_moves_test02,
-                                                               strMoves))
+        self.assertTrue(
+            expected_moves_test02 == strMoves,
+            "expected_moves_test02:{} \nstrMoves:{}".format(
+                expected_moves_test02, strMoves
+            ),
+        )
 
     def test03(self):
-        '''PocketShape verify Use Outline with Fuse0r:Face16 and OffsetPattern=Offset; StepOver=50; UseOutline=True'''
+        """PocketShape verify Use Outline with Fuse0r:Face16 and OffsetPattern=Offset; StepOver=50; UseOutline=True"""
 
         # Instantiate a PocketShape operation and set Base Geometry
-        pocketShape = PathPocketShape.Create('PocketShape')
+        pocketShape = PathPocketShape.Create("PocketShape")
         pocketShape.Base = (self.doc.Fuse0r, ["Face16"])  # (base, subs_list)
         pocketShape.OffsetPattern = "Offset"
         pocketShape.StepOver = 50
@@ -197,38 +220,40 @@ class TestPathPocketShape(PathTestBase):
         pocketShape.Label = "test03_"
         pocketShape.Comment = "PocketShape verify Use Outline with Fuse0r:Face16 and OffsetPattern=Offset; StepOver=50; UseOutline=True"
 
+        addViewProvider(pocketShape)
         self.doc.recompute()
-        
+
         moves = self._get_gcode_moves(pocketShape.Path.Commands, includeRapids=False)
         strMoves = ";  ".join(moves)
         # self.con.PrintMessage("test03_moves: " + ";  \\\n".join(moves) + "\n")
 
-        self.assertTrue(expected_moves_test03 == strMoves,
-                        "expected_moves_test03: {} strMoves:{}".format(expected_moves_test03,
-                                                               strMoves))
+        self.assertTrue(
+            expected_moves_test03 == strMoves,
+            "expected_moves_test03:{} \nstrMoves:{}".format(
+                expected_moves_test03, strMoves
+            ),
+        )
 
     # Support methods
     def _set_depths_and_heights(self, op, strDep=20.0, finDep=0.0):
         """_set_depths_and_heights(self, op)... Sets default depths and heights for `op` passed to it"""
 
         # Set start and final depth in order to eliminate effects of stock (and its default values)
-        op.setExpression('StartDepth', None)
+        op.setExpression("StartDepth", None)
         op.StartDepth.Value = strDep
-        op.setExpression('FinalDepth', None)
+        op.setExpression("FinalDepth", None)
         op.FinalDepth.Value = finDep
 
         # Set step down so as to only produce one layer path
-        op.setExpression('StepDown', None)
+        op.setExpression("StepDown", None)
         op.StepDown.Value = 20.0
 
         # Set Heights
         # default values used
 
-    def _get_gcode_moves(self,
-                         cmdList,
-                         includeRapids=True,
-                         includeLines=True,
-                         includeArcs=True):
+    def _get_gcode_moves(
+        self, cmdList, includeRapids=True, includeLines=True, includeArcs=True
+    ):
         """_get_gcode_moves(cmd)... Accepts command dict and returns point string coordinate"""
         gcode_list = list()
         last = FreeCAD.Vector(0.0, 0.0, 0.0)
@@ -242,13 +267,13 @@ class TestPathPocketShape(PathTestBase):
                 z = last.z
                 if p.get("X"):
                     x = round(p["X"], 2)
-                    gcode += " X" + str(x) 
+                    gcode += " X" + str(x)
                 if p.get("Y"):
                     y = round(p["Y"], 2)
-                    gcode += " Y" + str(y) 
+                    gcode += " Y" + str(y)
                 if p.get("Z"):
                     z = round(p["Z"], 2)
-                    gcode += " Z" + str(z) 
+                    gcode += " Z" + str(z)
                 last.x = x
                 last.y = y
                 last.z = z
@@ -260,13 +285,13 @@ class TestPathPocketShape(PathTestBase):
                 z = last.z
                 if p.get("X"):
                     x = round(p["X"], 2)
-                    gcode += " X" + str(x) 
+                    gcode += " X" + str(x)
                 if p.get("Y"):
                     y = round(p["Y"], 2)
-                    gcode += " Y" + str(y) 
+                    gcode += " Y" + str(y)
                 if p.get("Z"):
                     z = round(p["Z"], 2)
-                    gcode += " Z" + str(z) 
+                    gcode += " Z" + str(z)
                 last.x = x
                 last.y = y
                 last.z = z
@@ -291,13 +316,13 @@ class TestPathPocketShape(PathTestBase):
 
                 if p.get("X"):
                     x = round(p["X"], 2)
-                gcode += " X" + str(x) 
+                gcode += " X" + str(x)
                 if p.get("Y"):
                     y = round(p["Y"], 2)
-                gcode += " Y" + str(y) 
+                gcode += " Y" + str(y)
                 if p.get("Z"):
                     z = round(p["Z"], 2)
-                gcode += " Z" + str(z) 
+                gcode += " Z" + str(z)
 
                 gcode_list.append(gcode)
                 last.x = x
@@ -324,6 +349,14 @@ class TestPathPocketShape(PathTestBase):
                 self.con.PrintMessage("verify_points: {}\n".format(verify_points))
                 self.con.PrintMessage("...... points: {}\n".format(points))
                 self.assertEqual(vp, "(-10.0, -10.0, -10.0)")
+
+
+def addViewProvider(op):
+    if FreeCAD.GuiUp:
+        op.ViewObject.Proxy = PathPocketShapeGui.PathOpGui.ViewProvider(
+            op.ViewObject, PathPocketShapeGui.Command.res
+        )
+        op.ViewObject.Proxy.deleteOnReject = False
 
 
 # Expected moves for unit tests
