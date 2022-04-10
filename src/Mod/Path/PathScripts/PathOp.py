@@ -803,10 +803,20 @@ class ObjectOp(object):
                     )
                     return
 
-                if hasattr(self.job, "GeometryTolerance") and self.job.GeometryTolerance.Value > 0.0:
-                    self.radius = float(tool.Diameter - (self.job.GeometryTolerance.Value / 50.0)) / 2.0
+                if (
+                    hasattr(self.job, "GeometryTolerance")
+                    and self.job.GeometryTolerance.Value > 0.0
+                    and False
+                ):
+                    self.radius = (
+                        float(
+                            tool.Diameter.Value
+                            - (self.job.GeometryTolerance.Value / 50.0)
+                        )
+                        / 2.0
+                    )
                 else:
-                    self.radius = float(tool.Diameter) / 2.0
+                    self.radius = float(tool.Diameter.Value) / 2.0
 
                 self.tool = tool
                 obj.OpToolDiameter = tool.Diameter
