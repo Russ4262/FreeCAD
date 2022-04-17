@@ -39,6 +39,9 @@ from lazy_loader.lazy_loader import LazyLoader
 
 # MeshPart = LazyLoader('MeshPart', globals(), 'MeshPart')
 Part = LazyLoader("Part", globals(), "Part")
+DraftGeomUtils = LazyLoader("DraftGeomUtils", globals(), "DraftGeomUtils")
+PathGeom = LazyLoader("PathScripts.PathGeom", globals(), "PathScripts.PathGeom")
+TechDraw = LazyLoader("TechDraw", globals(), "TechDraw")
 
 
 if False:
@@ -692,18 +695,18 @@ class ProcessSelectedFaces:
         for bst in range(0, faceCnt):
             (m, base, sub) = TUPS[bst]
             shape = getattr(base.Shape, sub)
-            if isinstance(shape, Part.Face):
+            if sub.startswith("Face"):
                 faceIdx = int(sub[4:]) - 1
                 if bst < add:
                     if F[m] is False:
                         F[m] = []
-                    F[m].append((shape, faceIdx))
+                    F[m].append((shape, faceIdx, sub))
                     PathLog.debug(".. Cutting {}".format(sub))
                     hasFace = True
                 else:
                     if V[m] is False:
                         V[m] = []
-                    V[m].append((shape, faceIdx))
+                    V[m].append((shape, faceIdx, sub))
                     PathLog.debug(".. Avoiding {}".format(sub))
                     hasVoid = True
         return (hasFace, hasVoid)
@@ -719,9 +722,9 @@ class ProcessSelectedFaces:
             if self.obj.HandleMultipleFeatures == "Collectively":
                 cont = True
                 PathLog.debug("Attempting to get cross-section of collective faces.")
-                outFCS, ifL = self.findUnifiedRegions(FCS)
-                if self.obj.InternalFeaturesCut and ifL:
-                    ifL = []  # clear avoid shape list
+                outFCS, ifL = self.findUnifiedRegions(base, FCS)
+                if self.obj.InternalFeaturesCut:
+                    ifL = []  # clear internal feature list
 
                 if len(outFCS) == 0:
                     msg = "PathSurfaceSupport \n Cannot process selected faces. Check horizontal \n surface exposure.\n"
@@ -744,6 +747,7 @@ class ProcessSelectedFaces:
                         cont = False
 
                 if cont:
+                    PathLog.debug("Profile wire successful, if requested")
                     if self.showDebugObjects:
                         T = FreeCAD.ActiveDocument.addObject(
                             "Part::Feature", "tmpCollectiveShape"
@@ -760,6 +764,7 @@ class ProcessSelectedFaces:
                         cont = False
 
                 if cont:
+                    PathLog.debug("Successful offset of cut face")
                     lenIfL = len(ifL)
                     if not self.obj.InternalFeaturesCut:
                         if lenIfL == 0:
@@ -782,20 +787,21 @@ class ProcessSelectedFaces:
                             )
                             mIFS.append(intOfstShp)
 
+                    # Part.show(faceOfstShp, "faceOfstShp")
                     mFS = [faceOfstShp]
                 # Eif
 
             elif self.obj.HandleMultipleFeatures == "Individually":
-                for (fcshp, fcIdx) in FCS:
+                for (fcshp, fcIdx, sub) in FCS:
                     cont = True
                     fNum = fcIdx + 1
                     outerFace = False
 
-                    gUR, ifL = self.findUnifiedRegions(FCS)
+                    gUR, ifL = self.findUnifiedRegions(base, FCS)
                     if len(gUR) > 0:
                         outerFace = gUR[0]
                     if self.obj.InternalFeaturesCut:
-                        ifL = []  # avoid shape list
+                        ifL = []  # Empty internal feature list
 
                     if outerFace:
                         PathLog.debug(
@@ -848,6 +854,7 @@ class ProcessSelectedFaces:
         # Eif
 
         if len(mIFS) > 0:
+            PathLog.debug("avoid features identified from internals of cut faces")
             if mVS is False:
                 mVS = []
             for ifs in mIFS:
@@ -858,7 +865,7 @@ class ProcessSelectedFaces:
             cont = True
             isHole = False
 
-            outFCS, intFEAT = self.findUnifiedRegions(VDS)
+            outFCS, intFEAT = self.findUnifiedRegions(base, VDS)
             if self.obj.InternalFeaturesCut:
                 intFEAT = []
 
@@ -1002,50 +1009,25 @@ class ProcessSelectedFaces:
 
         return offset
 
-    def findUnifiedRegions(self, shapeAndIndexTuples, useAreaImplementation=True):
-        """Wrapper around area and wire based region unification
-        implementations."""
-        PathLog.debug("findUnifiedRegions()")
-        # Allow merging of faces within the LinearDeflection tolerance.
-        tolerance = self.obj.LinearDeflection.Value
-        # Default: normal to Z=1 (XY plane), at Z=0
-        try:
-            # Use Area based implementation
-            shapes = Part.makeCompound([t[0] for t in shapeAndIndexTuples])
-            outlineShape = PathUtils.getOffsetArea(
-                shapes,
-                # Make the outline very slightly smaller, to avoid creating
-                # small edges in the cut with the hole-preserving projection.
-                0.0 - tolerance / 10,
-                removeHoles=True,  # Outline has holes filled in
-                tolerance=tolerance,
-                plane=self.wpc,
-            )
-            projectionShape = PathUtils.getOffsetArea(
-                shapes,
-                # Make the projection very slightly larger
-                tolerance / 10,
-                removeHoles=False,  # Projection has holes preserved
-                tolerance=tolerance,
-                plane=self.wpc,
-            )
-            internalShape = outlineShape.cut(projectionShape)
-            # Filter out tiny faces, usually artifacts around the perimeter of
-            # the cut.
-            minArea = (10 * tolerance) ** 2
-            internalFaces = [f for f in internalShape.Faces if f.Area > minArea]
-            if internalFaces:
-                internalFaces = Part.makeCompound(internalFaces)
-            return ([outlineShape], [internalFaces])
-        except Exception as e:
-            PathLog.warning(
-                "getOffsetArea failed: {}; Using FindUnifiedRegions.".format(e)
-            )
-        # Use face-unifying class
-        FUR = FindUnifiedRegions(shapeAndIndexTuples, tolerance)
-        if self.showDebugObjects:
-            FUR.setTempGroup(self.tempGroup)
-        return (FUR.getUnifiedRegions(), FUR.getInternalFeatures)
+    def findUnifiedRegions(self, base, shapeAndIndexTuples):
+        subsList = [tup[2] for tup in shapeAndIndexTuples]
+        # PathLog.info(f"subsList: {subsList}")
+        outerWireTups, innerWireTups = getWireTups(base, subsList)
+        outerWires = [tup[0] for tup in outerWireTups]
+        combinedWires = combineOuterWires(outerWires)
+        outerCombinedWires = flattenWires(combinedWires)
+        outerRegions = consolidateAreas(
+            outerCombinedWires, self.obj.InternalFeaturesCut
+        )
+        # Part.show(Part.makeCompound(outerRegions), "outerRegions")
+
+        innerFaces = []
+        if innerWireTups:
+            innerWires = [tup[0] for tup in innerWireTups]
+            innerFlattenedWires = flattenWires(innerWires)
+            innerFaces = [Part.Face(w) for w in innerFlattenedWires]
+
+        return outerRegions, innerFaces
 
 
 # Eclass
@@ -1902,576 +1884,6 @@ def pathGeomToOffsetPointSet(obj, compGeoShp):
     return [LINES]
 
 
-class FindUnifiedRegions:
-    """FindUnifiedRegions() This class requires a list of face shapes.
-    It finds the unified horizontal unified regions, if they exist."""
-
-    def __init__(self, facesList, geomToler):
-        self.FACES = facesList  # format is tuple (faceShape, faceIndex_on_base)
-        self.geomToler = geomToler
-        self.tempGroup = None
-        self.topFaces = []
-        self.edgeData = []
-        self.circleData = []
-        self.noSharedEdges = True
-        self.topWires = []
-        self.REGIONS = []
-        self.INTERNALS = []
-        self.idGroups = []
-        self.sharedEdgeIdxs = []
-        self.fusedFaces = None
-        self.internalsReady = False
-
-        if self.geomToler == 0.0:
-            self.geomToler = 0.00001
-
-    # Internal processing methods
-    def _showShape(self, shape, name):
-        if self.tempGroup:
-            S = FreeCAD.ActiveDocument.addObject("Part::Feature", "tmp" + name)
-            S.Shape = shape
-            S.purgeTouched()
-            self.tempGroup.addObject(S)
-
-    def _extractTopFaces(self):
-        for (F, fcIdx) in self.FACES:  # format is tuple (faceShape, faceIndex_on_base)
-            cont = True
-            fNum = fcIdx + 1
-            # Extrude face
-            fBB = F.BoundBox
-            extFwd = math.floor(2.0 * fBB.ZLength) + 10.0
-            ef = F.extrude(FreeCAD.Vector(0.0, 0.0, extFwd))
-            ef = Part.makeSolid(ef)
-
-            # Cut top off of extrusion with Part.box
-            efBB = ef.BoundBox
-            ZLen = efBB.ZLength / 2.0
-            cutBox = Part.makeBox(efBB.XLength + 2.0, efBB.YLength + 2.0, ZLen)
-            zHght = efBB.ZMin + ZLen
-            cutBox.translate(FreeCAD.Vector(efBB.XMin - 1.0, efBB.YMin - 1.0, zHght))
-            base = ef.cut(cutBox)
-
-            if base.Volume == 0:
-                PathLog.debug(
-                    "Ignoring Face{}.  It is likely vertical with no horizontal exposure.".format(
-                        fcIdx
-                    )
-                )
-                cont = False
-
-            if cont:
-                # Identify top face of base
-                fIdx = 0
-                zMin = base.Faces[fIdx].BoundBox.ZMin
-                for bfi in range(0, len(base.Faces)):
-                    fzmin = base.Faces[bfi].BoundBox.ZMin
-                    if fzmin > zMin:
-                        fIdx = bfi
-                        zMin = fzmin
-
-                # Translate top face to Z=0.0 and save to topFaces list
-                topFace = base.Faces[fIdx]
-                # self._showShape(topFace, 'topFace_{}'.format(fNum))
-                tfBB = topFace.BoundBox
-                tfBB_Area = tfBB.XLength * tfBB.YLength
-                fBB_Area = fBB.XLength * fBB.YLength
-                if tfBB_Area < (fBB_Area * 0.9):
-                    # attempt alternate methods
-                    topFace = self._getCompleteCrossSection(ef)
-                    tfBB = topFace.BoundBox
-                    tfBB_Area = tfBB.XLength * tfBB.YLength
-                    # self._showShape(topFace, 'topFaceAlt_1_{}'.format(fNum))
-                    if tfBB_Area < (fBB_Area * 0.9):
-                        topFace = getShapeSlice(ef)
-                        tfBB = topFace.BoundBox
-                        tfBB_Area = tfBB.XLength * tfBB.YLength
-                        # self._showShape(topFace, 'topFaceAlt_2_{}'.format(fNum))
-                        if tfBB_Area < (fBB_Area * 0.9):
-                            msg = "Failed to extract processing region for Face {}\n".format(
-                                fNum
-                            )
-                            FreeCAD.Console.PrintError(msg)
-                            cont = False
-            # Eif
-
-            if cont:
-                topFace.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - zMin))
-                self.topFaces.append((topFace, fcIdx))
-
-    def _fuseTopFaces(self):
-        (one, baseFcIdx) = self.topFaces.pop(0)
-        base = one
-        for (face, fcIdx) in self.topFaces:
-            base = base.fuse(face)
-        self.topFaces.insert(0, (one, baseFcIdx))
-        self.fusedFaces = base
-
-    def _getEdgesData(self):
-        topFaces = self.fusedFaces.Faces
-        tfLen = len(topFaces)
-        count = [0, 0]
-
-        # Get length and center of mass for each edge in all top faces
-        for fi in range(0, tfLen):
-            F = topFaces[fi]
-            edgCnt = len(F.Edges)
-            for ei in range(0, edgCnt):
-                E = F.Edges[ei]
-                tup = (E.Length, E.CenterOfMass, E, fi)
-                if len(E.Vertexes) == 1:
-                    self.circleData.append(tup)
-                    count[0] += 1
-                else:
-                    self.edgeData.append(tup)
-                    count[1] += 1
-
-    def _groupEdgesByLength(self):
-        PathLog.debug("_groupEdgesByLength()")
-        threshold = self.geomToler
-        grp = []
-        processLast = False
-
-        def keyFirst(tup):
-            return tup[0]
-
-        # Sort edgeData data and prepare proxy indexes
-        self.edgeData.sort(key=keyFirst)
-        DATA = self.edgeData
-        lenDATA = len(DATA)
-        indexes = [i for i in range(0, lenDATA)]
-        idxCnt = len(indexes)
-
-        while idxCnt > 0:
-            processLast = True
-            # Pop off index for first edge
-            actvIdx = indexes.pop(0)
-            actvItem = DATA[actvIdx][0]  # 0 index is length
-            grp.append(actvIdx)
-            idxCnt -= 1
-
-            while idxCnt > 0:
-                tstIdx = indexes[0]
-                tstItem = DATA[tstIdx][0]
-
-                # test case(s) goes here
-                absLenDiff = abs(tstItem - actvItem)
-                if absLenDiff < threshold:
-                    # Remove test index from indexes
-                    indexes.pop(0)
-                    idxCnt -= 1
-                    grp.append(tstIdx)
-                else:
-                    if len(grp) > 1:
-                        # grp.sort()
-                        self.idGroups.append(grp)
-                    grp = []
-                    break
-            # Ewhile
-        # Ewhile
-        if processLast:
-            if len(grp) > 1:
-                # grp.sort()
-                self.idGroups.append(grp)
-
-    def _identifySharedEdgesByLength(self, grp):
-        PathLog.debug("_identifySharedEdgesByLength()")
-        holds = []
-        specialIndexes = []
-        threshold = self.geomToler
-
-        def keyFirst(tup):
-            return tup[0]
-
-        # Sort edgeData data
-        self.edgeData.sort(key=keyFirst)
-        DATA = self.edgeData
-        lenGrp = len(grp)
-
-        while lenGrp > 0:
-            # Pop off index for first edge
-            actvIdx = grp.pop(0)
-            actvItem = DATA[actvIdx][0]  # 0 index is length
-            lenGrp -= 1
-            while lenGrp > 0:
-                isTrue = False
-                # Pop off index for test edge
-                tstIdx = grp.pop(0)
-                tstItem = DATA[tstIdx][0]
-                lenGrp -= 1
-
-                # test case(s) goes here
-                lenDiff = tstItem - actvItem
-                absLenDiff = abs(lenDiff)
-                if lenDiff > threshold:
-                    break
-                if absLenDiff < threshold:
-                    com1 = DATA[actvIdx][1]
-                    com2 = DATA[tstIdx][1]
-                    comDiff = com2.sub(com1).Length
-                    if comDiff < threshold:
-                        isTrue = True
-
-                # Action if test is true (finds special case)
-                if isTrue:
-                    specialIndexes.append(actvIdx)
-                    specialIndexes.append(tstIdx)
-                    break
-                else:
-                    holds.append(tstIdx)
-
-            # Put hold indexes back in search group
-            holds.extend(grp)
-            grp = holds
-            lenGrp = len(grp)
-            holds = []
-
-        if len(specialIndexes) > 0:
-            # Remove shared edges from EDGES data
-            uniqueShared = list(set(specialIndexes))
-            self.sharedEdgeIdxs.extend(uniqueShared)
-            self.noSharedEdges = False
-
-    def _extractWiresFromEdges(self):
-        PathLog.debug("_extractWiresFromEdges()")
-        DATA = self.edgeData
-        holds = []
-        firstEdge = None
-        cont = True
-        connectedEdges = []
-        connectedIndexes = []
-        connectedCnt = 0
-        LOOPS = []
-
-        def faceIndex(tup):
-            return tup[3]
-
-        def faceArea(face):
-            return face.Area
-
-        # Sort by face index on original model base
-        DATA.sort(key=faceIndex)
-        lenDATA = len(DATA)
-        indexes = [i for i in range(0, lenDATA)]
-        idxCnt = len(indexes)
-
-        # Add circle edges into REGIONS list
-        if len(self.circleData) > 0:
-            for C in self.circleData:
-                face = Part.Face(Part.Wire(C[2]))
-                self.REGIONS.append(face)
-
-        actvIdx = indexes.pop(0)
-        actvEdge = DATA[actvIdx][2]
-        firstEdge = actvEdge  # DATA[connectedIndexes[0]][2]
-        idxCnt -= 1
-        connectedIndexes.append(actvIdx)
-        connectedEdges.append(actvEdge)
-        connectedCnt = 1
-
-        safety = 750
-        while cont:  # safety > 0
-            safety -= 1
-            notConnected = True
-            while idxCnt > 0:
-                isTrue = False
-                # Pop off index for test edge
-                tstIdx = indexes.pop(0)
-                tstEdge = DATA[tstIdx][2]
-                idxCnt -= 1
-                if self._edgesAreConnected(actvEdge, tstEdge):
-                    isTrue = True
-
-                if isTrue:
-                    notConnected = False
-                    connectedIndexes.append(tstIdx)
-                    connectedEdges.append(tstEdge)
-                    connectedCnt += 1
-                    actvIdx = tstIdx
-                    actvEdge = tstEdge
-                    break
-                else:
-                    holds.append(tstIdx)
-            # Ewhile
-
-            if connectedCnt > 2:
-                if self._edgesAreConnected(actvEdge, firstEdge):
-                    notConnected = False
-                    # Save loop components
-                    LOOPS.append(connectedEdges)
-                    # reset connected variables and re-assess
-                    connectedEdges = []
-                    connectedIndexes = []
-                    connectedCnt = 0
-                    indexes.sort()
-                    idxCnt = len(indexes)
-                    if idxCnt > 0:
-                        # Pop off index for first edge
-                        actvIdx = indexes.pop(0)
-                        actvEdge = DATA[actvIdx][2]
-                        idxCnt -= 1
-                        firstEdge = actvEdge
-                        connectedIndexes.append(actvIdx)
-                        connectedEdges.append(actvEdge)
-                        connectedCnt = 1
-            # Eif
-
-            # Put holds indexes back in search stack
-            if notConnected:
-                holds.append(actvIdx)
-            holds.extend(indexes)
-            indexes = holds
-            idxCnt = len(indexes)
-            holds = []
-            if idxCnt == 0:
-                cont = False
-            if safety == 0:
-                cont = False
-        # Ewhile
-
-        numLoops = len(LOOPS)
-        PathLog.debug(" -numLoops: {}.".format(numLoops))
-        if numLoops > 0:
-            for li in range(0, numLoops):
-                Edges = LOOPS[li]
-                # for e in Edges:
-                #    self._showShape(e, 'Loop_{}_Edge'.format(li))
-                wire = Part.Wire(Part.__sortEdges__(Edges))
-                if wire.isClosed():
-                    # This simple Part.Face() method fails to catch
-                    # wires with tangent closed wires, or an external
-                    # wire with one or more internal tangent wires.
-                    # face = Part.Face(wire)
-
-                    # This method works with the complex tangent
-                    # closed wires mentioned above.
-                    extWire = wire.extrude(FreeCAD.Vector(0.0, 0.0, 2.0))
-                    wireSolid = Part.makeSolid(extWire)
-                    extdBBFace1 = makeExtendedBoundBox(
-                        wireSolid.BoundBox, 5.0, wireSolid.BoundBox.ZMin + 1.0
-                    )
-                    extdBBFace2 = makeExtendedBoundBox(
-                        wireSolid.BoundBox, 5.0, wireSolid.BoundBox.ZMin + 1.0
-                    )
-                    inverse = extdBBFace1.cut(wireSolid)
-                    face = extdBBFace2.cut(inverse)
-                    self.REGIONS.append(face)
-            self.REGIONS.sort(key=faceArea, reverse=True)
-
-    def _identifyInternalFeatures(self):
-        PathLog.debug("_identifyInternalFeatures()")
-        remList = []
-
-        for (top, fcIdx) in self.topFaces:
-            big = Part.Face(top.OuterWire)
-            for s in range(0, len(self.REGIONS)):
-                if s not in remList:
-                    small = self.REGIONS[s]
-                    if self._isInBoundBox(big, small):
-                        cmn = big.common(small)
-                        if cmn.Area > 0.0:
-                            self.INTERNALS.append(small)
-                            remList.append(s)
-                            break
-                        else:
-                            PathLog.debug(" - No common area.\n")
-
-        remList.sort(reverse=True)
-        for ri in remList:
-            self.REGIONS.pop(ri)
-
-    def _processNestedRegions(self):
-        PathLog.debug("_processNestedRegions()")
-        cont = True
-        hold = []
-        Ids = []
-        remList = []
-        for i in range(0, len(self.REGIONS)):
-            Ids.append(i)
-        idsCnt = len(Ids)
-
-        while cont:
-            while idsCnt > 0:
-                hi = Ids.pop(0)
-                high = self.REGIONS[hi]
-                idsCnt -= 1
-                while idsCnt > 0:
-                    isTrue = False
-                    li = Ids.pop(0)
-                    idsCnt -= 1
-                    low = self.REGIONS[li]
-                    # Test case here
-                    if self._isInBoundBox(high, low):
-                        cmn = high.common(low)
-                        if cmn.Area > 0.0:
-                            isTrue = True
-                    # if True action here
-                    if isTrue:
-                        self.REGIONS[hi] = high.cut(low)
-                        remList.append(li)
-                    else:
-                        hold.append(hi)
-                # Ewhile
-                hold.extend(Ids)
-                Ids = hold
-                hold = []
-                idsCnt = len(Ids)
-                if len(Ids) == 0:
-                    cont = False
-            # Ewhile
-        # Ewhile
-        remList.sort(reverse=True)
-        for ri in remList:
-            self.REGIONS.pop(ri)
-
-    # Accessory methods
-    def _getCompleteCrossSection(self, shape):
-        PathLog.debug("_getCompleteCrossSection()")
-        wires = []
-        bb = shape.BoundBox
-        mid = (bb.ZMin + bb.ZMax) / 2.0
-
-        for i in shape.slice(FreeCAD.Vector(0, 0, 1), mid):
-            wires.append(i)
-
-        if len(wires) > 0:
-            comp = Part.Compound(wires)  # produces correct cross-section wire !
-            CS = Part.Face(comp.Wires[0])
-            CS.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - CS.BoundBox.ZMin))
-            return CS
-
-        PathLog.debug(" -No wires from .slice() method")
-        return False
-
-    def _edgesAreConnected(self, e1, e2):
-        # Assumes edges are flat and are at Z=0.0
-
-        def isSameVertex(v1, v2):
-            # Assumes vertexes at Z=0.0
-            if abs(v1.X - v2.X) < 0.000001:
-                if abs(v1.Y - v2.Y) < 0.000001:
-                    return True
-            return False
-
-        if isSameVertex(e1.Vertexes[0], e2.Vertexes[0]):
-            return True
-        if isSameVertex(e1.Vertexes[0], e2.Vertexes[1]):
-            return True
-        if isSameVertex(e1.Vertexes[1], e2.Vertexes[0]):
-            return True
-        if isSameVertex(e1.Vertexes[1], e2.Vertexes[1]):
-            return True
-
-        return False
-
-    def _isInBoundBox(self, outShp, inShp):
-        obb = outShp.BoundBox
-        ibb = inShp.BoundBox
-
-        if obb.XMin < ibb.XMin:
-            if obb.XMax > ibb.XMax:
-                if obb.YMin < ibb.YMin:
-                    if obb.YMax > ibb.YMax:
-                        return True
-        return False
-
-    # Public methods
-    def setTempGroup(self, grpObj):
-        """setTempGroup(grpObj)... For debugging, pass temporary object group."""
-        self.tempGroup = grpObj
-
-    def getUnifiedRegions(self):
-        """getUnifiedRegions()... Returns a list of unified regions from list
-        of tuples (faceShape, faceIndex) received at instantiation of the class object."""
-        PathLog.debug("getUnifiedRegions()")
-        if len(self.FACES) == 0:
-            msg = "No FACE data tuples received at instantiation of class.\n"
-            FreeCAD.Console.PrintError(msg)
-            return []
-
-        self._extractTopFaces()
-        lenFaces = len(self.topFaces)
-        if lenFaces == 0:
-            return []
-
-        # if single topFace, return it
-        if lenFaces == 1:
-            topFace = self.topFaces[0][0]
-            self._showShape(topFace, "TopFace")
-            # prepare inner wires as faces for internal features
-            lenWrs = len(topFace.Wires)
-            if lenWrs > 1:
-                for w in range(1, lenWrs):
-                    wr = topFace.Wires[w]
-                    self.INTERNALS.append(Part.Face(wr))
-            self.internalsReady = True
-            # Flatten face and extract outer wire, then convert to face
-            extWire = getExtrudedShape(topFace)
-            wCS = getCrossSection(extWire)
-            if wCS:
-                face = Part.Face(wCS)
-                return [face]
-            else:
-                (faceShp, fcIdx) = self.FACES[0]
-                msg = translate(
-                    "PathSurfaceSupport",
-                    "Failed to identify a horizontal cross-section for Face",
-                )
-                msg += "{}.\n".format(fcIdx + 1)
-                FreeCAD.Console.PrintWarning(msg)
-                return []
-
-        # process multiple top faces, unifying if possible
-        self._fuseTopFaces()
-        for F in self.fusedFaces.Faces:
-            self._showShape(F, "TopFaceFused")
-
-        self._getEdgesData()
-        self._groupEdgesByLength()
-        for grp in self.idGroups:
-            self._identifySharedEdgesByLength(grp)
-
-        if self.noSharedEdges:
-            PathLog.debug("No shared edges by length detected.")
-            allTopFaces = []
-            for (topFace, fcIdx) in self.topFaces:
-                allTopFaces.append(topFace)
-                # Identify internal features
-                lenWrs = len(topFace.Wires)
-                if lenWrs > 1:
-                    for w in range(1, lenWrs):
-                        wr = topFace.Wires[w]
-                        self.INTERNALS.append(Part.Face(wr))
-            self.internalsReady = True
-            return allTopFaces
-        else:
-            # Delete shared edges from edgeData list
-            self.sharedEdgeIdxs.sort(reverse=True)
-            for se in self.sharedEdgeIdxs:
-                self.edgeData.pop(se)
-
-        self._extractWiresFromEdges()
-        self._identifyInternalFeatures()
-        self._processNestedRegions()
-        # for ri in range(0, len(self.REGIONS)):
-        #    self._showShape(self.REGIONS[ri], 'UnifiedRegion_{}'.format(ri))
-
-        self.internalsReady = True
-        return self.REGIONS
-
-    def getInternalFeatures(self):
-        """getInternalFeatures()... Returns internal features identified
-        after calling getUnifiedRegions()."""
-        if self.internalsReady:
-            if len(self.INTERNALS) > 0:
-                return self.INTERNALS
-            else:
-                return False
-
-        msg = "getUnifiedRegions() must be called before getInternalFeatures().\n"
-        FreeCAD.Console.PrintError(msg)
-        return False
-
-
 class OCL_Tool:
     """The OCL_Tool class is designed to translate a FreeCAD standard ToolBit shape,
     or Legacy tool type, in the active Tool Controller, into an OCL tool type."""
@@ -2824,3 +2236,163 @@ def makeExtendedBoundBox(wBB, bbBfr, zDep):
     L4 = Part.makeLine(p4, p1)
 
     return Part.Face(Part.Wire([L1, L2, L3, L4]))
+
+
+def combineFaces(base, subsList, includeInternal=True):
+    PathLog.info(f"combineFaces({base.Name}, {subsList})")
+    region = combineRegions(base, subsList, includeInternal)
+    if not region:
+        return []
+
+    if len(region.Wires) > 1:
+        combinedFace = (
+            Part.Face(region.Wires[0])
+            .fuse(Part.Face(region.Wires[1:]))
+            .removeSplitter()
+        )
+    else:
+        combinedFace = region
+    return combinedFace
+
+
+def combineRegions(base, subsList, includeInternal=True):
+    outerWireTups, innerWireTups = getWireTups(base, subsList, includeInternal)
+    outerWires = [tup[0] for tup in outerWireTups]
+    combinedWires = combineOuterWires(outerWires)
+    outerCombinedWires = flattenWires(combinedWires)
+    outerFaces = Part.makeCompound([Part.Face(w) for w in outerCombinedWires])
+
+    innerFaces = None
+    if innerWireTups and includeInternal:
+        innerWires = [tup[0] for tup in innerWireTups]
+        innerFlattenedWires = flattenWires(innerWires)
+        innerFaces = Part.makeCompound([Part.Face(w) for w in innerFlattenedWires])
+
+    if innerFaces:
+        return outerFaces.sub(innerFaces)
+
+    return outerFaces
+
+
+def getWireTups(baseObj, faceNames, includeInternal=True):
+    outerTups = []
+    innerTups = []
+    baseName = baseObj.Name
+    for fName in faceNames:
+        face = baseObj.Shape.getElement(fName)
+        # Process outer wire
+        outerTups.append((face.Wires[0].copy(), baseName, fName, "Wire1"))
+        # process inner wires
+        if includeInternal:
+            for i in range(1, len(face.Wires)):
+                innerTups.append((face.Wires[i].copy(), baseName, fName, f"Wire{i+1}"))
+    return outerTups, innerTups
+
+
+def xyz_to_text(x, y, z):
+    return "x{}_y{}_z{}".format(x, y, z)
+
+
+def pointToText(p, precision=6):
+    factor = 10 ** precision
+    v0x = int(round(p.x, precision) * factor)
+    v0y = int(round(p.y, precision) * factor)
+    v0z = int(round(p.z, precision) * factor)
+    return xyz_to_text(v0x, v0y, v0z)
+
+
+def getXYMinVertex(edge):
+    v0 = edge.Vertexes[0].Point
+
+    if len(edge.Vertexes) == 1:
+        return v0
+
+    v1 = edge.Vertexes[1].Point
+
+    if v0.x < v1.x:
+        # v0 is min
+        return v0
+    elif v0.x > v1.x:
+        return v1
+    else:
+        if v0.y <= v1.y:
+            # v0 is min
+            return v0
+        else:
+            return v1
+
+
+def flattenWires(wires):
+    return [
+        TechDraw.findShapeOutline(w, 1, FreeCAD.Vector(0, 0, 1))
+        for w in wires
+        if w.isClosed()
+    ]
+
+
+def combineOuterWires(outerWires):
+    if len(outerWires) == 0:
+        return []
+    allEdgesTups = []
+    for wi in range(len(outerWires)):
+        w = outerWires[wi]
+        for ei in range(len(w.Edges)):
+            e = w.Edges[ei]
+            minVert = getXYMinVertex(e)
+            midpntVert = e.valueAt(e.getParameterByLength(e.Length / 2.0))
+            minVertTxt = pointToText(minVert, 4)
+            midpntVertTxt = pointToText(midpntVert, 4)
+            # print(minVertTxt + midpntVertTxt)
+            allEdgesTups.append((minVertTxt + midpntVertTxt, wi, ei, e))
+
+    allEdgesTups.sort(key=lambda tup: tup[0])
+
+    # Remove shared edges
+    uniqueEdgesTups = [allEdgesTups[0]]
+    for t in allEdgesTups[1:]:
+        if len(uniqueEdgesTups) > 0:
+            if uniqueEdgesTups[-1][0] != t[0]:
+                uniqueEdgesTups.append(t)
+            else:
+                uniqueEdgesTups.pop()
+        else:
+            uniqueEdgesTups.append(t)
+    uniqueEdges = [t[3] for t in uniqueEdgesTups]
+
+    # Convert unique edges to wires
+    return DraftGeomUtils.findWires(uniqueEdges)
+
+
+def consolidateAreas(closedWires, cutHoles):
+    # Find loops in combined wires
+    faceTups = []
+    for i in range(len(closedWires)):
+        w = closedWires[i]
+        f = Part.Face(w)
+        faceTups.append((i, f, f.Area))
+
+    # Sort large to small by face area
+    faceTups.sort(key=lambda tup: tup[2], reverse=True)
+
+    result = []
+    cnt = len(faceTups)
+    while cnt > 0:
+        small = faceTups.pop()
+        cnt -= 1
+        if cnt:
+            for fti in range(len(faceTups)):
+                big = faceTups[fti]
+                cut = big[1].cut(small[1])
+                if PathGeom.isRoughly(cut.Area, big[2]):
+                    # small not inside big
+                    result.append(small)
+                else:
+                    # replace big face with cut version
+                    PathLog.info("found internal wire")
+                    if not cutHoles:
+                        faceTups[fti] = (big[0], cut, cut.Area)
+                    break
+        else:
+            result.append(small)
+    # Ewhile
+    return [t[1] for t in result]
