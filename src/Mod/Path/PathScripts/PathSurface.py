@@ -118,6 +118,15 @@ class ObjectSurface(PathOp.ObjectOp):
 
         return [
             (
+                "Part::PropertyPartShape",
+                "removalshape",
+                "Debug",
+                QT_TRANSLATE_NOOP(
+                    "App::Property",
+                    "Removal shape for operation, for debugging.",
+                ),
+            ),
+            (
                 "App::PropertyBool",
                 "ShowTempObjects",
                 "Debug",
@@ -1071,12 +1080,14 @@ class ObjectSurface(PathOp.ObjectOp):
                 else:
                     COMP = ADD
 
+            obj.removalshape = COMP
             if obj.ScanType == "Planar":
                 final.extend(self._processPlanarOp(JOB, obj, mdlIdx, COMP, 0))
             elif obj.ScanType == "Rotational":
                 final.extend(self._processRotationalOp(JOB, obj, mdlIdx, COMP))
 
         elif obj.HandleMultipleFeatures == "Individually":
+            removalShapes = []
             for fsi in range(0, len(FCS)):
                 fShp = FCS[fsi]
                 # self.deleteOpVariables(all=False)
@@ -1092,11 +1103,13 @@ class ObjectSurface(PathOp.ObjectOp):
                     else:
                         COMP = ADD
 
+                removalShapes.append(COMP)
                 if obj.ScanType == "Planar":
                     final.extend(self._processPlanarOp(JOB, obj, mdlIdx, COMP, fsi))
                 elif obj.ScanType == "Rotational":
                     final.extend(self._processRotationalOp(JOB, obj, mdlIdx, COMP))
                 COMP = None
+            obj.removalshape = Part.makeCompound(removalShapes)
         # Eif
 
         return final
@@ -2097,7 +2110,7 @@ class ObjectSurface(PathOp.ObjectOp):
                 hlim = bb.XMax
 
         # Compute max radius of stock, as it rotates, and rotational clearance & safe heights
-        self.bbRadius = math.sqrt(hlim**2 + vlim**2)
+        self.bbRadius = math.sqrt(hlim ** 2 + vlim ** 2)
         self.clearHeight = self.bbRadius + JOB.SetupSheet.ClearanceHeightOffset.Value
         self.safeHeight = self.bbRadius + JOB.SetupSheet.ClearanceHeightOffset.Value
 
