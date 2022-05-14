@@ -192,12 +192,21 @@ def arcAdjustmentAngle(arc1, arc2):
 
     # Verify centers of arcs are same
     if center.sub(cntr2).Length > 0.0000001:
-        return None
+        return 0.0
 
     # Calculate midpoint of arc1, and standard angle from center to that midpoint
     midPntArc1 = arc1.valueAt(
         arc1.FirstParameter + (arc1.LastParameter - arc1.FirstParameter) / 2.0
     )
+
+    # Verify arc is in horizontal plane
+    if not PathGeom.isRoughly(arc1.Vertexes[0].Z, midPntArc1.z) or (
+        len(arc1.Vertexes) > 1
+        and not PathGeom.isRoughly(arc1.Vertexes[1].Z, midPntArc1.z)
+    ):
+        return 0.0
+
+    # Calculate standard angle from center to that midpoint
     midPntVect1 = midPntArc1.sub(center)
     ang1 = getStandardAngle(midPntVect1.x, midPntVect1.y)
 
@@ -210,6 +219,18 @@ def arcAdjustmentAngle(arc1, arc2):
 
     # Return adjustment angle to apply to arc2 in order to align with arc1
     return ang1 - ang2
+
+
+def extrudeEdgeToFace(feature, edge, length):
+    extDirection = FreeCAD.Vector(
+        feature.Surface.Axis.x, feature.Surface.Axis.y, 0
+    ).multiply(length)
+    extFace = edge.extrude(extDirection)
+    if PathGeom.isRoughly(extFace.common(feature).Area, 0.0):
+        return extFace
+    else:
+        extDirection.multiply(-1.0)
+        return edge.extrude(extDirection)
 
 
 class Extension(object):
@@ -345,6 +366,7 @@ class Extension(object):
                 normal = (edge.Curve.Center - p0).normalize()
                 direction = self._getDirectedNormal(p0, normal)
                 if direction is None:
+                    PathLog.debug("direction is None")
                     return None
 
                 if PathGeom.pointsCoincide(normal, direction):
@@ -388,10 +410,17 @@ class Extension(object):
 
                         # Determine if calculated extension collides with model (wrong direction)
                         face = Part.Face(wire)
-                        if face.common(feature).Area < face.Area * 0.10:
-                            return wire  # Calculated extension is correct
+                        faceNormal = face.normalAt(0, 0)
+                        if PathGeom.isRoughly(faceNormal.z, 0.0):
+                            PathLog.debug("Need to extrude edge laterally")
+                            self.extFaces = [extrudeEdgeToFace(feature, edge, length)]
+                            return self.extFaces[0].Wires[0]
+
                         else:
-                            return None  # Extension collides with model
+                            if face.common(feature).Area < face.Area * 0.10:
+                                return wire  # Calculated extension is correct
+                            else:
+                                return None  # Extension collides with model
 
                     extWire = Part.Wire([e3])
                     self.extFaces = [self._makeCircularExtFace(edge, extWire)]
@@ -415,9 +444,20 @@ class Extension(object):
                 PathLog.track(self.feature, self.sub, type(edge.Curve), endPoints(edge))
                 direction = self._getDirection(sub)
                 if direction is None:
+                    PathLog.debug("direction is None")
                     return None
 
-            return self._extendEdge(feature, edges[0], direction)
+            extendedWire = self._extendEdge(feature, edge, direction)
+
+            # Determine if calculated extension is oriented vertically
+            face = Part.Face(extendedWire)
+            faceNormal = face.normalAt(0, 0)
+            if PathGeom.isRoughly(faceNormal.z, 0.0):
+                PathLog.debug("Need to extrude edge laterally")
+                self.extFaces = [extrudeEdgeToFace(feature, edge, length)]
+                return self.extFaces[0].Wires[0]
+
+            return extendedWire
 
         elif sub.isClosed():
             PathLog.debug("Extending multi-edge closed wire")
