@@ -32,6 +32,9 @@ import PathScripts.PathUtils as PathUtils
 from lazy_loader.lazy_loader import LazyLoader
 
 PathGeom = LazyLoader("PathScripts.PathGeom", globals(), "PathScripts.PathGeom")
+FeatureExtensions = LazyLoader(
+    "PathScripts.PathFeatureExtensions", globals(), "PathScripts.PathFeatureExtensions"
+)
 
 __title__ = "Path 3D Pocket Operation"
 __author__ = "Yorik van Havre <yorik@uncreated.net>"
@@ -53,7 +56,7 @@ class ObjectPocket(PathPocketBase.ObjectPocket):
     """Proxy object for Pocket operation."""
 
     def pocketOpFeatures(self, obj):
-        return PathOp.FeatureNoFinalDepth
+        return PathOp.FeatureNoFinalDepth | PathOp.FeatureLocations
 
     def initPocketOp(self, obj):
         """initPocketOp(obj) ... setup receiver"""
@@ -67,6 +70,8 @@ class ObjectPocket(PathPocketBase.ObjectPocket):
                     "Choose how to process multiple Base Geometry features.",
                 ),
             )
+
+        FeatureExtensions.initialize_properties(obj)
 
         if not hasattr(obj, "AdaptivePocketStart"):
             obj.addProperty(
@@ -150,7 +155,12 @@ class ObjectPocket(PathPocketBase.ObjectPocket):
                 finDep = self.job.Model.Group[0].Shape.BoundBox.ZMin
             else:
                 finDep = min([m.Shape.BoundBox.ZMin for m in self.job.Model.Group])
-            obj.setExpression("OpFinalDepth", "{} mm".format(finDep))
+        else:
+            finDep = obj.Base[0][0].Shape.getElement(obj.Base[0][1][0]).BoundBox.ZMax
+            for base, subs in obj.Base:
+                for s in subs:
+                    finDep = min(finDep, base.Shape.getElement(s).BoundBox.ZMin)
+        obj.setExpression("OpFinalDepth", "{} mm".format(finDep))
 
     def areaOpShapes(self, obj):
         """areaOpShapes(obj) ... return shapes representing the solids to be removed."""
@@ -159,15 +169,41 @@ class ObjectPocket(PathPocketBase.ObjectPocket):
         subObjTups = []
         removalshapes = []
 
+        avoidFeatures = list()
+
+        # Get extensions and identify faces to avoid
+        extensions = FeatureExtensions.getExtensions(obj)
+        for e in extensions:
+            if e.avoid:
+                avoidFeatures.append(e.feature)
+
         if obj.Base:
             PathLog.debug("base items exist.  Processing... ")
-            for base in obj.Base:
-                PathLog.debug("obj.Base item: {}".format(base))
 
-                # Check if all subs are faces
+            self.exts = []
+            for base in obj.Base:
+                baseDepth = base[0].Shape.BoundBox.ZLength
+                PathLog.debug("obj.Base item: {}".format(base))
                 allSubsFaceType = True
                 Faces = []
+                baseShapes = [base[0].Shape]
+
+                # Check if all subs are faces
                 for sub in base[1]:
+                    # Add faces for extensions
+                    for ext in extensions:
+                        if not ext.avoid and ext.feature == sub:
+                            wire = ext.getWire()
+                            if wire:
+                                faces = ext.getExtensionFaces(wire)
+                                for f in faces:
+                                    # self.horiz.append(f)
+                                    Faces.append(f)
+                                    baseShapes.append(
+                                        f.extrude(FreeCAD.Vector(0, 0, -1 * baseDepth))
+                                    )
+                                    self.exts.append(f)
+
                     if "Face" in sub:
                         face = getattr(base[0].Shape, sub)
                         Faces.append(face)
@@ -176,6 +212,7 @@ class ObjectPocket(PathPocketBase.ObjectPocket):
                         allSubsFaceType = False
                         break
 
+                baseShape = Part.makeCompound(baseShapes)
                 if len(Faces) == 0:
                     allSubsFaceType = False
 
@@ -203,9 +240,9 @@ class ObjectPocket(PathPocketBase.ObjectPocket):
                     else:
                         shape = Part.makeCompound(Faces)
                         env = PathUtils.getEnvelope(
-                            base[0].Shape, subshape=shape, depthparams=self.depthparams
+                            baseShape, subshape=shape, depthparams=self.depthparams
                         )
-                        rawRemovalShape = env.cut(base[0].Shape)
+                        rawRemovalShape = env.cut(baseShape)  # base[0].Shape
                         faceExtrusions = [
                             f.extrude(FreeCAD.Vector(0.0, 0.0, 1.0)) for f in Faces
                         ]
@@ -272,6 +309,14 @@ class ObjectPocket(PathPocketBase.ObjectPocket):
                 obj.removalshape = removalShape
                 removalshapes.append((obj.removalshape, False, "3DPocket"))
 
+        """removalTups = []
+        for shp, isHole, detail in removalshapes:
+            if hasattr(shp, "Solids") and len(shp.Solids) > 1:
+                for s in shp.Solids:
+                    removalTups.append((s.copy(), isHole, detail))
+            else:
+                removalTups.append((shp, isHole, detail))
+        return removalTups"""
         return removalshapes
 
     def areaOpSetDefaultValues(self, obj, job):
@@ -282,6 +327,7 @@ class ObjectPocket(PathPocketBase.ObjectPocket):
         obj.AdaptivePocketStart = False
         obj.AdaptivePocketFinish = False
         obj.ProcessStockArea = False
+        FeatureExtensions.set_default_property_values(obj, job)
 
     # methods for eliminating air milling with some pockets: adpative start and finish
     def calculateAdaptivePocket(self, obj, base, subObjTups):
@@ -544,7 +590,7 @@ class ObjectPocket(PathPocketBase.ObjectPocket):
                 avgCom
             )  # effectively treats avgCom as origin for each face.
             mag = math.sqrt(
-                adjCom.x**2 + adjCom.y**2
+                adjCom.x ** 2 + adjCom.y ** 2
             )  # adjCom.Length without Z values
             drctn = 0.0
             # Determine direction of vector
@@ -918,7 +964,11 @@ def _extrudeBaseDown(base):
 
 
 def SetupProperties():
-    return PathPocketBase.SetupProperties() + ["HandleMultipleFeatures"]
+    setup = PathPocketBase.SetupProperties() + ["HandleMultipleFeatures"]
+    setup.extend(
+        FeatureExtensions.SetupProperties()
+    )  # Add properties from Extensions Feature
+    return setup
 
 
 def Create(name, obj=None, parentJob=None):

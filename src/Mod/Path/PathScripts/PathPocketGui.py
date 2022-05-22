@@ -25,6 +25,7 @@ import PathScripts.PathOpGui as PathOpGui
 import PathScripts.PathPocket as PathPocket
 import PathScripts.PathPocketBaseGui as PathPocketBaseGui
 import PathScripts.PathLog as PathLog
+import PathScripts.PathFeatureExtensionsGui as PathFeatureExtensionsGui
 
 from PySide.QtCore import QT_TRANSLATE_NOOP
 
@@ -47,6 +48,13 @@ class TaskPanelOpPage(PathPocketBaseGui.TaskPanelOpPage):
     def pocketFeatures(self):
         """pocketFeatures() ... return FeaturePocket (see PathPocketBaseGui)"""
         return PathPocketBaseGui.FeaturePocket
+
+    def taskPanelBaseLocationPage(self, obj, features):
+        if not hasattr(self, "extensionsPanel"):
+            self.extensionsPanel = PathFeatureExtensionsGui.TaskPanelExtensionPage(
+                obj, features
+            )
+        return self.extensionsPanel
 
 
 Command = PathOpGui.SetupOperation(
