@@ -222,9 +222,14 @@ def arcAdjustmentAngle(arc1, arc2):
 
 
 def extrudeEdgeToFace(feature, edge, length):
-    extDirection = FreeCAD.Vector(
-        feature.Surface.Axis.x, feature.Surface.Axis.y, 0
-    ).multiply(length)
+    if hasattr(feature.Surface, "Axis"):
+        extDirection = FreeCAD.Vector(
+            feature.Surface.Axis.x, feature.Surface.Axis.y, 0
+        ).multiply(length)
+    else:
+        extDirection = FreeCAD.Vector(
+            feature.Surface.Direction.x, feature.Surface.Direction.y, 0
+        ).multiply(length)
     extFace = edge.extrude(extDirection)
     if PathGeom.isRoughly(extFace.common(feature).Area, 0.0):
         return extFace
