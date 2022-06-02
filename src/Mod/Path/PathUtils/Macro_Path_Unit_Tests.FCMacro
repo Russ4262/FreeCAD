@@ -1,0 +1,55 @@
+import unittest
+import Gui_Input
+
+
+def runUnitTest(module):
+    suite = unittest.TestSuite()
+    suite.addTest(unittest.defaultTestLoader.loadTestsFromName(f"TestPathApp.{module}"))
+    r = unittest.TextTestRunner()
+    r.run(suite)
+
+
+def getUnitTestsFolder():
+    # Establish path to Path unit tests folder
+    libPath = unittest.defaultTestLoader._get_directory_containing_module("Path")
+    pathParts = libPath.split("\\")
+    if pathParts[-1] == "lib":
+        pathParts.pop()
+    pathParts.extend(["Mod", "Path", "PathTests"])
+    return "\\".join(pathParts)
+
+
+def discoverUnitTestModules(pathTestsPath):
+    # Discover unit tests available
+    testCases = unittest.defaultTestLoader.discover(pathTestsPath)
+
+    # Make sorted list of test modules available
+    testModules = []
+    for t in testCases._tests:
+        tt = t._tests[0]
+        if len(tt._tests) > 0:
+            _id = tt._tests[0].id()
+            parts = _id.split(".")
+            testModules.append(parts[1])
+            # print(f"  _id = {_id}")
+    testModules.sort()
+    return testModules
+
+
+def presentModuleSelection(testModules):
+    # Present list of unit test modules to user for selection
+    gi = Gui_Input.GuiInput()
+    gi.addComboBox("Path Unit Test", testModules)
+    gi.setWindowTitle("Select Path Unit Test Module")
+    values = gi.execute()
+    if values is None:
+        return None
+    return values[0]
+
+
+pathTestsPath = getUnitTestsFolder()
+testModules = discoverUnitTestModules(pathTestsPath)
+module = presentModuleSelection(testModules)
+if module:
+    # Run unit test module selected
+    runUnitTest(module)
