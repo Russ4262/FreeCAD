@@ -1,0 +1,78 @@
+import FreeCAD
+import Part
+import math
+import PathScripts.PathGeom as PathGeom
+
+ORIGIN = FreeCAD.Vector(0.0, 0.0, 0.0)
+
+
+def execute(modelName, faceName, delete=False):
+    print("\n\n\n")
+    doc = FreeCAD.ActiveDocument
+    if delete:
+        doc.removeObject(faceName)
+    rotations = alignFace(modelName, faceName)
+
+
+def alignFace(modelName, faceName):
+    rotations = []
+    cycles = 4
+    malAligned = True
+
+    model = FreeCAD.ActiveDocument.getObject(modelName)
+    face = model.Shape.getElement(faceName)  # 1, 6, 4
+    f = face.copy()
+    com = face.CenterOfMass
+    trans = com.add(FreeCAD.Vector(0.0, 0.0, 0.0)).multiply(-1.0)
+    f.translate(trans)
+
+    while malAligned:
+        cycles -= 1
+        norm = f.normalAt(0, 0)
+        # print(f"--NORM: {norm}")
+        x0 = PathGeom.isRoughly(norm.x, 0.0)
+        y0 = PathGeom.isRoughly(norm.y, 0.0)
+        z1 = PathGeom.isRoughly(norm.z, 1.0)
+        z_1 = PathGeom.isRoughly(norm.z, -1.0)
+        if not (z1 or z_1):
+            if not x0:
+                ang = math.degrees(math.atan2(norm.x, norm.z))
+                if ang < 0.0:
+                    ang = 0.0 - ang
+                elif ang > 0.0:
+                    ang = 180.0 - ang
+                f.rotate(ORIGIN, FreeCAD.Vector(0.0, 1.0, 0.0), ang)
+                rotations.append(("Y", ang))
+                # print(f"  ang: {ang}")
+                continue
+            elif not y0:
+                ang = math.degrees(math.atan2(norm.z, norm.y))
+                ang = 90.0 - ang
+                f.rotate(ORIGIN, FreeCAD.Vector(1.0, 0.0, 0.0), ang)
+                rotations.append(("X", ang))
+                # print(f"  ang: {ang}")
+                continue
+        elif x0 and y0 and z_1:
+            f.rotate(ORIGIN, FreeCAD.Vector(1.0, 0.0, 0.0), 180.0)
+            continue
+
+        malAligned = False
+        if cycles < 1:
+            break
+
+    norm = f.normalAt(0, 0)
+    # print(f"  {faceName} norm: {norm}\n  rotations: {rotations}")
+    # print(f"  center of mass: {com}")
+    # Part.show(f, faceName)
+
+    isFlat = PathGeom.isRoughly(f.BoundBox.ZLength, 0.0)
+
+    return (rotations, isFlat, f)
+
+
+# faceList = ["Face1", "Face2", "Face3", "Face4", "Face5", "Face6"]
+# faceList = ["Face7", "Face6", "Face15", "Face1"]
+faceList = ["Face6", "Face11"]
+mn = "Clone"  # Box
+for fn in faceList:
+    execute(mn, fn)

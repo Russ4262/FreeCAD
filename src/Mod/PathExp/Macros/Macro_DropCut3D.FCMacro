@@ -1,0 +1,743 @@
+import FreeCAD
+import Part
+import Path
+import PathScripts.PathGeom as PathGeom
+import time
+import Macro_CombineRegions
+import Gui_Input
+import Tool_Controller
+
+# lazily loaded modules
+from lazy_loader.lazy_loader import LazyLoader
+
+PathUtils = LazyLoader("PathScripts.PathUtils", globals(), "PathScripts.PathUtils")
+Generator_Adaptive = LazyLoader("Generator_Adaptive", globals(), "Generator_Adaptive")
+Generator_Line = LazyLoader("Generator_Line", globals(), "Generator_Line")
+Generator_ZigZag = LazyLoader("Generator_ZigZag", globals(), "Generator_ZigZag")
+Generator_Offset = LazyLoader("Generator_Offset", globals(), "Generator_Offset")
+Generator_Circle = LazyLoader("Generator_Circle", globals(), "Generator_Circle")
+Generator_CircleZigZag = LazyLoader(
+    "Generator_CircleZigZag", globals(), "Generator_CircleZigZag"
+)
+Generator_Spiral = LazyLoader("Generator_Spiral", globals(), "Generator_Spiral")
+Generator_Profile = LazyLoader("Generator_Profile", globals(), "Generator_Profile")
+
+
+OPTIMIZE = False
+PATTERNS = [
+    "Adaptive",
+    "Spiral",
+    "CircleZigZag",
+    "Circle",
+    "Profile",
+    "Line",
+    "ZigZag",
+    "Offset",
+]
+PATTERNCENTERS = ["CenterOfBoundBox", "CenterOfMass", "XminYmin", "Custom"]
+PATHTYPES = ["2D", "3D"]
+LINEARDEFLECTION = FreeCAD.Units.Quantity("0.0001 mm")
+CUTDIRECTIONS = ["Clockwise", "CounterClockwise"]
+moveCnt = 0
+
+
+# Project 2D wires onto 3D face(s)
+def getProjectedGeometry(face, pathGeomList):
+    """getProjectedGeometry(face, pathGeomList) Return list of wires resulting from projection onto face"""
+    faceCopy = face.copy()
+    # print(f"   paths: {paths}")
+    compPathGeom = Part.makeCompound(pathGeomList)
+    # Part.show(compPathGeom, "PathGeom")  #  path projected to original face
+    faceCopy.translate(
+        FreeCAD.Vector(
+            0.0, 0.0, (compPathGeom.BoundBox.ZMin - 10.0) - faceCopy.BoundBox.ZMin
+        )
+    )
+    transDiff = face.BoundBox.ZMin - faceCopy.BoundBox.ZMin
+    projWires = []
+    for w in pathGeomList:
+        p = faceCopy.makeParallelProjection(w, FreeCAD.Vector(0.0, 0.0, -1.0))
+        p.translate(FreeCAD.Vector(0.0, 0.0, transDiff))
+        wire = Part.Wire(Part.__sortEdges__(p.Edges))  # sort edges properly
+        projWires.append(wire)
+
+    return projWires
+
+
+def toolShapeCenter(toolShape):
+    tBB = toolShape.BoundBox
+    return FreeCAD.Vector(
+        round(tBB.Center.x, 7), round(tBB.Center.y, 7), round(tBB.ZMin, 7)
+    )
+
+
+def _bspline(__, sampleInterval, cnt, edgeLen):
+    # print(".. _bspline")
+    return (sampleInterval * cnt) / edgeLen
+
+
+def _arc(e, sampleInterval, cnt, edgeLen):
+    # print(".. _arc")
+    rate = (sampleInterval * cnt) / edgeLen
+    return e.FirstParameter + rate * (e.LastParameter - e.FirstParameter)
+
+
+def _ellipse(e, sampleInterval, cnt, edgeLen):
+    # print(".. _ellipse")
+    rate = (sampleInterval * cnt) / edgeLen
+    return e.FirstParameter + rate * (e.LastParameter - e.FirstParameter)
+
+
+def _line(e, sampleInterval, cnt, __):
+    # print(".. _line")
+    return e.FirstParameter + (sampleInterval * cnt)
+
+
+def _getValueAtArgument(typeId):
+    if typeId == "Part::GeomBSplineCurve":
+        return _bspline
+    elif typeId == "Part::GeomCircle":
+        return _arc
+    elif typeId == "Part::GeomLine":
+        return _line
+    elif typeId == "Part::GeomEllipse":
+        return _ellipse
+
+    print(f"followEdge() e.Curve.TypeId, {typeId}, is not available.")
+    return None
+
+
+def dropShapeToFace(toolShape, face, tolerance):
+    drops = 0
+    dist = toolShape.distToShape(face)[0]
+    # print(f"start distance to face: {dist}")
+    while dist > tolerance:
+        drops += 1
+        trans = FreeCAD.Vector(0.0, 0.0, dist / -1.5)
+        toolShape.translate(trans)
+        dist = toolShape.distToShape(face)[0]
+        if drops > 20:
+            break
+    # print(f"end distance to face: {dist}")
+    return drops
+
+
+def moveToolShape(location, nxt, startDepth, toolShape):
+    deltaX = nxt.x - location.x
+    deltaY = nxt.y - location.y
+    deltaZ = startDepth - location.z
+    trans = FreeCAD.Vector(deltaX, deltaY, deltaZ)
+    toolShape.translate(trans)
+    return toolShape
+
+
+def followEdge(e, toolShape, face, startDepth, sampleInterval, tolerance, lastEdge):
+    global moveCnt
+
+    points = []
+    tool = toolShape
+    eLen = e.Length
+    edgeLen = e.Length
+    dropCnt = 0
+    moveCnt += 1
+    loopCnt = 0
+
+    typeId = e.Curve.TypeId
+    valueFunction = _getValueAtArgument(typeId)
+
+    # follow edge
+    while eLen > sampleInterval:
+        moveCnt += 1
+        # move to next point along edge
+        valueAtParam = valueFunction(e, sampleInterval, loopCnt, edgeLen)
+        nxt = e.valueAt(valueAtParam)
+        location = toolShapeCenter(tool)
+        tool = moveToolShape(
+            location,
+            nxt,
+            startDepth,
+            tool,
+        )
+        dropCnt += dropShapeToFace(tool, face, tolerance)
+        center = toolShapeCenter(tool)
+        if center.z < nxt.z:
+            center.z = nxt.z
+        points.append(center)
+        eLen -= sampleInterval
+        loopCnt += 1
+
+    if loopCnt == 0 or lastEdge:
+        # experimental section for edges of length less than sampleInterval
+        nxt = e.valueAt(e.LastParameter)
+        location = toolShapeCenter(tool)
+        tool = moveToolShape(location, nxt, startDepth, tool)
+        dropCnt += dropShapeToFace(tool, face, tolerance)
+        center = toolShapeCenter(tool)
+        if center.z < nxt.z:
+            center.z = nxt.z
+        points.append(center)
+
+    return points, dropCnt
+
+
+def _dropCutEdges(edges, toolShape, faceShape, startDepth, sampleInterval, tolerance):
+    wirePoints = []
+    dropCnt = 0
+    distance = 0.0
+    for e in edges[:-1]:
+        if distance + e.Length > sampleInterval:
+            distance = 0.0
+            points, drpCnt = followEdge(
+                e,
+                toolShape,
+                faceShape,
+                startDepth,
+                sampleInterval,
+                tolerance,
+                False,
+            )
+            wirePoints.extend(points)
+            dropCnt += drpCnt
+        else:
+            distance += e.Length
+
+    # Process last edge
+    e = edges[-1]
+    points, drpCnt = followEdge(
+        e, toolShape, faceShape, startDepth, sampleInterval, tolerance, True
+    )
+    wirePoints.extend(points)
+    dropCnt += drpCnt
+
+    return wirePoints, dropCnt
+
+
+def getToolShape(toolController):
+    """getToolShape(toolController) Return tool shape with shank removed."""
+    full = toolController.Tool.Shape.copy()
+    vertEdges = [
+        e
+        for e in full.Edges
+        if len(e.Vertexes) == 2
+        and PathGeom.isRoughly(e.Vertexes[0].X, e.Vertexes[1].X)
+        and PathGeom.isRoughly(e.Vertexes[0].Y, e.Vertexes[1].Y)
+    ]
+    vertEdges.sort(key=lambda e: e.BoundBox.ZMax)
+    topVertEdge = vertEdges.pop()
+    top = full.BoundBox.ZMax + 2.0
+    face = PathGeom.makeBoundBoxFace(full.BoundBox, 5.0, top)
+    dist = -1.0 * (top - topVertEdge.BoundBox.ZMin)
+    faceExt = face.extrude(FreeCAD.Vector(0.0, 0.0, dist))
+    # Part.show(full, "Full")
+    # Part.show(faceExt, "FaceExt")
+    return full.cut(faceExt)
+
+
+def _dropCutWires(pathWires, faceShape, toolController, sampleInterval, tolerance):
+    pointsLists = []
+    dropCnt = 0
+    startDepth = faceShape.BoundBox.ZMax
+    # print(
+    #    f"_dropCutWires({toolController.Name}, si{sampleInterval}, t{tolerance}) startDep{startDepth}"
+    # )
+
+    wCnt = 0
+    for w in pathWires:
+        wCnt += 1
+        # Part.show(w, f"Wire_{wCnt}")
+        toolShape = getToolShape(toolController)
+        if w.Length > sampleInterval:
+            # Cut regular, longer wires longer than sample interval
+            (wirePoints, drpCnt) = _dropCutEdges(
+                w.Edges, toolShape, faceShape, startDepth, sampleInterval, tolerance
+            )
+        else:
+            # Make sure wires less than sample interval are cut
+            (wirePoints, drpCnt) = _dropCutEdges(
+                w.Edges, toolShape, faceShape, startDepth, w.Length * 0.90, tolerance
+            )
+        dropCnt += drpCnt
+        # Optimize points list
+        if len(wirePoints) > 0:
+            if OPTIMIZE:
+                pointsLists.append(
+                    PathUtils.simplify3dLine(wirePoints, LINEARDEFLECTION.Value)
+                )
+            else:
+                pointsLists.append(wirePoints)
+        else:
+            print(f"no drop cut wire points from wire {wCnt}")
+
+    # Part.show(toolShape, "ToolShape")
+    print(f"Drop count: {dropCnt}")
+
+    return pointsLists
+
+
+def pointsToLines(pointsLists, depthOffset=0.0):
+    wires = []
+    if depthOffset == 0.0:
+        for pnts in pointsLists:
+            if len(pnts) > 1:
+                lines = []
+                p0 = pnts[0]
+                for p in pnts[1:]:
+                    if p0.sub(p).Length > 0.000001:
+                        lines.append(Part.makeLine(p0, p))
+                        p0 = p
+                if len(lines) > 0:
+                    wires.append(Part.Wire(lines))
+    else:
+        trans = FreeCAD.Vector(0.0, 0.0, depthOffset)
+        for pnts in pointsLists:
+            if len(pnts) > 1:
+                lines = []
+                p0 = pnts[0]
+                for p in pnts[1:]:
+                    if p0.sub(p).Length > 0.000001:
+                        line = Part.makeLine(p0, p)
+                        line.translate(trans)
+                        lines.append(line)
+                        p0 = p
+                if len(lines) > 0:
+                    wires.append(Part.Wire(lines))
+
+    return wires
+
+
+def _cutPatternModule(cutPattern):
+    if cutPattern == "Adaptive":
+        return Generator_Adaptive
+    elif cutPattern == "Line":
+        return Generator_Line
+    elif cutPattern == "Circle":
+        return Generator_Circle
+    elif cutPattern == "CircleZigZag":
+        return Generator_CircleZigZag
+    elif cutPattern == "ZigZag":
+        return Generator_ZigZag
+    elif cutPattern == "Offset":
+        return Generator_Offset
+    elif cutPattern == "Profile":
+        return Generator_Profile
+    elif cutPattern == "Spiral":
+        return Generator_Spiral
+
+    FreeCAD.Console.PrintError("Did not find selected cut pattern.")
+    return None
+
+
+def execute(
+    faces,
+    toolController,
+    job,
+    pathType,
+    cutPattern,
+    cutDirection,
+    stepOver,
+    patternAngle,
+    cutPatternCenterAt,
+    cutPatternCenterCustom,
+    reverseCutPattern,
+    sampleInterval,
+    dropTolerance=0.1,
+    finalDepth=None,
+    depthOffset=0.0,
+):
+
+    module = _cutPatternModule(cutPattern)
+    if module is None:
+        return [], []
+
+    if len(faces) == 0:
+        print("No faces for target region(s).")
+        return [], []
+
+    # combine faces into horizontal regions
+    region = Macro_CombineRegions.combineRegions(
+        faces, saveExistingHoles=True, saveMergedHoles=True
+    )
+    # Part.show(region, "Region")
+
+    # fuse faces together for projection of path geometry
+    if len(faces) == 1:
+        faceShape = faces[0]
+    else:
+        faceShape = faces[0]
+        for f in faces:
+            fused = faceShape.fuse(f)
+            faceShape = fused
+
+    # Process faces for path geometry
+    toolDiameter = (
+        toolController.Tool.Diameter.Value
+        if hasattr(toolController.Tool.Diameter, "Value")
+        else float(toolController.Tool.Diameter)
+    )
+    toolRadius = toolDiameter / 2.0
+
+    print(f"Tool radius: {toolRadius},  Step-over: {stepOver}")
+
+    if cutPattern == "Adaptive":
+        fBB = faceShape.BoundBox
+        module.setAdaptiveAttributes(
+            useHelixEntry=False,
+            materialAllowance=0.0,
+            operationType="Clearing",
+            cutSide="Inside",
+            forceInsideOut=True,
+            liftDistance=5.0,
+            finishingProfile=False,
+            helixAngle=5.0,
+            helixConeAngle=0.0,
+            useHelixArcs=False,
+            helixDiameterLimit=toolRadius * 1.9,
+            keepToolDownRatio=2.0,
+            adaptiveTolerance=0.1,
+            clearanceHeight=fBB.ZMax + 10.0,
+            safeHeight=fBB.ZMax + 5.0,
+            startDepth=fBB.ZMax + 1.0,
+            stockObj=job.Stock,
+        )
+
+    pathGeomList = module.generatePathGeometry(
+        region,
+        toolRadius,
+        stepOver,
+        patternCenterAt=cutPatternCenterAt,
+        patternCenterCustom=cutPatternCenterCustom,
+        cutPatternAngle=patternAngle,
+        cutPatternReversed=reverseCutPattern,
+        cutDirection=cutDirection,
+        minTravel=False,
+        keepToolDown=False,
+        jobTolerance=0.001,
+    )
+
+    # Debugging - show 2D path wires
+    # Part.show(Part.makeCompound(pathGeomList), "CompPathGeomList")
+
+    compFaces = Part.makeCompound(faces)
+    retractHeight = compFaces.BoundBox.ZMax + 5.0
+
+    if pathType == "3D":
+        # Project path geometry onto origninal faces
+        projectionWires = getProjectedGeometry(faceShape, pathGeomList)
+        projWires = module._Link_Projected(
+            projectionWires, cutDirection, cutReversed=False
+        )
+        # Apply drop cut to 3D projected wires to get point set
+        pointsLists = _dropCutWires(
+            projWires, faceShape, toolController, sampleInterval, dropTolerance
+        )
+
+        lines = pointsToLines(pointsLists, depthOffset)
+        if cutPattern == "Adaptive":
+            paths = module.geometryToGcode3D(
+                lines, toolController, retractHeight, finalDepth
+            )
+        else:
+            paths = module.geometryToGcode(
+                lines, toolController, retractHeight, finalDepth
+            )
+    else:
+        if finalDepth is None:
+            finalDepth = compFaces.BoundBox.ZMax
+
+        lines = pathGeomList
+        paths = module.geometryToGcode(lines, toolController, retractHeight, finalDepth)
+
+    return paths, lines
+
+
+# Unused functions
+def flattenFace_unused(face):
+    """Return flattened version of face at Z=0.0 depth"""
+    fBB = face.BoundBox
+    outerBBFace = PathGeom.makeBoundBoxFace(fBB, 5.0, round(fBB.ZMin - 10.0, 0))
+    flatOuter = outerBBFace.makeParallelProjection(
+        face.Wires[0], FreeCAD.Vector(0.0, 0.0, -1.0)
+    )
+    flatOuter.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - flatOuter.BoundBox.ZMin))
+    # Make face from flattened outer wire
+    flatFace = Part.Face(Part.Wire(flatOuter.Edges))
+    flatFace.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - flatFace.BoundBox.ZMin))
+
+    if len(face.Wires) > 1:
+        for w in face.Wires[1:]:
+            flatInner = outerBBFace.makeParallelProjection(
+                w, FreeCAD.Vector(0.0, 0.0, -1.0)
+            )
+            flatInner.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - flatInner.BoundBox.ZMin))
+            cut = flatFace.cut(Part.Face(Part.Wire(flatInner.Edges)))
+            flatFace = cut
+
+    flatFace.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - flatFace.BoundBox.ZMin))
+    return flatFace
+
+
+def getPointsLists_unused(
+    face, projWires, toolController, startDepth, sampleInterval, tolerance
+):
+    pointLists = []
+    toolShape = getToolShape(toolController)
+    dropCnt = 0
+
+    for w in projWires:
+        wirePoints = []
+        for e in w.Edges[:-1]:
+            points, drpCnt = followEdge(
+                e, toolShape, face, startDepth, sampleInterval, tolerance, False
+            )
+            wirePoints.extend(points)
+            dropCnt += drpCnt
+
+        # Process last edge
+        e = w.Edges[-1]
+        points, drpCnt = followEdge(
+            e, toolShape, face, startDepth, sampleInterval, tolerance, True
+        )
+        wirePoints.extend(points)
+        dropCnt += drpCnt
+
+        if len(wirePoints) > 0:
+            if OPTIMIZE:
+                pointLists.append(
+                    PathUtils.simplify3dLine(
+                        wirePoints, tolerance=LINEARDEFLECTION.Value
+                    )
+                )
+            else:
+                pointLists.append(wirePoints)
+    # Part.show(toolShape, "ToolShape")
+
+    return pointLists
+
+
+# Auxillary functions
+def getFacesFromSelection():
+    if not FreeCAD.GuiUp:
+        return []
+
+    import FreeCADGui
+
+    faces = []
+    selection = FreeCADGui.Selection.getSelectionEx()
+    # process user selection
+    for sel in selection:
+        # print(f"Object.Name: {sel.Object.Name}")
+        for feat in sel.SubElementNames:
+            # print(f"Processing: {sel.Object.Name}::{feat}")
+            if feat.startswith("Face"):
+                # face = sel.Object.Shape.getElement(feat)
+                faces.append(sel.Object.Shape.getElement(feat))
+
+    return faces
+
+
+def getUserInput():
+
+    # Get path type from user
+    guiInput = Gui_Input.GuiInput()
+    guiInput.setWindowTitle("Path Details")
+    guiInput.addComboBox("Cut Pattern", PATTERNS)
+    guiInput.addComboBox("Path Type", PATHTYPES)
+    guiInput.addDoubleSpinBox("Step over %", 100.0)
+    guiInput.getInputByIndex(2).setMaximum(100.0)
+    guiInput.getInputByIndex(2).setValue(100.0)
+    guiInput.addComboBox("Cut Direction", CUTDIRECTIONS)
+    guiInput.addDoubleSpinBox("Cut Pattern Angle", 0.0)
+    guiInput.getInputByIndex(4).setMaximum(360.0)
+    guiInput.getInputByIndex(4).setMinimum(0.0)
+    guiInput.addComboBox("Cut Pattern Center At", PATTERNCENTERS)
+    x, y, z = guiInput.addDoubleVector(
+        "Pattern Center Custom", FreeCAD.Vector(0.0, 0.0, 0.0)
+    )
+    x.setMaximum(999999999.9)
+    x.setMinimum(-999999999.9)
+    y.setMaximum(999999999.9)
+    y.setMinimum(-999999999.9)
+    z.setMaximum(999999999.9)
+    z.setMinimum(-999999999.9)
+    guiInput.addDoubleSpinBox("Sample interval", 1.0)
+    guiInput.addCheckBox("Reverse Cut Pattern")
+    guiInput.addCheckBox("Optimize paths")
+    guiInput.addCheckBox("Test All Patterns")
+    return guiInput.execute()
+
+
+def runMacro():
+    global OPTIMIZE
+
+    targetFaces = getFacesFromSelection()
+    if len(targetFaces) == 0:
+        return
+
+    values = getUserInput()
+    if not values:
+        return
+    (
+        cutPattern,
+        pathType,
+        stepOver,
+        cutDirection,
+        patternAngle,
+        patternCenterAt,
+        patternCenterCustom,
+        sampleInterval,
+        reverseCutPattern,
+        optimize,
+        testAll,
+    ) = values
+    OPTIMIZE = optimize
+
+    if testAll:
+        testAllCutPatterns(
+            pathType,
+            stepOver,
+            cutDirection,
+            patternCenterAt,
+            patternCenterCustom,
+            sampleInterval,
+            reverseCutPattern,
+        )
+        return
+
+    timeStart = time.time()
+    print(f"Pattern: {cutPattern}")
+
+    # Set tool controller from Job object
+    tc, jb = Tool_Controller.getToolController()
+    job = None
+    op = None
+    for obj in FreeCAD.ActiveDocument.Objects:
+        if obj.Name == "Job":
+            job = obj
+            break
+    if job:
+        import PathScripts.PathCustomGui as PathCustomGui
+
+        op = PathCustomGui.PathCustom.Create("Custom")
+        op.ToolController = tc
+        op.ViewObject.Proxy = PathCustomGui.PathOpGui.ViewProvider(
+            op.ViewObject, PathCustomGui.Command.res
+        )
+        op.ViewObject.Proxy.deleteOnReject = False
+        # op.recompute()
+        op.Label = cutPattern + "_" + pathType
+        FreeCAD.ActiveDocument.recompute()
+    else:
+        FreeCAD.Console.PrintError("No Job object to receive paths.\n")
+        return
+
+    tolerance = 0.1
+    paths, pathGeom = execute(
+        targetFaces,
+        tc,
+        job,
+        pathType,
+        cutPattern,
+        cutDirection,
+        stepOver,
+        patternAngle,
+        patternCenterAt,
+        patternCenterCustom,
+        reverseCutPattern,
+        sampleInterval,
+        tolerance,
+    )
+
+    if len(paths) == 0:
+        print("No path data recieved for Custom object.")
+        workTime = time.time() - timeStart
+        print(f"Processing time: {workTime}")
+        return
+
+    if job:
+        if isinstance(paths, list):
+            op.Gcode = ["G90"] + [c.toGCode() for c in paths]
+        else:
+            op.Gcode = ["G90"] + [c.toGCode() for c in paths.Commands]
+        FreeCAD.ActiveDocument.recompute()
+
+    workTime = time.time() - timeStart
+    print(f"Processing time: {workTime}")
+
+
+def testAllCutPatterns(
+    pathType,
+    stepOver,
+    cutDirection,
+    sampleInterval,
+    reverseCutPattern,
+):
+    vertOffset = 0.0
+
+    """# Get path type from user
+    guiInput = Gui_Input.GuiInput()
+    guiInput.setWindowTitle("Select Path Type")
+    guiInput.addComboBox("Path Type", PATHTYPES)
+    values = guiInput.execute()
+    if not values:
+        FreeCAD.Console.PrintError("No user values returned.\n")
+        return
+
+    pathType = values[0]"""
+
+    timeStart = time.time()
+    targetFaces = getFacesFromSelection()
+    # Set tool controller from Job object
+    tc = Tool_Controller.getToolController()
+    job = None
+    for obj in FreeCAD.ActiveDocument.Objects:
+        if obj.Name == "Job":
+            job = obj
+            break
+
+    if job:
+        import PathScripts.PathCustomGui as PathCustomGui
+
+    for pat in PATTERNS:
+        print(f"Pattern and Path Type: {pat}, {pathType}")
+        op = None
+        if job:
+            op = PathCustomGui.PathCustom.Create("Custom")
+            op.ViewObject.Proxy = PathCustomGui.PathOpGui.ViewProvider(
+                op.ViewObject, PathCustomGui.Command.res
+            )
+            op.ViewObject.Proxy.deleteOnReject = False
+            op.ToolController = tc
+            op.Label = pat + "_" + pathType
+            # FreeCAD.ActiveDocument.recompute()
+            # time.sleep(1)
+        # sampleInterval = 1.0
+        tolerance = 0.5
+        # stepOver = 100.0
+        paths, pathGeom = execute(
+            targetFaces,
+            tc,
+            job,
+            pathType,
+            pat,
+            cutDirection,
+            stepOver,
+            reverseCutPattern,
+            sampleInterval,
+            tolerance,
+            depthOffset=vertOffset,
+        )
+        if job and len(paths) > 0:
+            if isinstance(paths, list):
+                op.Gcode = ["G90"] + [c.toGCode() for c in paths]
+            else:
+                op.Gcode = ["G90"] + [c.toGCode() for c in paths.Commands]
+            FreeCAD.ActiveDocument.recompute()
+            # time.sleep(1)
+
+    workTime = time.time() - timeStart
+    print(f"Processing time: {workTime}")
+
+
+print("\nBegin tool-specific path generation development macro")
+
+runMacro()
