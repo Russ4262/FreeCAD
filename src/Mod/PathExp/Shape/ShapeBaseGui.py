@@ -202,7 +202,11 @@ class ViewProvider(object):
         children = []
         if hasattr(self.Object, "TargetShapeGroup"):
             children.append(self.Object.TargetShapeGroup)
-        if hasattr(self.Object, "TargetShape") and self.Object.TargetShape is not None:
+        if (
+            not self.Object.Proxy.isTargetShape
+            and hasattr(self.Object, "TargetShape")
+            and self.Object.TargetShape is not None
+        ):
             children.append(self.Object.TargetShape)
         if hasattr(self.Object, "ToolController") and self.Object.ToolController:
             children.append(self.Object.ToolController)

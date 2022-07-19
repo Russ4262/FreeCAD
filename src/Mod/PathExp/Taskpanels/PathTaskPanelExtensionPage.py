@@ -28,6 +28,7 @@ import PathScripts.PathGui as PathGui
 import PathScripts.PathLog as PathLog
 import Taskpanels.PathTaskPanelPage as PathTaskPanelPage
 import Features.PathFeatureExtensions as PathFeatureExtensions
+from Macros.Generator_Utilities import _flipEdge
 from pivy import coin
 
 from PySide import QtCore, QtGui
@@ -44,6 +45,47 @@ translate = PathTaskPanelPage.translate
 
 PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 # PathLog.trackModule(PathLog.thisModule())
+
+
+def edgesMatchShape(e0, e1):
+    # flipped = PathGeom.flipEdge(e1)
+    flipped = _flipEdge(e1)
+    if flipped:
+        # return PathGeom.edgesMatch(e0, e1) or PathGeom.edgesMatch(
+        return PathGeom.edgesMatch(e0, e1) or PathGeom.edgesMatch(e0, flipped)
+    else:
+        return PathGeom.edgesMatch(e0, e1)
+
+
+def edgesMatchShape_orig(e0, e1, edgeLbl):
+    flipped = PathGeom.flipEdge(e1)
+    # flipped = _flipEdge(e1)
+    print(f"flipped {edgeLbl}: {flipped}")
+    if flipped:
+        return PathGeom.edgesMatch(e0, e1) or PathGeom.edgesMatch(e0, flipped)
+    else:
+        return PathGeom.edgesMatch(e0, e1)
+
+
+def edgesMatchShapeNew(e0, e1, e1f):
+    err = 0.0001
+    if e1f:
+        return PathGeom.edgesMatch(e0, e1, err) or PathGeom.edgesMatch(e0, e1f, err)
+    else:
+        return PathGeom.edgesMatch(e0, e1, err)
+
+
+def _applyShapeRotation(shape, rotations):
+    rot_vects = {
+        "X": FreeCAD.Vector(-1.0, 0.0, 0.0),
+        "Y": FreeCAD.Vector(0.0, -1.0, 0.0),
+        "Z": FreeCAD.Vector(0.0, 0.0, -1.0),
+    }
+
+    rotated = shape.copy()
+    for rot_vect, angle in rotations:
+        rotated.rotate(FreeCAD.Vector(0.0, 0.0, 0.0), rot_vects[rot_vect], angle)
+    return rotated
 
 
 class TaskPanelExtensionPage(PathTaskPanelPage.TaskPanelPage):
@@ -123,39 +165,6 @@ class TaskPanelExtensionPage(PathTaskPanelPage.TaskPanelPage):
         form.includeSpecial.setChecked(False)
         return form
 
-    def forAllItemsCall(self, cb):
-        for modelRow in range(self.model.rowCount()):
-            model = self.model.item(modelRow, 0)
-            for featureRow in range(model.rowCount()):
-                feature = model.child(featureRow, 0)
-                for edgeRow in range(feature.rowCount()):
-                    item = feature.child(edgeRow, 0)
-                    ext = item.data(self.DataObject)
-                    cb(item, ext)
-
-    def currentExtensions(self):
-        PathLog.debug("currentExtensions()")
-        extensions = []
-
-        def extractExtension(item, ext):
-            if not ext:
-                return
-            if not ext.edge:
-                return
-            if item.checkState() == QtCore.Qt.Checked:
-                extensions.append(ext.ext)
-                return
-
-        if self.form.enableExtensions.isChecked():
-            self.forAllItemsCall(extractExtension)
-        PathLog.track("extensions", extensions)
-        return extensions
-
-    def updateProxyExtensions(self, obj):
-        PathLog.debug("updateProxyExtensions()")
-        self.extensions = self.currentExtensions()
-        PathFeatureExtensions.setExtensions(obj, self.extensions)
-
     def getFields(self, obj):
         PathLog.debug("getFields()")
         PathLog.track(obj.Label, self.model.rowCount(), self.model.columnCount())
@@ -230,6 +239,67 @@ class TaskPanelExtensionPage(PathTaskPanelPage.TaskPanelPage):
             self._resetCachedExtensions()  # Reset extension cache because extension dimensions likely changed
             self._enableExtensions()  # Recalculate extensions
 
+    def updateProxyExtensions(self, obj):
+        PathLog.debug("updateProxyExtensions()")
+        self.extensions = self.currentExtensions()
+        PathFeatureExtensions.setExtensions(obj, self.extensions)
+
+    def getSignalsForUpdate(self, obj):
+        PathLog.track(obj.Label)
+        signals = []
+        signals.append(self.form.defaultLength.editingFinished)
+        signals.append(self.form.enableExtensions.toggled)
+        signals.append(self.form.includeEdges.toggled)
+        return signals
+
+    def registerSignalHandlers(self, obj):
+        self.form.showExtensions.clicked.connect(self.showHideExtension)
+        self.form.extendCorners.clicked.connect(self.toggleExtensionCorners)
+        self.form.buttonClear.clicked.connect(self.extensionsClear)
+        self.form.buttonDisable.clicked.connect(self.extensionsDisable)
+        self.form.buttonEnable.clicked.connect(self.extensionsEnable)
+        self.form.defaultLength.editingFinished.connect(self.updateQuantitySpinBoxes)
+        self.form.enableExtensions.toggled.connect(self._enableExtensions)
+        self.form.includeEdges.toggled.connect(self._includeEdgesAndWires)
+        self.form.includeSpecial.toggled.connect(self._includeSpecialExtensions)
+
+        self.model.itemChanged.connect(self.updateItemEnabled)
+
+        self.selectionModel = (
+            self.form.extensionTree.selectionModel()
+        )  # pylint: disable=attribute-defined-outside-init
+        self.selectionModel.selectionChanged.connect(self.selectionChanged)
+        self.selectionChanged()
+
+    # Extensions-related methods
+    def forAllItemsCall(self, cb):
+        for modelRow in range(self.model.rowCount()):
+            model = self.model.item(modelRow, 0)
+            for featureRow in range(model.rowCount()):
+                feature = model.child(featureRow, 0)
+                for edgeRow in range(feature.rowCount()):
+                    item = feature.child(edgeRow, 0)
+                    ext = item.data(self.DataObject)
+                    cb(item, ext)
+
+    def currentExtensions(self):
+        PathLog.debug("currentExtensions()")
+        extensions = []
+
+        def extractExtension(item, ext):
+            if not ext:
+                return
+            if not ext.edge:
+                return
+            if item.checkState() == QtCore.Qt.Checked:
+                extensions.append(ext.ext)
+                return
+
+        if self.form.enableExtensions.isChecked():
+            self.forAllItemsCall(extractExtension)
+        PathLog.track("extensions", extensions)
+        return extensions
+
     def createItemForBaseModel(self, base, sub, edges, extensions):
         PathLog.debug("createItemForBaseModel()")
         PathLog.track(
@@ -285,21 +355,10 @@ class TaskPanelExtensionPage(PathTaskPanelPage.TaskPanelPage):
                                 subHasItem = True
 
         if extendCorners and includeEdges:
-
-            def edgesMatchShape(e0, e1):
-                flipped = PathGeom.flipEdge(e1)
-                if flipped:
-                    return PathGeom.edgesMatch(e0, e1) or PathGeom.edgesMatch(
-                        e0, flipped
-                    )
-                else:
-                    return PathGeom.edgesMatch(e0, e1)
-
             self.extensionEdges = extensionEdges
             PathLog.debug("extensionEdges.values(): {}".format(extensionEdges.values()))
-            for edgeList in Part.sortEdges(
-                list(extensionEdges.keys())
-            ):  # Identify connected edges that form wires
+            # Identify connected edges that form wires
+            for edgeList in Part.sortEdges(list(extensionEdges.keys())):
                 self.edgeList = edgeList
                 if len(edgeList) == 1:
                     label = (
@@ -351,12 +410,12 @@ class TaskPanelExtensionPage(PathTaskPanelPage.TaskPanelPage):
 
         return None
 
-    def createItemForBaseModel_Edges(self, base, sub, edges, extensions):
-        PathLog.debug("createItemForBaseModel_Edges()")
+    def createItemForBaseModel_mod(self, base, sub, edges, extensions):
+        PathLog.debug("createItemForBaseModel()")
         PathLog.track(
             base.Label, sub, "+", len(edges), len(base.Shape.getElement(sub).Edges)
         )
-        # PathLog.debug("createItemForBaseModel_Edges() label: {}, sub: {}, {}, edgeCnt: {}, subEdges: {}".format(base.Label, sub, '+', len(edges), len(base.Shape.getElement(sub).Edges)))
+        # PathLog.debug("createItemForBaseModel() label: {}, sub: {}, {}, edgeCnt: {}, subEdges: {}".format(base.Label, sub, '+', len(edges), len(base.Shape.getElement(sub).Edges)))
 
         extendCorners = self.form.extendCorners.isChecked()
         includeEdges = self.form.includeEdges.isChecked()
@@ -365,6 +424,7 @@ class TaskPanelExtensionPage(PathTaskPanelPage.TaskPanelPage):
         subHasItem = False
 
         def createSubItem(label, ext0):
+            # PathLog.info("createSubItem({})".format(label))
             if ext0.root:
                 self.switch.addChild(ext0.root)
                 item0 = QtGui.QStandardItem()
@@ -377,7 +437,6 @@ class TaskPanelExtensionPage(PathTaskPanelPage.TaskPanelPage):
                         ext0.enable()
                         break
                 item.appendRow([item0])
-                subHasItem = True
 
         # ext = self._cachedExtension(self.obj, base, sub, None)
         ext = None
@@ -392,7 +451,7 @@ class TaskPanelExtensionPage(PathTaskPanelPage.TaskPanelPage):
                 # Only show exterior extensions if `Use Outline` is True
                 subEdges = subShape.Wires[0].Edges
             else:
-                # Show all exterior and interior extensions if `usePerimeter` is False
+                # Show all exterior and interior extensions if `usePerimeter` is False, or sub is an edge
                 subEdges = subShape.Edges
 
             for edge in subEdges:
@@ -403,24 +462,15 @@ class TaskPanelExtensionPage(PathTaskPanelPage.TaskPanelPage):
                             extensionEdges[e] = label[4:]  # isolate edge number
                             if not extendCorners:
                                 createSubItem(label, ext1)
+                                subHasItem = True
 
         if extendCorners and includeEdges:
-
-            def edgesMatchShape(e0, e1):
-                flipped = PathGeom.flipEdge(e1)
-                if flipped:
-                    return PathGeom.edgesMatch(e0, e1) or PathGeom.edgesMatch(
-                        e0, flipped
-                    )
-                else:
-                    return PathGeom.edgesMatch(e0, e1)
-
             self.extensionEdges = extensionEdges
             PathLog.debug("extensionEdges.values(): {}".format(extensionEdges.values()))
-            for edgeList in Part.sortEdges(
-                list(extensionEdges.keys())
-            ):  # Identify connected edges that form wires
+            # Identify connected edges that form wires
+            for edgeList in Part.sortEdges(list(extensionEdges.keys())):
                 self.edgeList = edgeList
+                Part.show(Part.Wire(edgeList), "EdgeList")
                 if len(edgeList) == 1:
                     label = (
                         "Edge%s"
@@ -431,24 +481,64 @@ class TaskPanelExtensionPage(PathTaskPanelPage.TaskPanelPage):
                         ][0]
                     )
                 else:
-                    label = "Wire(%s)" % ",".join(
-                        sorted(
-                            [
-                                extensionEdges[keyEdge]
-                                for e in edgeList
-                                for keyEdge in extensionEdges.keys()
-                                if edgesMatchShape(e, keyEdge)
-                            ],
-                            key=lambda s: int(s),
+                    edgeCache = {}
+                    """edgeCache_orig = {
+                        extensionEdges[keyEdge]: (keyEdge, PathGeom.flipEdge(keyEdge))
+                        for keyEdge in extensionEdges.keys()
+                    }"""
+                    for keyEdge in extensionEdges.keys():
+                        edgeCache[extensionEdges[keyEdge]] = (
+                            keyEdge,
+                            _flipEdge(keyEdge),
                         )
-                    )  # pylint: disable=unnecessary-lambda
+
+                    numList = []
+                    for e in edgeList:
+                        for keyEdge in extensionEdges.keys():
+                            lbl = extensionEdges[keyEdge]
+                            edg, edgFlpd = edgeCache[lbl]
+                            if edgesMatchShapeNew(e, edg, edgFlpd):
+                                numList.append(lbl)
+                                break
+                            else:
+                                print(f"  not {lbl}")
+                    numList.sort(key=lambda s: int(s))
+
+                    """numList_orig = sorted(
+                        [
+                            extensionEdges[keyEdge]
+                            for e in edgeList
+                            for keyEdge in extensionEdges.keys()
+                            if edgesMatchShape(e, keyEdge, extensionEdges[keyEdge])
+                        ],
+                        key=lambda s: int(s),
+                    )"""
+                    label = "Wire(%s)" % ",".join(numList)
                 ext2 = self._cachedExtension(self.obj, base, sub, label)
                 createSubItem(label, ext2)
+                subHasItem = True
 
-        if includeSpecial:
-            pass
+        # Only add these subItems for horizontally oriented faces, not edges or vertical faces (from vertical face loops)
+        if sub.startswith("Face") and PathGeom.isHorizontal(subShape):
+            if includeSpecial:
+                # Add entry to extend outline of face
+                label = "Extend_" + sub
+                ext3 = self._cachedExtension(self.obj, base, sub, label)
+                createSubItem(label, ext3)
+
+                # Add entry for waterline at face
+                label = "Waterline_" + sub
+                ext4 = self._cachedExtension(self.obj, base, sub, label)
+                createSubItem(label, ext4)
+
+                # Add entry for avoid face
+                label = "Avoid_" + sub
+                ext5 = self._cachedExtension(self.obj, base, sub, label)
+                createSubItem(label, ext5)
+                subHasItem = True
 
         if subHasItem:
+            # PathLog.info("subHasItem")
             return item
 
         return None
@@ -665,8 +755,7 @@ class TaskPanelExtensionPage(PathTaskPanelPage.TaskPanelPage):
         PathLog.debug("showHideExtension()")
         if self.form.showExtensions.isChecked():
 
-            def enableExtensionEdit(item, ext):
-                # pylint: disable=unused-argument
+            def enableExtensionEdit(__, ext):
                 ext.show()
 
             self.forAllItemsCall(enableExtensionEdit)
@@ -688,34 +777,6 @@ class TaskPanelExtensionPage(PathTaskPanelPage.TaskPanelPage):
         self.selectionChanged()
         self.setDirty()
 
-    def getSignalsForUpdate(self, obj):
-        PathLog.track(obj.Label)
-        signals = []
-        signals.append(self.form.defaultLength.editingFinished)
-        signals.append(self.form.enableExtensions.toggled)
-        signals.append(self.form.includeEdges.toggled)
-        return signals
-
-    def registerSignalHandlers(self, obj):
-        self.form.showExtensions.clicked.connect(self.showHideExtension)
-        self.form.extendCorners.clicked.connect(self.toggleExtensionCorners)
-        self.form.buttonClear.clicked.connect(self.extensionsClear)
-        self.form.buttonDisable.clicked.connect(self.extensionsDisable)
-        self.form.buttonEnable.clicked.connect(self.extensionsEnable)
-        self.form.defaultLength.editingFinished.connect(self.updateQuantitySpinBoxes)
-        self.form.enableExtensions.toggled.connect(self._enableExtensions)
-        self.form.includeEdges.toggled.connect(self._includeEdgesAndWires)
-        self.form.includeSpecial.toggled.connect(self._includeSpecialExtensions)
-
-        self.model.itemChanged.connect(self.updateItemEnabled)
-
-        self.selectionModel = (
-            self.form.extensionTree.selectionModel()
-        )  # pylint: disable=attribute-defined-outside-init
-        self.selectionModel.selectionChanged.connect(self.selectionChanged)
-        self.selectionChanged()
-
-    # Support methods
     def _findOperationPageForm(self):
         """_findOperationPageForm() ...
         This method locates the `Operation` tab form page, and saves that page reference
@@ -769,7 +830,13 @@ class TaskPanelExtensionPage(PathTaskPanelPage.TaskPanelPage):
         are be enabled.
         """
         PathLog.debug("_autoEnableExtensions()")
-        enabled = True
+        enabled = False
+
+        if len(self.obj.Base) > 0:
+            enabled = True
+        else:
+            self.form.enableExtensions.setChecked(False)
+            self._enableExtensions()
 
         if self.initialEdgeCount < 1 and enabled:
             self.initialEdgeCount = 0
@@ -835,6 +902,7 @@ class TaskPanelExtensionPage(PathTaskPanelPage.TaskPanelPage):
             self.form.enableExtensions.setText(msg)
             self.form.extensionEdit.setDisabled(True)
             self.enabled = False
+            self.extensions = []
 
     def _includeEdgesAndWires(self):
         """_includeEdgesAndWires() ...
@@ -921,7 +989,7 @@ class _Extension(object):
         self.switch = self.createExtensionSoSwitch(self.ext)
         self.root = self.switch
 
-    def createExtensionSoSwitch(self, ext):
+    def createExtensionSoSwitch_orig(self, ext):
         if not ext:
             return None
 
@@ -994,6 +1062,82 @@ class _Extension(object):
 
         return switch
 
+    def createExtensionSoSwitch(self, ext):
+        if not ext:
+            return None
+
+        sep = coin.SoSeparator()
+        pos = coin.SoTranslation()
+        mat = coin.SoMaterial()
+        crd = coin.SoCoordinate3()
+        fce = coin.SoFaceSet()
+        hnt = coin.SoShapeHints()
+        numVert = list()  # track number of vertices in each polygon face
+
+        try:
+            wire = ext.getWire()
+        except FreeCAD.Base.FreeCADError:
+            wire = None
+
+        if not wire:
+            return None
+
+        if isinstance(wire, (list, tuple)):
+            indexedWire = _applyShapeRotation(wire, ext.rotationsApplied)
+            p0 = [p for p in indexedWire[0].discretize(Deflection=0.02)]
+            p1 = [p for p in indexedWire[1].discretize(Deflection=0.02)]
+            p2 = list(reversed(p1))
+            polygon = [(p.x, p.y, p.z) for p in (p0 + p2)]
+        else:
+            if ext.extFaces:
+                # Create polygon for each extension face in compound extensions
+                allPolys = list()
+                extFaces = ext.getExtensionFaces(wire)
+                for face in extFaces:
+                    f = _applyShapeRotation(face, ext.rotationsApplied)
+                    pCnt = 0
+                    wCnt = 0
+                    for w in f.Wires:
+                        if wCnt == 0:
+                            poly = [p for p in w.discretize(Deflection=0.01)]
+                        else:
+                            poly = [p for p in w.discretize(Deflection=0.01)][:-1]
+                        pCnt += len(poly)
+                        allPolys.extend(poly)
+                    numVert.append(pCnt)
+                polygon = [(p.x, p.y, p.z) for p in allPolys]
+            else:
+                indexedWire = _applyShapeRotation(wire, ext.rotationsApplied)
+                # poly = [p for p in wire.discretize(Deflection=0.02)][:-1]
+                poly = [p for p in indexedWire.discretize(Deflection=0.02)]
+                polygon = [(p.x, p.y, p.z) for p in poly]
+        crd.point.setValues(polygon)
+
+        mat.diffuseColor = self.ColourDisabled
+        mat.transparency = self.TransparencyDeselected
+
+        hnt.faceType = coin.SoShapeHints.UNKNOWN_FACE_TYPE
+        hnt.vertexOrdering = coin.SoShapeHints.CLOCKWISE
+
+        if numVert:
+            # Transfer vertex counts for polygon faces
+            fce.numVertices.setValues(tuple(numVert))
+
+        sep.addChild(pos)
+        sep.addChild(mat)
+        sep.addChild(hnt)
+        sep.addChild(crd)
+        sep.addChild(fce)
+
+        # Finalize SoSwitch
+        switch = coin.SoSwitch()
+        switch.addChild(sep)
+        switch.whichChild = coin.SO_SWITCH_NONE
+
+        self.material = mat
+
+        return switch
+
     def _setColour(self, r, g, b):
         self.material.diffuseColor = (r, g, b)
 
@@ -1024,4 +1168,4 @@ class _Extension(object):
         self.material.transparency = self.TransparencyDeselected
 
 
-FreeCAD.Console.PrintMessage("Loading PathTaskPanelExtensionPage module\n")
+FreeCAD.Console.PrintWarning("Loading PathTaskPanelExtensionPage module\n")

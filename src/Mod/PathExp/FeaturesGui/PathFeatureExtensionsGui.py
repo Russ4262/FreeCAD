@@ -42,12 +42,24 @@ __doc__ = "Extensions feature page controller."
 
 
 translate = FreeCAD.Qt.translate
-
 if False:
     PathLog.setLevel(PathLog.Level.DEBUG, PathLog.thisModule())
     PathLog.trackModule(PathLog.thisModule())
 else:
     PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
+
+
+def _applyShapeRotation(shape, rotations):
+    rot_vects = {
+        "X": FreeCAD.Vector(-1.0, 0.0, 0.0),
+        "Y": FreeCAD.Vector(0.0, -1.0, 0.0),
+        "Z": FreeCAD.Vector(0.0, 0.0, -1.0),
+    }
+
+    rotated = shape.copy()
+    for rot_vect, angle in rotations:
+        rotated.rotate(FreeCAD.Vector(0.0, 0.0, 0.0), rot_vects[rot_vect], angle)
+    return rotated
 
 
 class _Extension(object):
@@ -90,8 +102,9 @@ class _Extension(object):
             return None
 
         if isinstance(wire, (list, tuple)):
-            p0 = [p for p in wire[0].discretize(Deflection=0.02)]
-            p1 = [p for p in wire[1].discretize(Deflection=0.02)]
+            indexedWire = _applyShapeRotation(wire, ext.rotationsApplied)
+            p0 = [p for p in indexedWire[0].discretize(Deflection=0.02)]
+            p1 = [p for p in indexedWire[1].discretize(Deflection=0.02)]
             p2 = list(reversed(p1))
             polygon = [(p.x, p.y, p.z) for p in (p0 + p2)]
         else:
@@ -99,7 +112,8 @@ class _Extension(object):
                 # Create polygon for each extension face in compound extensions
                 allPolys = list()
                 extFaces = ext.getExtensionFaces(wire)
-                for f in extFaces:
+                for face in extFaces:
+                    f = _applyShapeRotation(face, ext.rotationsApplied)
                     pCnt = 0
                     wCnt = 0
                     for w in f.Wires:
@@ -112,8 +126,9 @@ class _Extension(object):
                     numVert.append(pCnt)
                 polygon = [(p.x, p.y, p.z) for p in allPolys]
             else:
+                indexedWire = _applyShapeRotation(wire, ext.rotationsApplied)
                 # poly = [p for p in wire.discretize(Deflection=0.02)][:-1]
-                poly = [p for p in wire.discretize(Deflection=0.02)]
+                poly = [p for p in indexedWire.discretize(Deflection=0.02)]
                 polygon = [(p.x, p.y, p.z) for p in poly]
         crd.point.setValues(polygon)
 
@@ -281,8 +296,10 @@ class TaskPanelExtensionPage(PathOpGui.TaskPanelPage):
         if obj.ExtensionCorners != self.form.extendCorners.isChecked():
             self.form.extendCorners.toggle()
 
-        self._autoEnableExtensions()  # Check edge count for auto-disable Extensions on initial Task Panel loading
-        self._initializeExtensions(obj)  # Efficiently initialize Extensions
+        # Check edge count for auto-disable Extensions on initial Task Panel loading
+        self._autoEnableExtensions(obj)
+        # Efficiently initialize Extensions
+        self._initializeExtensions(obj)
         self.defaultLength.updateSpinBox()
         self._getUseOutlineState()  # Find `useOutline` checkbox and get its boolean value
         self.lastDefaultLength = self.form.defaultLength.text()  # set last DL value
@@ -293,13 +310,14 @@ class TaskPanelExtensionPage(PathOpGui.TaskPanelPage):
         Subroutine called inside `setFields()` to initialize Extensions efficiently."""
         if self.enabled:
             self.extensions = FeatureExtensions.getExtensions(obj)
+            self.setExtensions(self.extensions)
         elif len(obj.ExtensionFeature) > 0:
             self.extensions = FeatureExtensions.getExtensions(obj)
             self.form.enableExtensions.setChecked(True)
             self._includeEdgesAndWires()
+            self.setExtensions(self.extensions)
         else:
             self.form.extensionEdit.setDisabled(True)
-        self.setExtensions(self.extensions)
 
     def _applyDefaultLengthChange(self, index=None):
         """_applyDefaultLengthChange(index=None)...
@@ -666,7 +684,7 @@ class TaskPanelExtensionPage(PathOpGui.TaskPanelPage):
         self.useOutline = -1
 
     # Methods for enable and disablement of Extensions feature
-    def _autoEnableExtensions(self):
+    def _autoEnableExtensions(self, obj):
         """_autoEnableExtensions() ...
         This method is called to determine if the Extensions feature should be enabled,
         or auto disabled due to total edge count of selected faces.
@@ -679,10 +697,15 @@ class TaskPanelExtensionPage(PathOpGui.TaskPanelPage):
         """
         enabled = False
 
-        if self.form.enableExtensions.isChecked():
+        if (
+            self.form.enableExtensions.isChecked()
+            and len(obj.Base) > 0
+            and len(obj.Base[0]) > 0
+        ):
             enabled = True
 
-        PathLog.debug("_autoEnableExtensions() is {}".format(enabled))
+        PathLog.info(f"_autoEnableExtensions() is {enabled}")
+        PathLog.info(f"_autoEnableExtensions() obj.Base: {obj.Base}")
         self.enabled = enabled
 
     def _enableExtensions(self):
@@ -700,6 +723,7 @@ class TaskPanelExtensionPage(PathOpGui.TaskPanelPage):
             self.extensions = FeatureExtensions.getExtensions(self.obj)
             self.setExtensions(self.extensions)
         else:
+            self._resetCachedExtensions()
             self.form.extensionEdit.setDisabled(True)
             self.enabled = False
 
@@ -735,11 +759,11 @@ class TaskPanelExtensionPage(PathOpGui.TaskPanelPage):
 
     def _resetCachedExtensions(self):
         PathLog.debug("_resetCachedExtensions()")
-        reset = dict()
+        reset = {}
         self.extensionsCache = reset
         self.extensionsReady = False
 
 
 # Eclass
 
-FreeCAD.Console.PrintMessage("Loading PathFeatureExtensionsGui module\n")
+FreeCAD.Console.PrintWarning("Loading PathFeatureExtensionsGui module\n")

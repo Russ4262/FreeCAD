@@ -382,7 +382,7 @@ def turnselect():
 
 def select(op):
     opsel = {}
-    opsel["BuildShape"] = profileselect
+    opsel["TargetShape"] = profileselect
     opsel["Contour"] = contourselect  # deprecated
     opsel["Deburr"] = chamferselect
     opsel["Drilling"] = drillselect

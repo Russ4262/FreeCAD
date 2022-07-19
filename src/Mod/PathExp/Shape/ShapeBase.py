@@ -1186,7 +1186,7 @@ class ObjectOp2(object):
         usePrevious = None
 
         if not (FeatureIndexedRotation & self.features):
-            PathLog.debug("_applyRotation() No rotation enabled.")
+            print("_applyRotation() No rotation enabled.")
             return
 
         if obj.RotationBase is None or not obj.RotationBase:
@@ -1251,7 +1251,7 @@ class ObjectOp2(object):
 
     def _restoreRotation(self, obj):
         if not (FeatureIndexedRotation & self.features) or not self.canDoRotation:
-            PathLog.debug("_restoreRotation() No rotation restoration required.")
+            print("_restoreRotation() No rotation restoration required.")
             return
 
         # if False and obj.ResetIndexTo == "None":

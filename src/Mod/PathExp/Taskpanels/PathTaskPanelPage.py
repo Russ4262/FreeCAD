@@ -142,11 +142,24 @@ class TaskPanelPage(object):
     def selectInComboBox(self, name, combo):
         """selectInComboBox(name, combo) ...
         helper function to select a specific value in a combo box."""
-        index = combo.findText(name, QtCore.Qt.MatchFixedString)
-        if index >= 0:
-            combo.blockSignals(True)
-            combo.setCurrentIndex(index)
-            combo.blockSignals(False)
+        blocker = QtCore.QSignalBlocker(combo)
+        index = combo.currentIndex()  # Save initial index
+
+        # Search using currentData and return if found
+        newindex = combo.findData(name)
+        if newindex >= 0:
+            combo.setCurrentIndex(newindex)
+            return
+
+        # if not found, search using current text
+        newindex = combo.findText(name, QtCore.Qt.MatchFixedString)
+        if newindex >= 0:
+            combo.setCurrentIndex(newindex)
+            return
+
+        # not found, return unchanged
+        combo.setCurrentIndex(index)
+        return
 
     def resetToolController(self, job, tc):
         if self.obj is not None:

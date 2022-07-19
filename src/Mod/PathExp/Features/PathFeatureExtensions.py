@@ -140,7 +140,8 @@ def _offsetDiscretizedEdge(feature, edge, direction, length):
 
 def extendWire(feature, wire, length):
     """extendWire(feature, wire, length) ... return a closed Wire which extends wire by length"""
-    PathLog.track(length)
+
+    PathLog.track(feature, length)
 
     if not length or length == 0:
         return None
@@ -305,6 +306,8 @@ class Extension(object):
         self.isDebug = True if PathLog.getLevel(PathLog.thisModule()) == 4 else False
         self.extType = "Regular"
         self.wire = None
+        self.indexedObjShape = None
+        self.rotationsApplied = None
 
     def getSubLink(self):
         return "%s:%s" % (self.feature, self.sub)
@@ -322,15 +325,18 @@ class Extension(object):
         return ["Edge%s" % nr for nr in self._getEdgeNumbers()]
 
     def _getEdges(self):
-        return [self.obj.Shape.getElement(sub) for sub in self._getEdgeNames()]
+        # return [self.obj.Shape.getElement(sub) for sub in self._getEdgeNames()]
+        return [self.indexedObjShape.getElement(sub) for sub in self._getEdgeNames()]
 
     def _getDirectedNormal(self, p0, normal):
         poffPlus = p0 + 0.01 * normal
         poffMinus = p0 - 0.01 * normal
-        if not self.obj.Shape.isInside(poffPlus, 0.005, True):
+        # if not self.obj.Shape.isInside(poffPlus, 0.005, True):
+        if not self.indexedObjShape.isInside(poffPlus, 0.005, True):
             return normal
 
-        if not self.obj.Shape.isInside(poffMinus, 0.005, True):
+        # if not self.obj.Shape.isInside(poffMinus, 0.005, True):
+        if not self.indexedObjShape.isInside(poffMinus, 0.005, True):
             return normal.negative()
 
         return None
@@ -362,14 +368,27 @@ class Extension(object):
         """getWire()... Public method to retrieve the extension area, pertaining to the feature
         and sub element provided at class instantiation, as a closed wire.  If no closed wire
         is possible, a `None` value is returned."""
+        rtn = None
+
+        # Prepare indexed model shape for fabricating extensions
+        (
+            self.rotationsApplied,
+            self.indexedObjShape,
+        ) = self.op.Proxy._getRotatedBaseShape(self.op, self.obj)
+
+        # Fabricate extensions
         if self.extType == "Regular":
-            return self._getRegularWire()
+            rtn = self._getRegularWire()
         elif self.extType == "Avoid":
-            return self._getAvoidWire()
+            rtn = self._getAvoidWire()
         elif self.extType == "Waterline":
-            return self._getWaterlineWire()
-        PathLog.error(f"Extension type error: {self.extType}")
-        return None
+            rtn = self._getWaterlineWire()
+        else:
+            PathLog.error(f"Extension type error: {self.extType}")
+        # clear indexed model shape
+        self.indexedObjShape = None
+
+        return rtn
 
     def _processRegularEdge(self, feature, edges, sub, length):
         PathLog.debug("Extending single edge wire")
@@ -465,6 +484,7 @@ class Extension(object):
 
         extendedWire = _extendEdge(feature, edge, direction, length)
         if extendedWire is None:
+            PathLog.debug(f"Discretizing {sub}")
             extendedWire = _offsetDiscretizedEdge(feature, edge, direction, length)
         self.wire = extendedWire
 
@@ -485,21 +505,34 @@ class Extension(object):
         PathLog.debug("Extending multi-edge closed wire")
         subFace = Part.Face(sub)
         featFace = Part.Face(feature.Wires[0])
+
         isOutside = True
+        offset = length
         if not PathGeom.isRoughly(featFace.Area, subFace.Area):
-            length = -1.0 * length
+            offset = -1.0 * length
             isOutside = False
 
         try:
-            off2D = sub.makeOffset2D(length)
+            off2D = sub.makeOffset2D(offset)
+            offFace = Part.Face(off2D)
+            # Verify offset direction was correct
+            if offFace.Area < featFace.Area * 0.98:
+                if isOutside:
+                    isOutside = False
+                else:
+                    isOutside = True
+                offset = -1.0 * offset
+                off2D = sub.makeOffset2D(offset)
+                offFace = Part.Face(off2D)
         except FreeCAD.Base.FreeCADError as ee:
             PathLog.debug(ee)
             return None
 
         if isOutside:
-            self.extFaces = [Part.Face(off2D).cut(featFace)]
+            self.extFaces = [offFace.cut(featFace)]
         else:
-            self.extFaces = [subFace.cut(Part.Face(off2D))]
+            # self.extFaces = [subFace.cut(offFace)]
+            self.extFaces = [featFace.cut(offFace)]
         return off2D
 
     def _processRegularMultiEdges(self, feature, sub, length):
@@ -511,7 +544,8 @@ class Extension(object):
 
         # Trim wire face using model
         extFace = Part.Face(extendedWire)
-        trimmedWire = extFace.cut(self.obj.Shape).Wires[0]
+        # trimmedWire = extFace.cut(self.obj.Shape).Wires[0]
+        trimmedWire = extFace.cut(self.indexedObjShape).Wires[0]
         return trimmedWire.copy()
 
     def _getRegularWire(self):
@@ -525,7 +559,8 @@ class Extension(object):
             PathLog.debug("no extension, length=%.2f, sub=%s" % (length, self.sub))
             return None
 
-        feature = self.obj.Shape.getElement(self.feature)
+        # feature = self.obj.Shape.getElement(self.feature)
+        feature = self.indexedObjShape.getElement(self.feature)
         edges = self._getEdges()
         sub = Part.Wire(Part.sortEdges(edges)[0])
 
@@ -548,7 +583,8 @@ class Extension(object):
             PathLog.debug("no extension, length=%.2f, sub=%s" % (length, self.sub))
             return None
 
-        feature = self.obj.Shape.getElement(self.feature)
+        # feature = self.obj.Shape.getElement(self.feature)
+        feature = self.indexedObjShape.getElement(self.feature)
         edges = self._getEdges()
         sub = Part.Wire(Part.sortEdges(edges)[0])
 
@@ -685,7 +721,8 @@ class Extension(object):
 
         # Trim wire face using model
         extFace = Part.Face(extendedWire)
-        trimmedWire = extFace.cut(self.obj.Shape).Wires[0]
+        # trimmedWire = extFace.cut(self.obj.Shape).Wires[0]
+        trimmedWire = extFace.cut(self.indexedObjShape).Wires[0]
         return trimmedWire.copy()
 
     def _makeCircularExtFace(self, edge, extWire):
@@ -964,4 +1001,4 @@ def SetupProperties():
     return setup
 
 
-FreeCAD.Console.PrintMessage("Loading PathFeatureExtensions module\n")
+FreeCAD.Console.PrintLog("Loading PathFeatureExtensions module\n")

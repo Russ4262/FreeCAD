@@ -538,17 +538,26 @@ def _flipBSplineBezier(edge):
 
     ma = max(knots)
     mi = min(knots)
-    knots = [ma + mi - k for k in knots]
+    knotsRev = [ma + mi - k for k in knots]
 
     mults.reverse()
     weights.reverse()
     poles.reverse()
-    knots.reverse()
+    knotsRev.reverse()
 
     flipped = Part.BSplineCurve()
-    flipped.buildFromPolesMultsKnots(poles, mults, knots, perio, degree, weights, ratio)
+    flipped.buildFromPolesMultsKnots(
+        poles, mults, knotsRev, perio, degree, weights, ratio
+    )
 
-    return Part.Edge(flipped)
+    firstParam = 0.0
+    lastParam = 1.0
+    if not PathGeom.isRoughly(edge.LastParameter, 1.0):
+        firstParam = 1.0 - edge.LastParameter
+    if not PathGeom.isRoughly(edge.FirstParameter, 0.0):
+        lastParam = 1.0 - edge.FirstParameter
+
+    return Part.Edge(flipped, firstParam, lastParam)
 
 
 def _flipEllipse(edge, deflection=0.001):
@@ -806,4 +815,4 @@ def getJobAndToolController():
     return job, getToolControllerFromJob(job)
 
 
-print("Imported Generator_Utilities")
+# print("Imported Generator_Utilities")

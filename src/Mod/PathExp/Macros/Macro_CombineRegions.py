@@ -420,7 +420,7 @@ def identifyRegions(faceShapes, saveExistingHoles=True, saveMergedHoles=True):
 
     fusedFlatOuterWires = _fuseFlatWireAreas(flatOuterWires)
     if len(fusedFlatOuterWires) == 0:
-        print("No fused flat outer wires")
+        FreeCAD.Console.PrintError("identifyRegions() No fused flat outer wires\n")
         Part.show(Part.makeCompound(flatOuterWires), "FlatOuterWires")
         return [], []
 
@@ -484,7 +484,7 @@ def combineRegions(faces, saveExistingHoles=True, saveMergedHoles=True):
     return None
 
 
-print("Imported Macro_CombineRegions")
+# print("Imported Macro_CombineRegions")
 
 
 if IS_MACRO and FreeCAD.GuiUp:

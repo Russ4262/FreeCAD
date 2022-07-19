@@ -80,7 +80,7 @@ class PathExpWorkbench(Workbench):
             FreeCAD.getUserAppDataDir() + "Mod/PathExp/GuiSupport/PathExpWorkbench.svg"
         )
         FreeCADGui.addCommand("_LoadPathWorkbench", pwbc)
-        FreeCADGui.addCommand("_BuildShape", PathExpCommands._BuildShape())
+        FreeCADGui.addCommand("_TargetShape", PathExpCommands._TargetShape())
         FreeCADGui.addCommand("_StartOperation", PathExpCommands._StartOperation())
 
         # import MyModuleA, MyModuleB  # import here all the needed files that create your FreeCAD commands
@@ -92,7 +92,7 @@ class PathExpWorkbench(Workbench):
             # "PathExp_Sample",
             # "PathExp_Slot",
             "_LoadPathWorkbench",
-            "_BuildShape",
+            "_TargetShape",
             "_StartOperation",
         ]
         # creates a new toolbar with your commands

@@ -169,16 +169,17 @@ class _LoadPathWorkbench:
         FreeCADGui.activateWorkbench("PathWorkbench")
 
 
-class _BuildShape:
+class _TargetShape:
     "command definition to build a target shape"
 
     def GetResources(self):
         return {
             "Pixmap": "Path_Simulator",  # Path_SelectLoop
-            "MenuText": QT_TRANSLATE_NOOP("PathExp", "Build Shape"),
+            "MenuText": QT_TRANSLATE_NOOP("PathExp", "Target Shape"),
             "Accel": "P, B",
             "ToolTip": QT_TRANSLATE_NOOP(
-                "PathExp", "Build a new shape as a basis for a subsequent operation."
+                "PathExp",
+                "Build a target shape as a basis for a subsequent cutting operation.",
             ),
             "CmdType": "ForEdit",
         }
@@ -189,9 +190,9 @@ class _BuildShape:
         return True
 
     def Activated(self):
-        import Shape.BuildShapeGui as BuildShapeGui
+        import Shape.TargetShapeGui as TargetShapeGui
 
-        BuildShapeGui.Command.Activated()
+        TargetShapeGui.Command.Activated()
 
         FreeCAD.ActiveDocument.recompute()
 
