@@ -373,7 +373,7 @@ class ObjectOp(PathOp.ObjectOp):
             pathGeom.append(pathShape)
 
             for dep in depths[1:]:
-                print(f"depth: {dep}")
+                # print(f"depth: {dep}")
                 paths = Generator_Profile.geometryToGcode(
                     pathShape,
                     obj.ToolController,
@@ -414,7 +414,7 @@ class ObjectOp(PathOp.ObjectOp):
             )
             pathGeom.extend(pathWires)
 
-            print(f"depth: {targetFace.BoundBox.ZMin}")
+            # print(f"depth: {targetFace.BoundBox.ZMin}")
             paths = Generator_Profile.geometryToGcode(
                 pathWires,
                 obj.ToolController,

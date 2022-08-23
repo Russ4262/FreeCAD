@@ -162,6 +162,7 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
             label = "preview"
             # shp = self.obj.Shape
             negRotations = [(a, -1.0 * d) for a, d in self.rotations]
+            negRotations.reverse()
 
             shp = TargetShape.AlignToFeature.rotateShapeWithList(
                 self.obj.Shape, negRotations

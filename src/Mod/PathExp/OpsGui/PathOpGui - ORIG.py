@@ -451,7 +451,7 @@ class TaskPanelPage(object):
                             break
 
 
-class TaskPanelBaseGeometryPage_Orig(TaskPanelPage):
+class TaskPanelBaseGeometryPage(TaskPanelPage):
     """Page controller for the base geometry."""
 
     DataObject = QtCore.Qt.ItemDataRole.UserRole
@@ -688,7 +688,7 @@ class TaskPanelBaseGeometryPage_Orig(TaskPanelPage):
         )
 
 
-class TaskPanelBaseLocationPage_Orig(TaskPanelPage):
+class TaskPanelBaseLocationPage(TaskPanelPage):
     """Page controller for base locations. Uses PathGetPoint."""
 
     DataLocation = QtCore.Qt.ItemDataRole.UserRole
@@ -811,7 +811,7 @@ class TaskPanelBaseLocationPage_Orig(TaskPanelPage):
             self.setFields(obj)
 
 
-class TaskPanelHeightsPage_Orig(TaskPanelPage):
+class TaskPanelHeightsPage(TaskPanelPage):
     """Page controller for heights."""
 
     def __init__(self, obj, features):
@@ -857,7 +857,7 @@ class TaskPanelHeightsPage_Orig(TaskPanelPage):
             self.setFields(obj)
 
 
-class TaskPanelDepthsPage_Orig(TaskPanelPage):
+class TaskPanelDepthsPage(TaskPanelPage):
     """Page controller for depths."""
 
     def __init__(self, obj, features):
@@ -1020,7 +1020,7 @@ class TaskPanelDepthsPage_Orig(TaskPanelPage):
             self.form.finalDepthSet.setEnabled(False)
 
 
-class TaskPanelDiametersPage_Orig(TaskPanelPage):
+class TaskPanelDiametersPage(TaskPanelPage):
     """Page controller for diameters."""
 
     def __init__(self, obj, features):

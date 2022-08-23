@@ -24,6 +24,7 @@ import FreeCAD
 import PathScripts.PathJob as PathJob
 import PathScripts.PathLog as PathLog
 import PathScripts.PathUtils as PathUtils
+import PathScripts.PathGui as PathGui
 
 from PySide import QtCore
 

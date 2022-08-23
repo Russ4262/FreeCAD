@@ -25,7 +25,7 @@ import FreeCADGui
 import PathScripts.PathGui as PathGui
 
 # import PathScripts.PathOpGui as PathOpGui
-import OpsGui.PathOpGui3 as PathOpGui
+import OpsGui.PathOpGui3 as PathOpGui3
 import Ops.PathProfile as PathProfile
 from PySide.QtCore import QT_TRANSLATE_NOOP
 
@@ -40,7 +40,7 @@ FeatureSide = 0x01
 FeatureProcessing = 0x02
 
 
-class TaskPanelOpPage(PathOpGui.TaskPanelPage):
+class TaskPanelOpPage(PathOpGui3.TaskPanelPage):
     """Base class for profile operation page controllers. Two sub features are supported:
     FeatureSide       ... Is the Side property exposed in the UI
     FeatureProcessing ... Are the processing check boxes supported by the operation
@@ -173,21 +173,11 @@ class TaskPanelOpPage(PathOpGui.TaskPanelPage):
     def registerSignalHandlers(self, obj):
         self.form.useCompensation.stateChanged.connect(self.updateVisibility)
 
-    def _populateTargetShapes(self, obj):
-        tsObjects = [
-            (o.Label, o.Name)
-            for o in obj.Proxy.job.Operations.Group
-            if o.Name.startswith("TargetShape")
-        ]
-        enumTups = {"TargetShape": tsObjects}
-        comboBoxesPropertyMap = [("targetShape", "TargetShape")]
-        PathGui.populateCombobox(self.form, enumTups, comboBoxesPropertyMap)
-
 
 # Eclass
 
 
-Command = PathOpGui.SetupOperation(
+Command = PathOpGui3.SetupOperation(
     "Profile",
     PathProfile.Create,
     TaskPanelOpPage,

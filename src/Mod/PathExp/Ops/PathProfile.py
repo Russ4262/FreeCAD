@@ -236,9 +236,13 @@ class ObjectProfile(PathAreaOp.ObjectOp):
     def areaOpPropertyDefaults(self, obj, job):
         """areaOpPropertyDefaults(obj, job) ... returns a dictionary of default values
         for the operation's properties."""
-        targetShps = [None] + [
-            o for o in job.Operations.Group if o.Name.startswith("TargetShape")
-        ]
+        targetShps = [None]
+        for o in job.Operations.Group:
+            if o.Name.startswith("TargetShape"):
+                targetShps.append(o)
+            elif hasattr(o, "TargetShape") and o.TargetShape is not None:
+                targetShps.append(o.TargetShape)
+
         return {
             "Direction": "CW",
             "HandleMultipleFeatures": "Collectively",

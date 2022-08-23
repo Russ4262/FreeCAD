@@ -225,7 +225,7 @@ class TargetShape(PathOp2.ObjectOp2):
         # self._printCurrentDepths(obj, "Pre-opUpdateDepths")
         AlignToFeature.CENTER_OF_ROTATION = obj.CenterOfRotation
         rotations, __ = AlignToFeature.getRotationsForObject(obj)
-        print(f"opUpdateDepths() rotations: {rotations}")
+        # print(f"opUpdateDepths() rotations: {rotations}")
         mins = []
         if not obj.Base or len(obj.Base) == 0:
             for m in self.job.Model.Group:
@@ -310,11 +310,11 @@ class TargetShape(PathOp2.ObjectOp2):
         rOrder, rVals = AlignToFeature._rotationsToOrderAndValues(rotations)
         obj.RotationsOrder = rOrder
         obj.RotationsValues = rVals
-        print(
-            f"TargetShape.opExecute()\nobj.RotationsValues: {obj.RotationsValues};  \nobj.RotationsOrder: {obj.RotationsOrder};  \nobj.InvertDirection: {obj.InvertDirection}\nSD: {obj.StartDepth.Value};  FD: {obj.FinalDepth.Value}"
-        )
-        print(f"restore rotations as: {self._getRotationsList(obj)}")
-        print(f"actual rotations: {rotations}")
+        # print(
+        #    f"TargetShape.opExecute()\nobj.RotationsValues: {obj.RotationsValues};  \nobj.RotationsOrder: {obj.RotationsOrder};  \nobj.InvertDirection: {obj.InvertDirection}\nSD: {obj.StartDepth.Value};  FD: {obj.FinalDepth.Value}"
+        # )
+        # print(f"restore rotations as: {self._getRotationsList(obj)}")
+        # print(f"actual rotations: {rotations}")
 
         # Get extensions and identify faces to avoid
         extensions = FeatureExtensions.getExtensions(obj)
@@ -392,7 +392,7 @@ class TargetShape(PathOp2.ObjectOp2):
                         FreeCAD.Vector(0.0, 0.0, -1.0 * stockThickness)
                     )
                     trimWithFaces = extReg.cut(extSrc)
-                    trimWithBase = trimWithFaces.cut(rotatedBaseShp)
+                    trimWithBase = trimWithFaces.cut(rotatedBaseShp).removeSplitter()
                     # trimWithBase = trimWithFaces.cut(base.Shape)
                     # shape = trimWithBase.common(self.job.Stock.Shape)
                     # targetShapes.append(shape)

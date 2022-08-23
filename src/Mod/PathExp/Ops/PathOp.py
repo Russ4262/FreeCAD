@@ -569,14 +569,14 @@ class ObjectOp(object):
 
         if FeatureTool & features:
             if 1 < len(job.Operations.Group):
-                print("PathOp.setDefaultValues() 1<len(opGrp)")
+                # print("PathOp.setDefaultValues() 1<len(opGrp)")
                 obj.ToolController = PathUtil.toolControllerForOp(
                     job.Operations.Group[-2]
                 )
                 if not obj.ToolController:
                     obj.ToolController = PathUtils.findToolController(obj, self)
             else:
-                print("PathOp.setDefaultValues() ELSE 1<len(opGrp)")
+                # print("PathOp.setDefaultValues() ELSE 1<len(opGrp)")
                 obj.ToolController = PathUtils.findToolController(obj, self)
             if not obj.ToolController:
                 raise PathNoTCException()

@@ -1077,9 +1077,13 @@ class PathAdaptive(PathOp.ObjectOp):
         obj.setEditorMode("removalshape", 2)  # hide
 
     def opSetDefaultValues(self, obj, job):
-        targetShps = [None] + [
-            o for o in job.Operations.Group if o.Name.startswith("TargetShape")
-        ]
+        targetShps = [None]
+        for o in job.Operations.Group:
+            if o.Name.startswith("TargetShape"):
+                targetShps.append(o)
+            elif hasattr(o, "TargetShape") and o.TargetShape is not None:
+                targetShps.append(o.TargetShape)
+
         obj.TargetShape = targetShps[-1]
         obj.Side = "Inside"
         obj.OperationType = "Clearing"
@@ -1143,20 +1147,27 @@ class PathAdaptive(PathOp.ObjectOp):
 
         self.commandlist.extend(self._getRotationCommands(obj))
         if obj.UseProjection:
+            print("PathAdaptive.opExecute() obj.UseProjection")
             edge_list = list()
             if obj.TargetShape:
                 # print(f"SD: {obj.StartDepth.Value};  FD: {obj.FinalDepth.Value}")
                 for s in obj.TargetShape.Shape.Solids:
+                    # Part.show(s, "Shape_Solid")
                     bottomFaces = _getBottomFacesOfSolid(s)
                     for f in bottomFaces:
+                        # Part.show(f, "BotFace")
+                        print("bottom face...")
                         for w in f.Wires:
                             for e in w.Edges:
                                 edge_list.append([discretize(e)])
+            else:
+                print("PathAdaptive.opExecute() No TargetShape")
 
             self.pathArray = edge_list
             self.depth_params = depth_params
             Execute(self, obj)
         else:
+            print("PathAdaptive.opExecute() NOT obj.UseProjection")
             lastDepth = obj.StartDepth.Value
             for layerDepth in depth_params.data:
                 # Create layer-specific set of depth params
