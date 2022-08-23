@@ -1129,6 +1129,7 @@ class ObjectOp2(object):
                     targetOp = op
         return targetOp
 
+    '''
     # Rotation-related methods
     def _applyRotation(self, obj):
         """_applyRotation(self, obj)
@@ -1139,7 +1140,7 @@ class ObjectOp2(object):
         usePrevious = None
 
         if not (FeatureIndexedRotation & self.features):
-            PathLog.debug("_applyRotation() No rotation enabled.")
+            PathLog.info("_applyRotation() No rotation enabled.")
             return
 
         if obj.RotationBase is None or not obj.RotationBase:
@@ -1207,13 +1208,10 @@ class ObjectOp2(object):
             PathLog.debug("_restoreRotation() No rotation restoration required.")
             return
 
-        # if False and obj.ResetIndexTo == "None":
-        #    # do not rotate stock and models
-        #    print("_applyRotation() No index reset requested.")
-        #    return
-
         self.resetModelToInitPlacement(obj, True)
         self.commandlist.extend(self.resetRotationCommands)
+
+    '''
 
     def _getAxisVector(self, axis):
         millAxis = ""
@@ -1870,24 +1868,16 @@ class ObjectOp2(object):
         # in case they still have an expression referencing any op values
         obj.recompute()
 
-        self.commandlist = []
-        self.commandlist.append(Path.Command("(%s)" % obj.Label))
-        if obj.Comment:
-            self.commandlist.append(Path.Command("(%s)" % obj.Comment))
-
-        self._applyRotation(obj)
+        # Rotate the model
+        # self._applyRotation(obj)
 
         result = self.opExecute(obj)  # pylint: disable=assignment-from-no-return
 
-        self._restoreRotation(obj)
+        # self._restoreRotation(obj)
 
-        if self.commandlist and (FeatureHeightsDepths & self.features):
-            # Let's finish by rapid to clearance...just for safety
-            self.commandlist.append(
-                Path.Command("G0", {"Z": obj.ClearanceHeight.Value})
-            )
-
-        obj.Path = Path.Path(self.commandlist)
+        obj.Path = Path.Path(
+            []
+        )  # obj.Path must be of type `Path`, so an empty list is passed
 
         if obj.ShowShape and obj.Shape:
             showShape(obj)

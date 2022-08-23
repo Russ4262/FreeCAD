@@ -49,29 +49,8 @@ def _normalizeDegrees(degree):
         return degree
 
 
-def getRotationsForObject_orig(obj):
-    print("getRotationsForObject()")
-    if obj.Face == "None" and obj.Edge == "None":
-        FreeCAD.Console.PrintWarning("Feature name is None.\n")
-        return (
-            FreeCAD.Vector(0.0, 0.0, 0.0),
-            False,
-        )
-
-    if obj.Edge != "None":
-        rotations, isPlanar = getRotationToLineByName(
-            obj.Model, obj.Edge, obj.InvertDirection
-        )
-    else:
-        rotations, isPlanar = getRotationToFace(
-            FreeCAD.ActiveDocument.getObject(obj.Model.Name), obj.Face
-        )
-    # print(f"getRotations() final rotations: {rotations}")
-    return rotations, isPlanar
-
-
 def getRotationsForObject(obj):
-    print("getRotationsForObject()")
+    # print("getRotationsForObject()")
     if obj.Face == "None" and obj.Edge == "None":
         FreeCAD.Console.PrintWarning("Feature name is None.\n")
         return ([], False)
@@ -240,7 +219,7 @@ def _getTwoSolutions(face, norm):
 def _calculateRotationsToFace(face):
     """_calculateRotationsToFace(face)
     Return necessary degree rotations to align given face with Z=1, in vector form x, y, and z."""
-    print("Macro_AlignToFeature._calculateRotationsToFace()")
+    # print("Macro_AlignToFeature._calculateRotationsToFace()")
 
     rotations = []  # Preferred because rotation order is important
     cycles = 0
@@ -369,7 +348,7 @@ def _rotationsToOrderAndValues(rotations):
 def getRotationToFace(base, faceName):
     """getRotationToFace(base, face, label)
     Return necessary degree rotations to align given face with Z=1, in vector form x, y, and z."""
-    print("Macro_AlignToFeature.getRotationToFace()")
+    # print("Macro_AlignToFeature.getRotationToFace()")
     global GROUP
 
     face = base.Shape.getElement(faceName)

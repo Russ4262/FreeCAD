@@ -48,7 +48,7 @@ else:
 # PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 # PathLog.trackModule(PathLog.thisModule())
 
-isDebug = True  # True if PathLog.getLevel(PathLog.thisModule()) == 4 else False
+isDebug = False  # True if PathLog.getLevel(PathLog.thisModule()) == 4 else False
 showDebugShapes = False
 
 _face = None
@@ -81,12 +81,12 @@ def _debugMsg(msg, isError=False):
     If not, then the message is assigned a debug status.
     """
     if isError:
-        PathLog.error("Generator_Line: " + msg + "\n")
+        PathLog.error("Generator_Profile: " + msg + "\n")
         return
 
     if isDebug:
         # PathLog.info(msg)
-        FreeCAD.Console.PrintMessage("Generator_Line: " + msg + "\n")
+        FreeCAD.Console.PrintMessage("Generator_Profile: " + msg + "\n")
     else:
         PathLog.debug(msg)
 

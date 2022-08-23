@@ -22,14 +22,14 @@
 # ***************************************************************************
 
 import FreeCAD
-import OpsGui.PathOpGui as PathOpGui
+import OpsGui.PathOpGui3 as PathOpGui3
 from PySide import QtCore
 import Ops.PathAdaptive as PathAdaptive
 import FreeCADGui
 import PathScripts.PathGui as PathGui
 
 
-class TaskPanelOpPage(PathOpGui.TaskPanelPage):
+class TaskPanelOpPage(PathOpGui3.TaskPanelPage):
     def initPage(self, obj):
         self.setTitle("Adaptive - " + obj.Label)
         self.targetShapeList = []
@@ -149,18 +149,8 @@ class TaskPanelOpPage(PathOpGui.TaskPanelPage):
         obj.setEditorMode("StopProcessing", 2)  # hide this property
         obj.setEditorMode("Stopped", 2)  # hide this property
 
-    def _populateTargetShapes(self, obj):
-        tsObjects = [
-            (o.Label, o.Name)
-            for o in obj.Proxy.job.Operations.Group
-            if o.Name.startswith("TargetShape")
-        ]
-        enumTups = {"TargetShape": tsObjects}
-        comboBoxesPropertyMap = [("targetShape", "TargetShape")]
-        PathGui.populateCombobox(self.form, enumTups, comboBoxesPropertyMap)
 
-
-Command = PathOpGui.SetupOperation(
+Command = PathOpGui3.SetupOperation(
     "Adaptive",
     PathAdaptive.Create,
     TaskPanelOpPage,
