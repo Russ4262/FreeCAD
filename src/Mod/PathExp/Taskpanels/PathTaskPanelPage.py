@@ -227,6 +227,17 @@ class TaskPanelPage(object):
                         page.updateVisibility()
                         break
 
+    def _populateTargetShapes(self, obj):
+        tsObjects = []
+        for o in obj.Proxy.job.Operations.Group:
+            if o.Name.startswith("TargetShape"):
+                tsObjects.append((o.Label, o.Name))
+            elif hasattr(o, "TargetShape") and o.TargetShape is not None:
+                tsObjects.append((o.TargetShape.Label, o.TargetShape.Name))
+        enumTups = {"TargetShape": tsObjects}
+        comboBoxesPropertyMap = [("targetShape", "TargetShape")]
+        PathGui.populateCombobox(self.form, enumTups, comboBoxesPropertyMap)
+
     # Child classes to be overwritten
     def initPage(self, obj):
         """initPage(obj) ... overwrite to customize UI for specific model.

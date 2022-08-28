@@ -22,55 +22,73 @@
 
 import FreeCAD
 import FreeCADGui
-import PathScripts.PathLog as PathLog
+import PathGui as PGui  # ensure Path/Gui/Resources are loaded
 import Ops.PathOp2 as PathOp2
+import PathScripts.PathLog as PathLog
+import Taskpanels.PathTaskPanelPage as PathTaskPanelPage
 import Taskpanels.PathTaskPanelPage as PathTaskPanelPage
 
 from PySide import QtCore, QtGui
 
-
-__title__ = "Path UI Task Panel Pages base classes"
+__title__ = "Base for Circular Hole based operations' UI"
 __author__ = "sliptonic (Brad Collette)"
 __url__ = "https://www.freecadweb.org"
-__doc__ = "Base classes for UI features within Path operations"
-
+__doc__ = "Implementation of circular hole specific base geometry page controller."
 
 translate = PathTaskPanelPage.translate
 
+LOGLEVEL = False
 
-PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
-# PathLog.trackModule(PathLog.thisModule())
+if LOGLEVEL:
+    PathLog.setLevel(PathLog.Level.DEBUG, PathLog.thisModule())
+    PathLog.trackModule(PathLog.thisModule())
+else:
+    PathLog.setLevel(PathLog.Level.NOTICE, PathLog.thisModule())
 
 
-class TaskPanelBaseGeometryPage(PathTaskPanelPage.TaskPanelPage):
+class TaskPanelHoleGeometryPage(PathTaskPanelPage.TaskPanelPage):
     """Page controller for the base geometry."""
 
-    DataObject = QtCore.Qt.ItemDataRole.UserRole
-    DataObjectSub = QtCore.Qt.ItemDataRole.UserRole + 1
+    # DataObject = QtCore.Qt.ItemDataRole.UserRole
+    # DataObjectSub = QtCore.Qt.ItemDataRole.UserRole + 1
+
+    DataFeatureName = QtCore.Qt.ItemDataRole.UserRole
+    DataObject = QtCore.Qt.ItemDataRole.UserRole + 1
+    DataObjectSub = QtCore.Qt.ItemDataRole.UserRole + 2
+
+    InitBase = False
 
     def __init__(self, obj, features):
-        super(TaskPanelBaseGeometryPage, self).__init__(obj, features)
+        # super(TaskPanelBaseGeometryPage, self).__init__(obj, features)
+        super(TaskPanelHoleGeometryPage, self).__init__(obj, features)
 
-        # self.title = "Base Geometry"
-        self.OpIcon = ":/icons/Path_BaseGeometry.svg"
+        self.title = "Hole Geometry"
+        self.OpIcon = ":/icons/Path_Drilling.svg"
         self.setIcon(self.OpIcon)
 
-    def getForm(self):
+    def getForm_ORIG(self):
         panel = FreeCADGui.PySideUic.loadUi(":/panels/PageBaseGeometryEdit.ui")
         self.modifyPanel(panel)
+        return panel
+
+    def getForm(self):
+        """getForm() ... load and return page"""
+        # return FreeCADGui.PySideUic.loadUi(":/panels/PageBaseHoleGeometryEdit.ui")
+        panel = FreeCADGui.PySideUic.loadUi(":/panels/PageBaseHoleGeometryEdit.ui")
+        # self.modifyPanel(panel)
         return panel
 
     def modifyPanel(self, panel):
         """modifyPanel(self, panel) ...
         Helper method to modify the current form immediately after
         it is loaded."""
-        # Determine if Job operations are available with Base Geometry
-        availableOps = list()
-        ops = self.job.Operations.Group
-        for op in ops:
-            if hasattr(op, "Base") and isinstance(op.Base, list):
-                if len(op.Base) > 0:
-                    availableOps.append(op.Label)
+        # Determine if Job operations are available with Hole Geometry
+        availableOps = []
+        # ops = self.job.Operations.Group
+        # for op in ops:
+        #    if hasattr(op, "Hole") and isinstance(op.Hole, list):
+        #        if len(op.Hole) > 0:
+        #            availableOps.append(op.Label)
 
         # Load available operations into combobox
         if len(availableOps) > 0:
@@ -86,18 +104,18 @@ class TaskPanelBaseGeometryPage(PathTaskPanelPage.TaskPanelPage):
             panel.geometryImportButton.hide()
 
     def initPage(self, obj):
-        self.title = "Base Geometry"
+        self.updating = False
 
     def getTitle(self, obj):
-        return translate("PathOp2", "Base Geometry")
+        return translate("PathTaskPanelHoleGeometryPage", "Hole Geometry")
 
     def getFields(self, obj):
         pass
 
-    def setFields(self, obj):
+    def setFields_ORIG(self, obj):
         self.form.baseList.blockSignals(True)
         self.form.baseList.clear()
-        for base in self.obj.Base:
+        for base in self.obj.Hole:
             for sub in base[1]:
                 item = QtGui.QListWidgetItem("%s.%s" % (base[0].Label, sub))
                 item.setData(self.DataObject, base[0])
@@ -106,7 +124,42 @@ class TaskPanelBaseGeometryPage(PathTaskPanelPage.TaskPanelPage):
         self.form.baseList.blockSignals(False)
         self.resizeBaseList()
 
-    def itemActivated(self):
+    def setFields(self, obj):
+        """setFields(obj) ... fill form with values from obj"""
+        PathLog.track()
+        self.form.baseList.blockSignals(True)
+        self.form.baseList.clearContents()
+        self.form.baseList.setRowCount(0)
+        for (base, subs) in obj.Hole:
+            for sub in subs:
+                self.form.baseList.insertRow(self.form.baseList.rowCount())
+
+                item = QtGui.QTableWidgetItem("%s.%s" % (base.Label, sub))
+                item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
+                if obj.Proxy.isHoleEnabled(obj, base, sub):
+                    item.setCheckState(QtCore.Qt.Checked)
+                else:
+                    item.setCheckState(QtCore.Qt.Unchecked)
+                name = "%s.%s" % (base.Name, sub)
+                item.setData(self.DataFeatureName, name)
+                item.setData(self.DataObject, base)
+                item.setData(self.DataObjectSub, sub)
+                self.form.baseList.setItem(self.form.baseList.rowCount() - 1, 0, item)
+
+                dia = obj.Proxy.holeDiameter(base, sub)
+                item = QtGui.QTableWidgetItem("{:.3f}".format(dia))
+                item.setData(self.DataFeatureName, name)
+                item.setData(self.DataObject, base)
+                item.setData(self.DataObjectSub, sub)
+                item.setTextAlignment(QtCore.Qt.AlignHCenter)
+                self.form.baseList.setItem(self.form.baseList.rowCount() - 1, 1, item)
+
+        self.form.baseList.resizeColumnToContents(0)
+        self.form.baseList.blockSignals(False)
+        self.form.baseList.setSortingEnabled(True)
+        self.itemActivated()
+
+    def itemActivated_ORIG(self):
         FreeCADGui.Selection.clearSelection()
         for item in self.form.baseList.selectedItems():
             obj = item.data(self.DataObject)
@@ -115,7 +168,27 @@ class TaskPanelBaseGeometryPage(PathTaskPanelPage.TaskPanelPage):
                 FreeCADGui.Selection.addSelection(obj, sub)
             else:
                 FreeCADGui.Selection.addSelection(obj)
-        # FreeCADGui.updateGui()
+
+    def itemActivated(self):
+        """itemActivated() ... callback when item in table is selected"""
+        PathLog.track()
+        if self.form.baseList.selectedItems():
+            self.form.deleteBase.setEnabled(True)
+            FreeCADGui.Selection.clearSelection()
+            activatedRows = []
+            for item in self.form.baseList.selectedItems():
+                row = item.row()
+                if not row in activatedRows:
+                    activatedRows.append(row)
+                    obj = item.data(self.DataObject)
+                    sub = str(item.data(self.DataObjectSub))
+                    PathLog.debug("itemActivated() -> %s.%s" % (obj.Label, sub))
+                    if sub:
+                        FreeCADGui.Selection.addSelection(obj, sub)
+                    else:
+                        FreeCADGui.Selection.addSelection(obj)
+        else:
+            self.form.deleteBase.setEnabled(False)
 
     def supportsVertexes(self):
         return self.features & PathOp2.FeatureBaseVertexes
@@ -214,28 +287,28 @@ class TaskPanelBaseGeometryPage(PathTaskPanelPage.TaskPanelPage):
         if self.selectionSupportedAsBaseGeometry(selection, False):
             sel = selection[0]
             for sub in sel.SubElementNames:
-                self.obj.Proxy.addBase(self.obj, sel.Object, sub)
+                # self.obj.Proxy.addBase(self.obj, sel.Object, sub)
+                self.obj.Proxy.addHole(self.obj, sel.Object, sub)
             return True
         elif self.selectionSupportedAsTargetGeometry(selection, False):
             sel = selection[0].Object
             self.obj.TargetShape = sel
             PathLog.info(
                 translate(
-                    "PathTaskPanelBaseGeometryPage",
+                    "PathTaskPanelHoleGeometryPage",
                     "Target shape set to {}".format(sel.Name),
                 )
             )
         return False
 
-    def addBase(self):
+    def addHole(self):
         PathLog.track()
         if self.addBaseGeometry(FreeCADGui.Selection.getSelectionEx()):
-            # self.obj.Proxy.execute(self.obj)
             self.setFields(self.obj)
             self.setDirty()
             self.updatePanelVisibility("Operation", self.obj)
 
-    def deleteBase(self):
+    def deleteBase_ORIG(self):
         PathLog.track()
         selected = self.form.baseList.selectedItems()
         for item in selected:
@@ -245,7 +318,22 @@ class TaskPanelBaseGeometryPage(PathTaskPanelPage.TaskPanelPage):
         self.updatePanelVisibility("Operation", self.obj)
         self.resizeBaseList()
 
-    def updateBase(self):
+    def deleteBase(self):
+        """deleteBase() ... callback for push button"""
+        PathLog.track()
+        selected = [
+            self.form.baseList.row(item) for item in self.form.baseList.selectedItems()
+        ]
+        self.form.baseList.blockSignals(True)
+        for row in sorted(list(set(selected)), key=lambda row: -row):
+            self.form.baseList.removeRow(row)
+        self.updateBase()
+        self.form.baseList.resizeColumnToContents(0)
+        self.form.baseList.blockSignals(False)
+        FreeCAD.ActiveDocument.recompute()
+        self.setFields(self.obj)
+
+    def updateBase_ORIG(self):
         newlist = []
         for i in range(self.form.baseList.count()):
             item = self.form.baseList.item(i)
@@ -254,14 +342,27 @@ class TaskPanelBaseGeometryPage(PathTaskPanelPage.TaskPanelPage):
             if sub:
                 base = (obj, str(sub))
                 newlist.append(base)
-        PathLog.debug("Setting new base: %s -> %s" % (self.obj.Base, newlist))
-        self.obj.Base = newlist
+        PathLog.debug("Setting new base: %s -> %s" % (self.obj.Hole, newlist))
+        self.obj.Hole = newlist
 
-        # self.obj.Proxy.execute(self.obj)
-        # FreeCAD.ActiveDocument.recompute()
+    def updateBase(self):
+        """updateBase() ... helper function to transfer current table to obj"""
+        PathLog.track()
+        newlist = []
+        for i in range(self.form.baseList.rowCount()):
+            item = self.form.baseList.item(i, 0)
+            obj = item.data(self.DataObject)
+            sub = str(item.data(self.DataObjectSub))
+            base = (obj, sub)
+            PathLog.debug("keeping (%s.%s)" % (obj.Label, sub))
+            newlist.append(base)
+        PathLog.debug("obj.Hole=%s newlist=%s" % (self.obj.Hole, newlist))
+        self.updating = True
+        self.obj.Hole = newlist
+        self.updating = False
 
     def clearBase(self):
-        self.obj.Base = []
+        self.obj.Hole = []
         self.setDirty()
         self.updatePanelVisibility("Operation", self.obj)
         self.resizeBaseList()
@@ -270,23 +371,33 @@ class TaskPanelBaseGeometryPage(PathTaskPanelPage.TaskPanelPage):
         opLabel = str(self.form.geometryImportList.currentText())
         ops = FreeCAD.ActiveDocument.getObjectsByLabel(opLabel)
         if len(ops) > 1:
-            msg = translate("PathOpGui", "Mulitiple operations are labeled as")
+            msg = translate(
+                "PathTaskPanelHoleGeometryPage", "Mulitiple operations are labeled as"
+            )
             msg += " {}\n".format(opLabel)
             FreeCAD.Console.PrintWarning(msg)
-        (base, subList) = ops[0].Base[0]
+        (base, subList) = ops[0].Hole[0]
         FreeCADGui.Selection.clearSelection()
         FreeCADGui.Selection.addSelection(base, subList)
-        self.addBase()
+        self.addHole()
 
-    def registerSignalHandlers(self, obj):
+    def registerSignalHandlers_ORIG(self, obj):
         self.form.baseList.itemSelectionChanged.connect(self.itemActivated)
-        self.form.addBase.clicked.connect(self.addBase)
+        self.form.addBase.clicked.connect(self.addHole)
         self.form.deleteBase.clicked.connect(self.deleteBase)
         self.form.clearBase.clicked.connect(self.clearBase)
         self.form.geometryImportButton.clicked.connect(self.importBaseGeometry)
 
+    def registerSignalHandlers(self, obj):
+        """registerSignalHandlers(obj) ... setup signal handlers"""
+        self.form.baseList.itemSelectionChanged.connect(self.itemActivated)
+        self.form.addBase.clicked.connect(self.addHole)
+        self.form.deleteBase.clicked.connect(self.deleteBase)
+        self.form.resetBase.clicked.connect(self.resetBase)
+        self.form.baseList.itemChanged.connect(self.checkedChanged)
+
     def pageUpdateData(self, obj, prop):
-        if prop in ["Base"]:
+        if prop in ["Hole"]:
             self.setFields(obj)
 
     def updateSelection(self, obj, sel):
@@ -316,5 +427,25 @@ class TaskPanelBaseGeometryPage(PathTaskPanelPage.TaskPanelPage):
             )
         )
 
+    def checkedChanged(self):
+        """checkeChanged() ... callback when checked status of a base feature changed"""
+        PathLog.track()
+        disabled = []
+        for i in range(0, self.form.baseList.rowCount()):
+            item = self.form.baseList.item(i, 0)
+            if item.checkState() != QtCore.Qt.Checked:
+                disabled.append(item.data(self.DataFeatureName))
+        self.obj.Disabled = disabled
+        FreeCAD.ActiveDocument.recompute()
 
-FreeCAD.Console.PrintLog("Loading PathTaskPanelBaseGeometryPage... done\n")
+    def resetBase(self):
+        """resetBase() ... push button callback"""
+        print("PathTaskPanelHoleGeometryPage.TaskPanelHoleGeometryPage.resetBase()")
+        self.obj.Hole = []
+        self.obj.Disabled = []
+        self.obj.Proxy.findAllHoles(self.obj)
+
+    def updateData(self, obj, prop):
+        """updateData(obj, prop) ... callback whenever a property of the model changed"""
+        if not self.updating and prop in ["Hole", "Disabled"]:
+            self.setFields(obj)

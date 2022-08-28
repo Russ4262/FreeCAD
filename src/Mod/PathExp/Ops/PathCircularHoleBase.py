@@ -1,0 +1,264 @@
+# -*- coding: utf-8 -*-
+# ***************************************************************************
+# *   Copyright (c) 2017 sliptonic <shopinthewoods@gmail.com>               *
+# *                                                                         *
+# *   This program is free software; you can redistribute it and/or modify  *
+# *   it under the terms of the GNU Lesser General Public License (LGPL)    *
+# *   as published by the Free Software Foundation; either version 2 of     *
+# *   the License, or (at your option) any later version.                   *
+# *   for detail see the LICENCE text file.                                 *
+# *                                                                         *
+# *   This program is distributed in the hope that it will be useful,       *
+# *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+# *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+# *   GNU Library General Public License for more details.                  *
+# *                                                                         *
+# *   You should have received a copy of the GNU Library General Public     *
+# *   License along with this program; if not, write to the Free Software   *
+# *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  *
+# *   USA                                                                   *
+# *                                                                         *
+# ***************************************************************************
+
+from PySide.QtCore import QT_TRANSLATE_NOOP
+import FreeCAD
+import PathScripts.PathLog as PathLog
+import Ops.PathOp2 as PathOp2
+import Generators.drillableLib as drillableLib
+import Macros.Macro_AlignToFeature as AlignToFeature
+
+# lazily loaded modules
+from lazy_loader.lazy_loader import LazyLoader
+
+Draft = LazyLoader("Draft", globals(), "Draft")
+Part = LazyLoader("Part", globals(), "Part")
+DraftGeomUtils = LazyLoader("DraftGeomUtils", globals(), "DraftGeomUtils")
+
+
+__title__ = "Path Circular Holes Base Operation"
+__author__ = "sliptonic (Brad Collette)"
+__url__ = "https://www.freecadweb.org"
+__doc__ = "Base class an implementation for operations on circular holes."
+
+
+translate = FreeCAD.Qt.translate
+
+
+if False:
+    PathLog.setLevel(PathLog.Level.DEBUG, PathLog.thisModule())
+    PathLog.trackModule(PathLog.thisModule())
+else:
+    PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
+
+
+class ObjectOp(PathOp2.ObjectOp2):
+    """Base class for proxy objects of all operations on circular holes."""
+
+    def opFeatures(self, obj):
+        """opFeatures(obj) ... calls circularHoleFeatures(obj) and ORs in the standard features required for processing circular holes.
+        Do not overwrite, implement circularHoleFeatures(obj) instead"""
+        return (
+            PathOp2.FeatureTool
+            | PathOp2.FeatureHeightsDepths
+            # | PathOp2.FeatureDepths
+            # | PathOp2.FeatureHeights
+            # | PathOp2.FeatureBaseFaces
+            | self.circularHoleFeatures(obj)
+            | PathOp2.FeatureCoolant
+        )
+
+    def circularHoleFeatures(self, obj):
+        """circularHoleFeatures(obj) ... overwrite to add operations specific features.
+        Can safely be overwritten by subclasses."""
+        return 0
+
+    def initOperation(self, obj):
+        """initOperation(obj) ... adds Disabled properties and calls initCircularHoleOperation(obj).
+        Do not overwrite, implement initCircularHoleOperation(obj) instead."""
+        obj.addProperty(
+            "App::PropertyStringList",
+            "Disabled",
+            "Base",
+            QT_TRANSLATE_NOOP("App::Property", "List of disabled features"),
+        )
+        # obj.addProperty(
+        #    "App::PropertyLink",
+        #    "TargetShape",
+        #    "Profile",
+        #    QT_TRANSLATE_NOOP(
+        #        "App::Property",
+        #        "Link to Target Shape object as basis for path generation",
+        #    ),
+        # ),
+        self.initCircularHoleOperation(obj)
+
+    def initCircularHoleOperation(self, obj):
+        """initCircularHoleOperation(obj) ... overwrite if the subclass needs initialisation.
+        Can safely be overwritten by subclasses."""
+        pass
+
+    def opUpdateDepths(self, obj):
+        # print("CircularHoleBase ObjectOp.opUpdateDepths()")
+        if obj.TargetShape:
+            obj.setExpression(
+                "OpStockZMax", "{} mm".format(obj.TargetShape.StartDepth.Value)
+            )
+            obj.setExpression(
+                "OpStartDepth", "{} mm".format(obj.TargetShape.StartDepth.Value)
+            )
+            obj.setExpression(
+                "OpFinalDepth", "{} mm".format(obj.TargetShape.FinalDepth.Value)
+            )
+
+    def holeDiameter(self, obj, base, sub):
+        """holeDiameter(obj, base, sub) ... returns the diameter of the specified hole."""
+        try:
+            shape = base.Shape.getElement(sub)
+            if shape.ShapeType == "Vertex":
+                return 0
+
+            if shape.ShapeType == "Edge" and type(shape.Curve) == Part.Circle:
+                return shape.Curve.Radius * 2
+
+            if shape.ShapeType == "Face":
+                for i in range(len(shape.Edges)):
+                    if (
+                        type(shape.Edges[i].Curve) == Part.Circle
+                        and shape.Edges[i].Curve.Radius * 2
+                        < shape.BoundBox.XLength * 1.1
+                        and shape.Edges[i].Curve.Radius * 2
+                        > shape.BoundBox.XLength * 0.9
+                    ):
+                        return shape.Edges[i].Curve.Radius * 2
+
+            # for all other shapes the diameter is just the dimension in X.
+            # This may be inaccurate as the BoundBox is calculated on the tessellated geometry
+            PathLog.warning(
+                translate(
+                    "Path",
+                    "Hole diameter may be inaccurate due to tessellation on face. Consider selecting hole edge.",
+                )
+            )
+            return shape.BoundBox.XLength
+        except Part.OCCError as e:
+            PathLog.error(e)
+
+        return 0
+
+    def holePosition(self, obj, base, sub):
+        """holePosition(obj, base, sub) ... returns a Vector for the position defined by the given features.
+        Note that the value for Z is set to 0."""
+
+        try:
+            shape = base.Shape.getElement(sub)
+            if shape.ShapeType == "Vertex":
+                return FreeCAD.Vector(shape.X, shape.Y, 0)
+
+            if shape.ShapeType == "Edge" and hasattr(shape.Curve, "Center"):
+                return FreeCAD.Vector(shape.Curve.Center.x, shape.Curve.Center.y, 0)
+
+            if shape.ShapeType == "Face":
+                if hasattr(shape.Surface, "Center"):
+                    return FreeCAD.Vector(
+                        shape.Surface.Center.x, shape.Surface.Center.y, 0
+                    )
+                if len(shape.Edges) == 1 and type(shape.Edges[0].Curve) == Part.Circle:
+                    return shape.Edges[0].Curve.Center
+        except Part.OCCError as e:
+            PathLog.error(e)
+
+        PathLog.error(
+            translate(
+                "Path",
+                "Feature %s.%s cannot be processed as a circular hole - please remove from Base geometry list.",
+            )
+            % (base.Label, sub)
+        )
+        return None
+
+    def isHoleEnabled(self, obj, base, sub):
+        """isHoleEnabled(obj, base, sub) ... return true if hole is enabled."""
+        name = "%s.%s" % (base.Name, sub)
+        return name not in obj.Disabled
+
+    def opExecute_ORIG(self, obj):
+        """opExecute(obj) ... processes all Base features and Locations and collects
+        them in a list of positions and radii which is then passed to circularHoleExecute(obj, holes).
+        If no Base geometries and no Locations are present, the job's Base is inspected and all
+        drillable features are added to Base. In this case appropriate values for depths are also
+        calculated and assigned.
+        Do not overwrite, implement circularHoleExecute(obj, holes) instead."""
+        PathLog.track()
+
+        def haveLocations(self, obj):
+            if PathOp2.FeatureLocations & self.opFeatures(obj):
+                return len(obj.Locations) != 0
+            return False
+
+        holes = []
+        for base, subs in obj.Base:
+            for sub in subs:
+                PathLog.debug("processing {} in {}".format(sub, base.Name))
+                if self.isHoleEnabled(obj, base, sub):
+                    pos = self.holePosition(obj, base, sub)
+                    if pos:
+                        holes.append(
+                            {
+                                "x": pos.x,
+                                "y": pos.y,
+                                "r": self.holeDiameter(obj, base, sub),
+                            }
+                        )
+
+        if haveLocations(self, obj):
+            for location in obj.Locations:
+                holes.append({"x": location.x, "y": location.y, "r": 0})
+
+        if len(holes) > 0:
+            self.circularHoleExecute(obj, holes)
+
+    def opExecute(self, obj):
+        """opExecute(obj) ... processes all Base features and Locations and collects
+        them in a list of positions and radii which is then passed to circularHoleExecute(obj, holes).
+        If no Base geometries and no Locations are present, the job's Base is inspected and all
+        drillable features are added to Base. In this case appropriate values for depths are also
+        calculated and assigned.
+        Do not overwrite, implement circularHoleExecute(obj, holes) instead."""
+        PathLog.track()
+
+        if obj.Name.startswith("Drilling"):
+            if obj.TargetShape is None:
+                print("PathCircularHoleBase opExecute() obj.TargetShape is None")
+                return
+            self.circularHoleExecute(obj)
+        else:
+            self.opExecute_ORIG(obj)
+
+    def circularHoleExecute(self, obj, holes):
+        """circularHoleExecute(obj, holes) ... implement processing of holes.
+        holes is a list of dictionaries with 'x', 'y' and 'r' specified for each hole.
+        Note that for Vertexes, non-circular Edges and Locations r=0.
+        Must be overwritten by subclasses."""
+        pass
+
+    def findAllHoles(self, obj):
+        """findAllHoles(obj) ... find all holes of all base models and assign as features."""
+        PathLog.track()
+        PathLog.info("PathCircularHoleBase findAllHoles()")
+        job = self.getJob(obj)
+        if not job:
+            return
+
+        matchvector = None if job.JobType == "Multiaxis" else FreeCAD.Vector(0, 0, 1)
+        tooldiameter = obj.ToolController.Tool.Diameter
+
+        features = []
+        for base in job.Model.Group:
+            targetFaces = drillableLib.getDrillableTargets(
+                base.Shape, ToolDiameter=tooldiameter, vector=matchvector
+            )
+            targets = [(base, f) for f in targetFaces]
+            features.extend(targets)
+        # obj.Base = features
+        obj.Hole = features
+        obj.Disabled = []

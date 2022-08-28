@@ -22,14 +22,14 @@
 # ***************************************************************************
 
 import FreeCAD
-import OpsGui.PathOpGui3 as PathOpGui3
+import OpsGui.PathOpGui2 as PathOpGui2  #import OpsGui.PathOpGui3 as PathOpGui3
 from PySide import QtCore
 import Ops.PathAdaptive as PathAdaptive
 import FreeCADGui
 import PathScripts.PathGui as PathGui
 
 
-class TaskPanelOpPage(PathOpGui3.TaskPanelPage):
+class TaskPanelOpPage(PathOpGui2.TaskPanelPage):
     def initPage(self, obj):
         self.setTitle("Adaptive - " + obj.Label)
         self.targetShapeList = []
@@ -150,7 +150,7 @@ class TaskPanelOpPage(PathOpGui3.TaskPanelPage):
         obj.setEditorMode("Stopped", 2)  # hide this property
 
 
-Command = PathOpGui3.SetupOperation(
+Command = PathOpGui2.SetupOperation(
     "Adaptive",
     PathAdaptive.Create,
     TaskPanelOpPage,

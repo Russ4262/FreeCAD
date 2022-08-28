@@ -23,9 +23,7 @@
 import FreeCAD
 import FreeCADGui
 import PathScripts.PathGui as PathGui
-
-# import PathScripts.PathOpGui as PathOpGui
-import OpsGui.PathOpGui3 as PathOpGui
+import OpsGui.PathOpGui2 as PathOpGui  # import OpsGui.PathOpGui2 as PathOpGui
 import Ops.PathPocket as PathPocket
 import PathScripts.PathLog as PathLog
 

@@ -27,6 +27,7 @@ import Support.PathSelection as PathSelection
 import PathScripts.PathSetupSheet as PathSetupSheet
 import PathScripts.PathUtil as PathUtil
 import Taskpanels.PathTaskPanel as PathTaskPanel
+import PathScripts.PathUtils as PathUtils
 
 import importlib
 
@@ -182,11 +183,25 @@ class ViewProvider(object):
         if self.panel:
             self.panel.updateData(obj, prop)
 
-    def onDelete(self, vobj, arg2=None):
+    def onDelete_orig(self, vobj, arg2=None):
         # pylint: disable=unused-argument
         print("PathOpGui2.ViewProvider.onDelete()")
         # vobj.Object.Proxy.onDelete(vobj.Object, arg2)
         PathUtil.clearExpressionEngine(vobj.Object)
+        return True
+
+    def onDelete(self, arg1=None, arg2=None):
+        """this makes sure that the base operation is added back to the project and visible"""
+        PathLog.debug("Deleting Dressup")
+        PathUtil.clearExpressionEngine(arg1.Object)
+        if arg1.Object and hasattr(arg1.Object, "TargetShape"):
+            FreeCADGui.ActiveDocument.getObject(
+                arg1.Object.TargetShape.Name
+            ).Visibility = True
+            job = PathUtils.findParentJob(self.Object)
+            if job:
+                job.Proxy.addOperation(arg1.Object.TargetShape, arg1.Object)
+            arg1.Object.TargetShape = None
         return True
 
     def setupContextMenu(self, vobj, menu):
@@ -198,7 +213,7 @@ class ViewProvider(object):
         action.triggered.connect(self.setEdit)
         menu.addAction(action)
 
-    def claimChildren(self):
+    def claimChildren_first(self):
         children = []
         if hasattr(self.Object, "TargetShapeGroup"):
             children.append(self.Object.TargetShapeGroup)
@@ -214,6 +229,24 @@ class ViewProvider(object):
             children.append(self.Object.Base.ToolController)
 
         return children
+
+    def claimChildren(self):
+        children = []
+        if hasattr(self.Object, "ToolController") and self.Object.ToolController:
+            children.append(self.Object.ToolController)
+        if hasattr(self.Object, "TargetShape"):
+            if hasattr(self.Object.TargetShape, "InList"):
+                # print("clainChildren() TargetShape.InList processing")
+                for i in self.Object.TargetShape.InList:
+                    if hasattr(i, "Group"):
+                        group = i.Group
+                        for g in group:
+                            if g.Name == self.Object.TargetShape.Name:
+                                group.remove(g)
+                        i.Group = group
+                        print(i.Group)
+            # FreeCADGui.ActiveDocument.getObject(obj.TargetShape.Name).Visibility = False
+        return [self.Object.TargetShape] + children
 
 
 class CommandSetStartPoint:
@@ -248,24 +281,6 @@ class CommandSetStartPoint:
         if not hasattr(FreeCADGui, "Snapper"):
             import DraftTools
         FreeCADGui.Snapper.getPoint(callback=self.setpoint)
-
-
-def Create(res):
-    """Create(res) ... generic implementation of a create function.
-    res is an instance of CommandResources. It is not expected that the user invokes
-    this function directly, but calls the Activated() function of the Command object
-    that is created in each operations Gui implementation."""
-    FreeCAD.ActiveDocument.openTransaction("Create %s" % res.name)
-    obj = res.objFactory(res.name, obj=None, parentJob=res.job)
-    if obj.Proxy:
-        obj.ViewObject.Proxy = ViewProvider(obj.ViewObject, res)
-        obj.ViewObject.Visibility = False
-        FreeCAD.ActiveDocument.commitTransaction()
-
-        obj.ViewObject.Document.setEdit(obj.ViewObject, 0)
-        return obj
-    FreeCAD.ActiveDocument.abortTransaction()
-    return None
 
 
 class CommandPathOp:
@@ -312,6 +327,24 @@ class CommandResources:
         self.accelKey = accelKey
         self.toolTip = toolTip
         self.job = None
+
+
+def Create(res):
+    """Create(res) ... generic implementation of a create function.
+    res is an instance of CommandResources. It is not expected that the user invokes
+    this function directly, but calls the Activated() function of the Command object
+    that is created in each operations Gui implementation."""
+    FreeCAD.ActiveDocument.openTransaction("Create %s" % res.name)
+    obj = res.objFactory(res.name, obj=None, parentJob=res.job)
+    if obj.Proxy:
+        obj.ViewObject.Proxy = ViewProvider(obj.ViewObject, res)
+        obj.ViewObject.Visibility = False
+        FreeCAD.ActiveDocument.commitTransaction()
+
+        obj.ViewObject.Document.setEdit(obj.ViewObject, 0)
+        return obj
+    FreeCAD.ActiveDocument.abortTransaction()
+    return None
 
 
 def SetupOperation(

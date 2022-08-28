@@ -104,14 +104,20 @@ def _flattenWires(wires):
             # Part.show(w, "WireToFlatten")
             face = PathGeom.makeBoundBoxFace(wBB, 2.0, wBB.ZMin - 2.0)
             flat = face.makeParallelProjection(w, FreeCAD.Vector(0.0, 0.0, 1.0))
+            if len(flat.Edges) == 0:
+                continue
             flat.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - flat.BoundBox.ZMin))
             wire = Part.Wire(flat.Edges)
             if wire.isClosed():
                 flattened.append(wire)
             else:
-                FreeCAD.Console.PrintError("Loop broken during flattening.\n")
-                Part.show(wire, "FlatOpen")
+                FreeCAD.Console.PrintError(
+                    "Closed wire loop broken during flattening.\n"
+                )
+                # Part.show(wire, "FlatOpen")
                 return []
+        # Eif
+    # Efor
     return flattened
 
 
@@ -292,6 +298,9 @@ def _removeSelectedInternals(outerWires, innerWires):
         w = innerWires[i]
         data.append((_makeWireText(w), w, 1))
     data.sort(key=lambda tup: tup[0])
+
+    if len(data) == 0:
+        return outers, inners
 
     # Identify unique wire detail tuples
     unique = [data[0]]

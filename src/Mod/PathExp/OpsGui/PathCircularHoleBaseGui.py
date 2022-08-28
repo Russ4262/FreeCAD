@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # ***************************************************************************
-# *   Copyright (c) 2016 sliptonic <shopinthewoods@gmail.com>               *
+# *   Copyright (c) 2017 sliptonic <shopinthewoods@gmail.com>               *
 # *                                                                         *
 # *   This program is free software; you can redistribute it and/or modify  *
 # *   it under the terms of the GNU Lesser General Public License (LGPL)    *
@@ -21,55 +21,32 @@
 # ***************************************************************************
 
 import FreeCAD
+import FreeCADGui
+import PathGui as PGui  # ensure Path/Gui/Resources are loaded
+import PathScripts.PathLog as PathLog
+import OpsGui.PathOpGui2 as PathOpGui2
+import Taskpanels.PathTaskPanelPage as PathTaskPanelPage
 
-__title__ = "Path Experimental Workbench Commands Registry "
-__author__ = "russ4262 (Russell Johnson)"
+from PySide import QtCore, QtGui
+
+__title__ = "Base for Circular Hole based operations' UI"
+__author__ = "sliptonic (Brad Collette)"
 __url__ = "https://www.freecadweb.org"
-__doc__ = "Commands registry for Path Experimental workbench."
+__doc__ = "Implementation of circular hole specific base geometry page controller."
 
-translate = FreeCAD.Qt.translate
-OPS = {
-    "Adaptive": (
-        "OpsGui.PathAdaptiveGui",
-        translate("PathExp", "Adaptive"),
-        "Path_Adaptive",
-    ),
-    "3D Pocket": (
-        "OpsGui.PathPocketGui",
-        translate("PathExp", "3D Pocket"),
-        "Path_3DPocket",
-    ),
-    "Pocket": (
-        "OpsGui.PathPocketShapeGui",
-        translate("PathExp", "Pocket"),
-        "Path_Pocket",
-    ),
-    "3D Surface": (
-        "PathScripts.PathSurfaceGui",
-        translate("PathExp", "3D Surface"),
-        "Path_3DSurface",
-    ),
-    "Profile": (
-        "OpsGui.PathProfileGui",
-        translate("PathExp", "Profile"),
-        "Path_Profile",
-    ),
-    "Helix": (
-        "PathScripts.PathHelixGui",
-        translate("PathExp", "Helix"),
-        "Path_Helix",
-    ),
-    "Drilling": (
-        "OpsGui.PathDrillingGui",
-        translate("PathExp", "Drilling"),
-        "Path_Drilling",
-    ),
-    "Facing": (
-        "PathScripts.PathMillFaceGui",
-        translate("PathExp", "Facing"),
-        "Path_Face",
-    ),
-    "Slot": ("OpsGui.PathSlotGui", translate("PathExp", "Slot"), "Path_Slot"),
-}
+LOGLEVEL = False
 
-FreeCAD.Console.PrintMessage("Loaded the Ops registry.\n")
+if LOGLEVEL:
+    PathLog.setLevel(PathLog.Level.DEBUG, PathLog.thisModule())
+    PathLog.trackModule(PathLog.thisModule())
+else:
+    PathLog.setLevel(PathLog.Level.NOTICE, PathLog.thisModule())
+
+# class TaskPanelOpPage(PathOpGui2.TaskPanelPage):
+class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
+    """Base class for circular hole based operation's page controller."""
+
+    #def taskPanelBaseGeometryPage(self, obj, features):
+    #    """taskPanelBaseGeometryPage(obj, features) ... Return circular hole specific page controller for Base Geometry."""
+    #    return TaskPanelHoleGeometryPage(obj, features)
+    pass

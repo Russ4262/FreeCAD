@@ -201,19 +201,19 @@ class PROFILEGate(PathBaseGate):
         except Exception:
             return False
 
-        if obj.ShapeType == "Compound":
-            if sub and sub[0:4] == "Face":
+        try:
+            if obj.ShapeType == "Compound":
+                if sub and sub[0:4] == "Face":
+                    return True
+            elif obj.ShapeType == "Face":
                 return True
-
-        elif obj.ShapeType == "Face":
-            return True
-
-        elif obj.ShapeType == "Solid":
-            if sub and sub[0:4] == "Face":
+            elif obj.ShapeType == "Solid":
+                if sub and sub[0:4] == "Face":
+                    return True
+            elif obj.ShapeType == "Wire":
                 return True
-
-        elif obj.ShapeType == "Wire":
-            return True
+        except Exception:
+            return False
 
         return False
 
