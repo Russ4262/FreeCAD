@@ -29,7 +29,7 @@ import Features.PathFeatureExtensions as FeatureExtensions
 import Macros.Macro_CombineRegions as CombineRegions
 import Macros.Macro_AlignToFeature as AlignToFeature
 import PathScripts.PathUtils as PathUtils
-import math
+import PathScripts.drillableLib as drillableLib
 
 
 __doc__ = "Class and implementation of a Target Shape."
@@ -52,7 +52,8 @@ class TargetShape(PathOp2.ObjectOp2):
         Should be overwritten by subclasses."""
         return (
             PathOp2.FeatureBaseGeometry
-            | PathOp2.FeatureBaseEdges
+            | PathOp2.FeatureHoleGeometry
+            # | PathOp2.FeatureBaseEdges
             | PathOp2.FeatureHeightsDepths
             | PathOp2.FeatureExtensions
         )
@@ -72,6 +73,12 @@ class TargetShape(PathOp2.ObjectOp2):
         """opPropertyDefinitions(obj) ... Store operation specific properties"""
 
         return [
+            (
+                "App::PropertyStringList",
+                "Disabled",
+                "Base",
+                translate("Path", "List of disabled features"),
+            ),
             (
                 "App::PropertyDistance",
                 "DepthAllowance",
@@ -263,6 +270,7 @@ class TargetShape(PathOp2.ObjectOp2):
         obj.OpFinalDepth = "{} mm".format(finDep)
 
         # self._printCurrentDepths(obj, "Post-opUpdateDepths")
+        pass
 
     def showShape(self, obj):
         shpObj = Part.show(obj.Shape, "TargetShape")
@@ -286,6 +294,102 @@ class TargetShape(PathOp2.ObjectOp2):
             )
         return rotations
 
+    # Hole-related methods
+    def holeDiameter(self, obj, base, sub):
+        """holeDiameter(obj, base, sub) ... returns the diameter of the specified hole."""
+        try:
+            shape = base.Shape.getElement(sub)
+            if shape.ShapeType == "Vertex":
+                return 0
+
+            if shape.ShapeType == "Edge" and type(shape.Curve) == Part.Circle:
+                return shape.Curve.Radius * 2
+
+            if shape.ShapeType == "Face":
+                for i in range(len(shape.Edges)):
+                    if (
+                        type(shape.Edges[i].Curve) == Part.Circle
+                        and shape.Edges[i].Curve.Radius * 2
+                        < shape.BoundBox.XLength * 1.1
+                        and shape.Edges[i].Curve.Radius * 2
+                        > shape.BoundBox.XLength * 0.9
+                    ):
+                        return shape.Edges[i].Curve.Radius * 2
+
+            # for all other shapes the diameter is just the dimension in X.
+            # This may be inaccurate as the BoundBox is calculated on the tessellated geometry
+            PathLog.warning(
+                translate(
+                    "Path",
+                    "Hole diameter may be inaccurate due to tessellation on face. Consider selecting hole edge.",
+                )
+            )
+            return shape.BoundBox.XLength
+        except Part.OCCError as e:
+            PathLog.error(e)
+
+        return 0
+
+    def holePosition(self, obj, base, sub):
+        """holePosition(obj, base, sub) ... returns a Vector for the position defined by the given features.
+        Note that the value for Z is set to 0."""
+
+        try:
+            shape = base.Shape.getElement(sub)
+            if shape.ShapeType == "Vertex":
+                return FreeCAD.Vector(shape.X, shape.Y, 0)
+
+            if shape.ShapeType == "Edge" and hasattr(shape.Curve, "Center"):
+                return FreeCAD.Vector(shape.Curve.Center.x, shape.Curve.Center.y, 0)
+
+            if shape.ShapeType == "Face":
+                if hasattr(shape.Surface, "Center"):
+                    return FreeCAD.Vector(
+                        shape.Surface.Center.x, shape.Surface.Center.y, 0
+                    )
+                if len(shape.Edges) == 1 and type(shape.Edges[0].Curve) == Part.Circle:
+                    return shape.Edges[0].Curve.Center
+        except Part.OCCError as e:
+            PathLog.error(e)
+
+        PathLog.error(
+            translate(
+                "Path",
+                "Feature %s.%s cannot be processed as a circular hole - please remove from Base geometry list.",
+            )
+            % (base.Label, sub)
+        )
+        return None
+
+    def isHoleEnabled(self, obj, base, sub):
+        """isHoleEnabled(obj, base, sub) ... return true if hole is enabled."""
+        name = "%s.%s" % (base.Name, sub)
+        return name not in obj.Disabled
+
+    def findAllHoles(self, obj):
+        """findAllHoles(obj) ... find all holes of all base models and assign as features."""
+        PathLog.track()
+        job = self.getJob(obj)
+        if not job:
+            return
+
+        # matchvector = None if job.JobType == "Multiaxis" else FreeCAD.Vector(0, 0, 1)
+        # tooldiameter = obj.ToolController.Tool.Diameter
+
+        matchvector = FreeCAD.Vector(0, 0, 1)
+        tooldiameter = 0.1
+
+        features = []
+        for base in self.model:
+            features.extend(
+                drillableLib.getDrillableTargets(
+                    base, ToolDiameter=tooldiameter, vector=matchvector
+                )
+            )
+        obj.Hole = features
+        obj.Disabled = []
+
+    # Main executable method
     def opExecute(self, obj):
         """opExecute(obj) ... called whenever the receiver needs to be recalculated.
         See documentation of execute() for a list of base functionality provided."""
@@ -374,7 +478,7 @@ class TargetShape(PathOp2.ObjectOp2):
                 if region is None:
                     # No region to process. Perhaps vertically oriented faces and model needs rotation
                     FreeCAD.Console.PrintError(
-                        "No 'region' to process from CombineRegions module."
+                        "No 'region' to process from CombineRegions module.\n"
                     )
                     continue
 

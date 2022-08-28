@@ -39,6 +39,11 @@ BaseGeometryPage = LazyLoader(
     globals(),
     "Taskpanels.PathTaskPanelBaseGeometryPage",
 )
+HoleGeometryPage = LazyLoader(
+    "Taskpanels.PathTaskPanelHoleGeometryPage",
+    globals(),
+    "Taskpanels.PathTaskPanelHoleGeometryPage",
+)
 BaseLocationPage = LazyLoader(
     "Taskpanels.PathTaskPanelBaseLocationPage",
     globals(),
@@ -138,6 +143,13 @@ class TaskPanel(object):
             else:
                 page = BaseGeometryPage.TaskPanelBaseGeometryPage(obj, features)
             self.featurePages["BaseGeometry"] = page
+
+        if PathOp2.FeatureHoleGeometry & features:
+            if hasattr(opPage, "taskPanelHoleGeometryPage"):
+                page = opPage.taskPanelHoleGeometryPage(obj, features)
+            else:
+                page = HoleGeometryPage.TaskPanelHoleGeometryPage(obj, features)
+            self.featurePages["HoleGeometry"] = page
 
         if PathOp2.FeatureLocations & features:
             if hasattr(opPage, "taskPanelBaseLocationPage"):

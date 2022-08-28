@@ -23,9 +23,7 @@
 import FreeCAD
 import FreeCADGui
 import PathScripts.PathGui as PathGui
-
-# import PathScripts.PathOpGui as PathOpGui
-import OpsGui.PathOpGui3 as PathOpGui3
+import OpsGui.PathOpGui2 as PathOpGui2  # import OpsGui.PathOpGui3 as PathOpGui3
 import Ops.PathProfile as PathProfile
 from PySide.QtCore import QT_TRANSLATE_NOOP
 
@@ -40,7 +38,7 @@ FeatureSide = 0x01
 FeatureProcessing = 0x02
 
 
-class TaskPanelOpPage(PathOpGui3.TaskPanelPage):
+class TaskPanelOpPage(PathOpGui2.TaskPanelPage):
     """Base class for profile operation page controllers. Two sub features are supported:
     FeatureSide       ... Is the Side property exposed in the UI
     FeatureProcessing ... Are the processing check boxes supported by the operation
@@ -177,7 +175,7 @@ class TaskPanelOpPage(PathOpGui3.TaskPanelPage):
 # Eclass
 
 
-Command = PathOpGui3.SetupOperation(
+Command = PathOpGui2.SetupOperation(
     "Profile",
     PathProfile.Create,
     TaskPanelOpPage,

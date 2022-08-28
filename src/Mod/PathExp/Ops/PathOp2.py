@@ -70,6 +70,7 @@ FeatureDiameters = 0x0800  # Turning Diameters
 FeatureExtensions = 0x1000  # Extensions
 FeatureIndexedRotation = 0x2000  # Feature Working Plane
 FeatureBasePanels = 0x4000
+FeatureHoleGeometry = 0x8000
 FeatureBaseGeometry = (
     FeatureBaseVertexes | FeatureBaseFaces | FeatureBaseEdges | FeatureBasePanels
 )
@@ -295,6 +296,9 @@ class ObjectOp2(object):
         # Add operation feature property definitions
         if FeatureBaseGeometry & features:
             definitions.append(self._getBasePropertyDefenition())
+
+        if FeatureHoleGeometry & features:
+            definitions.append(self._getHolePropertyDefenition())
 
         if FeatureLocations & features:
             definitions.append(
@@ -562,6 +566,14 @@ class ObjectOp2(object):
             "Base",
             "Operation",
             QtCore.QT_TRANSLATE_NOOP("PathOp", "The base geometry for this operation"),
+        )
+
+    def _getHolePropertyDefenition(self):
+        return (
+            "App::PropertyLinkSubListGlobal",
+            "Hole",
+            "Operation",
+            QtCore.QT_TRANSLATE_NOOP("PathOp", "The hole geometry for this operation"),
         )
 
     def propertyDefaults(self, obj, job):

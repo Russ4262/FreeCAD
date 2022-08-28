@@ -270,7 +270,7 @@ def _calculateRotationsToFace(face):
                     if y_1:
                         rotAng = -90.0
                     f.rotate(CENTER_OF_ROTATION, AXES_OF_ROTATION["X"], rotAng)
-                    print("Rotating for Z=0 around X axis.")
+                    # print("Rotating for Z=0 around X axis.")
                     rotations.append(("X", rotAng))
                     return rotations
             else:
