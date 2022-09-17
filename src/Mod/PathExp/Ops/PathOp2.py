@@ -1072,6 +1072,43 @@ class ObjectOp2(object):
                     % (base.Label, sub)
                 )
 
+    def addHole(self, obj, base, sub):
+        PathLog.track(obj, base, sub)
+        base = PathUtil.getPublicObject(base)
+
+        if self._setBaseAndStock(obj):
+            for model in self.job.Model.Group:
+                if base == self.job.Proxy.baseObject(self.job, model):
+                    base = model
+                    break
+
+            baselist = obj.Hole
+            if baselist is None:
+                baselist = []
+
+            for p, el in baselist:
+                if p == base and sub in el:
+                    PathLog.notice(
+                        (
+                            translate("Path", "Base object %s.%s already in the list")
+                            + "\n"
+                        )
+                        % (base.Label, sub)
+                    )
+                    return
+
+            if not self.opRejectAddBase(obj, base, sub):
+                baselist.append((base, sub))
+                obj.Hole = baselist
+            else:
+                PathLog.notice(
+                    (
+                        translate("Path", "Base object %s.%s rejected by operation")
+                        + "\n"
+                    )
+                    % (base.Label, sub)
+                )
+
     def isToolSupported(self, obj, tool):
         """toolSupported(obj, tool) ... Returns true if the op supports the given tool.
         This function can safely be overwritten by subclasses."""

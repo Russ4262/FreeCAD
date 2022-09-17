@@ -56,6 +56,7 @@ class TargetShape(PathOp2.ObjectOp2):
             # | PathOp2.FeatureBaseEdges
             | PathOp2.FeatureHeightsDepths
             | PathOp2.FeatureExtensions
+            | PathOp2.FeatureLocations
         )
 
     def initOperation(self, obj):
@@ -78,6 +79,14 @@ class TargetShape(PathOp2.ObjectOp2):
                 "Disabled",
                 "Base",
                 translate("Path", "List of disabled features"),
+            ),
+            (
+                "App::PropertyVectorList",
+                "PointLocations",
+                "Base",
+                translate(
+                    "Path", "List of locations for vertical, point-milling operations."
+                ),
             ),
             (
                 "App::PropertyDistance",
@@ -389,11 +398,42 @@ class TargetShape(PathOp2.ObjectOp2):
         obj.Hole = features
         obj.Disabled = []
 
+    def _processHoles(self, obj):
+        """_processHoles(obj) ... processes all Base features and Locations and collects
+        them in a list of positions and radii which is then passed to circularHoleExecute(obj, holes).
+        If no Base geometries and no Locations are present, the job's Base is inspected and all
+        drillable features are added to Base. In this case appropriate values for depths are also
+        calculated and assigned.
+        Do not overwrite, implement circularHoleExecute(obj, holes) instead."""
+        PathLog.track()
+
+        holes = []
+        for base, subs in obj.Hole:
+            for sub in subs:
+                PathLog.debug("processing {} in {}".format(sub, base.Name))
+                if self.isHoleEnabled(obj, base, sub):
+                    pos = self.holePosition(obj, base, sub)
+                    if pos:
+                        holes.append(
+                            FreeCAD.Vector(
+                                pos.x, pos.y, self.holeDiameter(obj, base, sub)
+                            )
+                        )
+
+        for loc in obj.Locations:
+            holes.append(FreeCAD.Vector(loc.x, loc.y, 0.0))
+
+        # if len(holes) > 0:
+        #    self.circularHoleExecute(obj, holes)
+
+        return holes
+
     # Main executable method
     def opExecute(self, obj):
         """opExecute(obj) ... called whenever the receiver needs to be recalculated.
         See documentation of execute() for a list of base functionality provided."""
         # PathLog.debug("TargetShape.opExecute()")
+        hasGeometry = False
         avoidFeatures = []
         sourceGeometry = []
         targetRegions = []
@@ -511,8 +551,25 @@ class TargetShape(PathOp2.ObjectOp2):
 
             # Efor
 
-            obj.Shape = Part.makeCompound(targetShapes)
-        else:
+            # obj.Shape = Part.makeCompound(targetShapes)
+            hasGeometry = True
+
+        holes = self._processHoles(obj)
+        if holes:
+            hasGeometry = True
+            obj.PointLocations = holes
+            print(f"holes: {holes}")
+            dep = obj.StartDepth.Value - obj.FinalDepth.Value
+            for v in holes:
+                rad = v.z * 0.5
+                if rad <= 0.001:
+                    print(f"Setting a small hole radius ({rad}) to 0.5 mm.")
+                    rad = 0.5
+                cyl = Part.makeCylinder(rad, dep)
+                cyl.translate(FreeCAD.Vector(v.x, v.y, obj.FinalDepth.Value))
+                targetShapes.append(cyl)
+
+        if not hasGeometry:
             for m in self.job.Model.Group:
                 rotatedBaseShp = AlignToFeature.rotateShapeWithList(m.Shape, rotations)
                 rotatedBaseShp.translate(obj.CenterOfRotation.negative())
@@ -520,7 +577,8 @@ class TargetShape(PathOp2.ObjectOp2):
                     rotatedBaseShp, subshape=None, depthparams=self.depthparams
                 )
                 targetShapes.append(modelEnv)
-            obj.Shape = Part.makeCompound(targetShapes)
+
+        obj.Shape = Part.makeCompound(targetShapes)
 
     # Proxy method for Extensions feature
     def rotateShapeWithList(self, shape, rotations):

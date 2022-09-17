@@ -287,7 +287,8 @@ class TaskPanelHoleGeometryPage(PathTaskPanelPage.TaskPanelPage):
         if self.selectionSupportedAsBaseGeometry(selection, False):
             sel = selection[0]
             for sub in sel.SubElementNames:
-                self.obj.Proxy.addBase(self.obj, sel.Object, sub)
+                # self.obj.Proxy.addBase(self.obj, sel.Object, sub)
+                self.obj.Proxy.addHole(self.obj, sel.Object, sub)
             return True
         elif self.selectionSupportedAsTargetGeometry(selection, False):
             sel = selection[0].Object
@@ -300,10 +301,9 @@ class TaskPanelHoleGeometryPage(PathTaskPanelPage.TaskPanelPage):
             )
         return False
 
-    def addBase(self):
+    def addHole(self):
         PathLog.track()
         if self.addBaseGeometry(FreeCADGui.Selection.getSelectionEx()):
-            # self.obj.Proxy.execute(self.obj)
             self.setFields(self.obj)
             self.setDirty()
             self.updatePanelVisibility("Operation", self.obj)
@@ -330,7 +330,6 @@ class TaskPanelHoleGeometryPage(PathTaskPanelPage.TaskPanelPage):
         self.updateBase()
         self.form.baseList.resizeColumnToContents(0)
         self.form.baseList.blockSignals(False)
-        # self.obj.Proxy.execute(self.obj)
         FreeCAD.ActiveDocument.recompute()
         self.setFields(self.obj)
 
@@ -380,11 +379,11 @@ class TaskPanelHoleGeometryPage(PathTaskPanelPage.TaskPanelPage):
         (base, subList) = ops[0].Hole[0]
         FreeCADGui.Selection.clearSelection()
         FreeCADGui.Selection.addSelection(base, subList)
-        self.addBase()
+        self.addHole()
 
     def registerSignalHandlers_ORIG(self, obj):
         self.form.baseList.itemSelectionChanged.connect(self.itemActivated)
-        self.form.addBase.clicked.connect(self.addBase)
+        self.form.addBase.clicked.connect(self.addHole)
         self.form.deleteBase.clicked.connect(self.deleteBase)
         self.form.clearBase.clicked.connect(self.clearBase)
         self.form.geometryImportButton.clicked.connect(self.importBaseGeometry)
@@ -392,7 +391,7 @@ class TaskPanelHoleGeometryPage(PathTaskPanelPage.TaskPanelPage):
     def registerSignalHandlers(self, obj):
         """registerSignalHandlers(obj) ... setup signal handlers"""
         self.form.baseList.itemSelectionChanged.connect(self.itemActivated)
-        self.form.addBase.clicked.connect(self.addBase)
+        self.form.addBase.clicked.connect(self.addHole)
         self.form.deleteBase.clicked.connect(self.deleteBase)
         self.form.resetBase.clicked.connect(self.resetBase)
         self.form.baseList.itemChanged.connect(self.checkedChanged)
@@ -445,10 +444,6 @@ class TaskPanelHoleGeometryPage(PathTaskPanelPage.TaskPanelPage):
         self.obj.Hole = []
         self.obj.Disabled = []
         self.obj.Proxy.findAllHoles(self.obj)
-
-        # self.obj.Proxy.execute(self.obj)
-        # FreeCAD.ActiveDocument.recompute()
-        pass
 
     def updateData(self, obj, prop):
         """updateData(obj, prop) ... callback whenever a property of the model changed"""
