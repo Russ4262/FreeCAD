@@ -80,11 +80,17 @@ class TaskPanelOpPage(PathCircularHoleBaseGui.TaskPanelOpPage):
 
     def getForm(self):
         """getForm() ... return UI"""
-        form = FreeCADGui.PySideUic.loadUi(":/panels/PageOpDrillingEdit.ui")
+        # form = FreeCADGui.PySideUic.loadUi(":/panels/PageOpDrillingEdit.ui")
+        uiFilePath = (
+            FreeCAD.getUserAppDataDir()
+            + "Mod\\PathExp\\GuiSupport\\PageOpDrillingEdit.ui"
+        )
+        form = FreeCADGui.PySideUic.loadUi(uiFilePath)
 
         comboToPropertyMap = [("ExtraOffset", "ExtraOffset")]
         enumTups = PathDrilling.ObjectDrilling.propertyEnumerations(dataType="raw")
-        self.populateCombobox(form, enumTups, comboToPropertyMap)
+        # self.populateCombobox(form, enumTups, comboToPropertyMap)
+        PathGui.populateCombobox(form, enumTups, comboToPropertyMap)
 
         return form
 
@@ -96,6 +102,16 @@ class TaskPanelOpPage(PathCircularHoleBaseGui.TaskPanelOpPage):
     def getFields(self, obj):
         """setFields(obj) ... update obj's properties with values from the UI"""
         PathLog.track()
+        if obj.TargetShape:
+            if obj.TargetShape.Name != str(self.form.targetShape.currentData()):
+                obj.TargetShape = FreeCAD.ActiveDocument.getObject(
+                    str(self.form.targetShape.currentData())
+                )
+        else:
+            obj.TargetShape = FreeCAD.ActiveDocument.getObject(
+                str(self.form.targetShape.currentData())
+            )
+
         self.peckDepthSpinBox.updateProperty()
         self.peckRetractSpinBox.updateProperty()
         self.dwellTimeSpinBox.updateProperty()
@@ -113,6 +129,8 @@ class TaskPanelOpPage(PathCircularHoleBaseGui.TaskPanelOpPage):
     def setFields(self, obj):
         """setFields(obj) ... update UI with obj properties' values"""
         PathLog.track()
+        self._populateTargetShapes(obj)
+        self.selectInComboBox(obj.TargetShape.Name, self.form.targetShape)
         self.updateQuantitySpinBoxes()
 
         if obj.DwellEnabled:
@@ -134,6 +152,7 @@ class TaskPanelOpPage(PathCircularHoleBaseGui.TaskPanelOpPage):
         """getSignalsForUpdate(obj) ... return list of signals which cause the receiver to update the model"""
         signals = []
 
+        signals.append(self.form.targetShape.currentIndexChanged)
         signals.append(self.form.peckRetractHeight.editingFinished)
         signals.append(self.form.peckDepth.editingFinished)
         signals.append(self.form.dwellTime.editingFinished)

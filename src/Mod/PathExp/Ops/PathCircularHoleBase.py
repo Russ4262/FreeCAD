@@ -23,8 +23,9 @@
 from PySide.QtCore import QT_TRANSLATE_NOOP
 import FreeCAD
 import PathScripts.PathLog as PathLog
-import Ops.PathOp2 as PathOp
+import Ops.PathOp2 as PathOp2
 import Generators.drillableLib as drillableLib
+import Macros.Macro_AlignToFeature as AlignToFeature
 
 # lazily loaded modules
 from lazy_loader.lazy_loader import LazyLoader
@@ -50,19 +51,20 @@ else:
     PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 
 
-class ObjectOp(PathOp.ObjectOp):
+class ObjectOp(PathOp2.ObjectOp2):
     """Base class for proxy objects of all operations on circular holes."""
 
     def opFeatures(self, obj):
         """opFeatures(obj) ... calls circularHoleFeatures(obj) and ORs in the standard features required for processing circular holes.
         Do not overwrite, implement circularHoleFeatures(obj) instead"""
         return (
-            PathOp.FeatureTool
-            | PathOp.FeatureDepths
-            | PathOp.FeatureHeights
-            # | PathOp.FeatureBaseFaces
+            PathOp2.FeatureTool
+            | PathOp2.FeatureHeightsDepths
+            # | PathOp2.FeatureDepths
+            # | PathOp2.FeatureHeights
+            # | PathOp2.FeatureBaseFaces
             | self.circularHoleFeatures(obj)
-            | PathOp.FeatureCoolant
+            | PathOp2.FeatureCoolant
         )
 
     def circularHoleFeatures(self, obj):
@@ -79,15 +81,15 @@ class ObjectOp(PathOp.ObjectOp):
             "Base",
             QT_TRANSLATE_NOOP("App::Property", "List of disabled features"),
         )
-        obj.addProperty(
-            "App::PropertyLink",
-            "TargetShape",
-            "Profile",
-            QT_TRANSLATE_NOOP(
-                "App::Property",
-                "Link to Target Shape object as basis for path generation",
-            ),
-        ),
+        # obj.addProperty(
+        #    "App::PropertyLink",
+        #    "TargetShape",
+        #    "Profile",
+        #    QT_TRANSLATE_NOOP(
+        #        "App::Property",
+        #        "Link to Target Shape object as basis for path generation",
+        #    ),
+        # ),
         self.initCircularHoleOperation(obj)
 
     def initCircularHoleOperation(self, obj):
@@ -189,7 +191,7 @@ class ObjectOp(PathOp.ObjectOp):
         PathLog.track()
 
         def haveLocations(self, obj):
-            if PathOp.FeatureLocations & self.opFeatures(obj):
+            if PathOp2.FeatureLocations & self.opFeatures(obj):
                 return len(obj.Locations) != 0
             return False
 
@@ -224,32 +226,13 @@ class ObjectOp(PathOp.ObjectOp):
         Do not overwrite, implement circularHoleExecute(obj, holes) instead."""
         PathLog.track()
 
-        def haveLocations(self, obj):
-            if PathOp.FeatureLocations & self.opFeatures(obj):
-                return len(obj.Locations) != 0
-            return False
-
-        holes = []
-        for base, subs in obj.Hole:
-            for sub in subs:
-                PathLog.debug("processing {} in {}".format(sub, base.Name))
-                if self.isHoleEnabled(obj, base, sub):
-                    pos = self.holePosition(obj, base, sub)
-                    if pos:
-                        holes.append(
-                            {
-                                "x": pos.x,
-                                "y": pos.y,
-                                "r": self.holeDiameter(obj, base, sub),
-                            }
-                        )
-
-        if haveLocations(self, obj):
-            for location in obj.Locations:
-                holes.append({"x": location.x, "y": location.y, "r": 0})
-
-        if len(holes) > 0:
-            self.circularHoleExecute(obj, holes)
+        if obj.Name.startswith("Drilling"):
+            if obj.TargetShape is None:
+                print("PathCircularHoleBase opExecute() obj.TargetShape is None")
+                return
+            self.circularHoleExecute(obj)
+        else:
+            self.opExecute_ORIG(obj)
 
     def circularHoleExecute(self, obj, holes):
         """circularHoleExecute(obj, holes) ... implement processing of holes.
@@ -270,7 +253,7 @@ class ObjectOp(PathOp.ObjectOp):
         tooldiameter = obj.ToolController.Tool.Diameter
 
         features = []
-        for base in self.model:
+        for base in job.Model.Group:
             targetFaces = drillableLib.getDrillableTargets(
                 base.Shape, ToolDiameter=tooldiameter, vector=matchvector
             )

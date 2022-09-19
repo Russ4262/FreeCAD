@@ -304,8 +304,8 @@ class TargetShape(PathOp2.ObjectOp2):
         return rotations
 
     # Hole-related methods
-    def holeDiameter(self, obj, base, sub):
-        """holeDiameter(obj, base, sub) ... returns the diameter of the specified hole."""
+    def holeDiameter(self, base, sub):
+        """holeDiameter(base, sub) ... returns the diameter of the specified hole."""
         try:
             shape = base.Shape.getElement(sub)
             if shape.ShapeType == "Vertex":
@@ -339,8 +339,8 @@ class TargetShape(PathOp2.ObjectOp2):
 
         return 0
 
-    def holePosition(self, obj, base, sub):
-        """holePosition(obj, base, sub) ... returns a Vector for the position defined by the given features.
+    def holePosition_orig(self, base, sub):
+        """holePosition(base, sub) ... returns a Vector for the position defined by the given features.
         Note that the value for Z is set to 0."""
 
         try:
@@ -370,12 +370,43 @@ class TargetShape(PathOp2.ObjectOp2):
         )
         return None
 
+    def holePosition(self, baseShape, sub):
+        """holePosition(base, sub) ... returns a Vector for the position defined by the given features.
+        Note that the value for Z is set to 0."""
+
+        try:
+            shape = baseShape.getElement(sub)
+            if shape.ShapeType == "Vertex":
+                return FreeCAD.Vector(shape.X, shape.Y, 0)
+
+            if shape.ShapeType == "Edge" and hasattr(shape.Curve, "Center"):
+                return FreeCAD.Vector(shape.Curve.Center.x, shape.Curve.Center.y, 0)
+
+            if shape.ShapeType == "Face":
+                if hasattr(shape.Surface, "Center"):
+                    return FreeCAD.Vector(
+                        shape.Surface.Center.x, shape.Surface.Center.y, 0
+                    )
+                if len(shape.Edges) == 1 and type(shape.Edges[0].Curve) == Part.Circle:
+                    return shape.Edges[0].Curve.Center
+        except Part.OCCError as e:
+            PathLog.error(e)
+
+        PathLog.error(
+            translate(
+                "Path",
+                "Feature %s cannot be processed as a circular hole - please remove from Base geometry list.",
+            )
+            % sub
+        )
+        return None
+
     def isHoleEnabled(self, obj, base, sub):
         """isHoleEnabled(obj, base, sub) ... return true if hole is enabled."""
         name = "%s.%s" % (base.Name, sub)
         return name not in obj.Disabled
 
-    def findAllHoles(self, obj):
+    def findAllHoles_ORIG(self, obj):
         """findAllHoles(obj) ... find all holes of all base models and assign as features."""
         PathLog.track()
         job = self.getJob(obj)
@@ -398,33 +429,90 @@ class TargetShape(PathOp2.ObjectOp2):
         obj.Hole = features
         obj.Disabled = []
 
+    def findAllHoles(self, obj):
+        """findAllHoles(obj) ... find all holes of all base models and assign as features."""
+        PathLog.track()
+        PathLog.info("PathCircularHoleBase findAllHoles()")
+        job = self.getJob(obj)
+        if not job:
+            return
+
+        # matchvector = None if job.JobType == "Multiaxis" else FreeCAD.Vector(0, 0, 1)
+        # tooldiameter = obj.ToolController.Tool.Diameter
+        matchvector = FreeCAD.Vector(0, 0, 1)
+        tooldiameter = 0.2
+
+        if obj.Face == "None" and obj.Edge == "None":
+            rotations = []
+        else:
+            rotations, isPlanar = AlignToFeature.getRotationsForObject(obj)
+            if not isPlanar:
+                FreeCAD.Console.PrintError(
+                    f"ObjectOp.findAllHoles() Feature not planar: {obj.Face}/{obj.Edge}\n"
+                )
+                return
+
+        features = []
+        for base in job.Model.Group:
+            if rotations:
+                rotatedBaseShp = AlignToFeature.rotateShapeWithList(
+                    base.Shape, rotations
+                )
+                rotatedBaseShp.translate(obj.CenterOfRotation.negative())
+                # Part.show(rotatedBaseShp, "RotBase")
+            else:
+                rotatedBaseShp = base.Shape
+
+            targetFaces = drillableLib.getDrillableTargets(
+                rotatedBaseShp, ToolDiameter=tooldiameter, vector=matchvector
+            )
+            # targets = [(base, f) for f in targetFaces]
+            targets = [(base, f) for f in targetFaces]
+            features.extend(targets)
+        # obj.Base = features
+        obj.Hole = features
+        obj.Disabled = []
+
     def _processHoles(self, obj):
         """_processHoles(obj) ... processes all Base features and Locations and collects
         them in a list of positions and radii which is then passed to circularHoleExecute(obj, holes).
         If no Base geometries and no Locations are present, the job's Base is inspected and all
         drillable features are added to Base. In this case appropriate values for depths are also
-        calculated and assigned.
-        Do not overwrite, implement circularHoleExecute(obj, holes) instead."""
+        calculated and assigned."""
         PathLog.track()
+
+        if obj.Face == "None" and obj.Edge == "None":
+            rotations = []
+        else:
+            rotations, isPlanar = AlignToFeature.getRotationsForObject(obj)
+            if not isPlanar:
+                FreeCAD.Console.PrintError(
+                    f"ObjectOp.findAllHoles() Feature not planar: {obj.Face}/{obj.Edge}\n"
+                )
+                return
 
         holes = []
         for base, subs in obj.Hole:
+            if rotations:
+                rotatedBaseShp = AlignToFeature.rotateShapeWithList(
+                    base.Shape, rotations
+                )
+                rotatedBaseShp.translate(obj.CenterOfRotation.negative())
+                # Part.show(rotatedBaseShp, "RotBase")
+            else:
+                rotatedBaseShp = base.Shape
+
             for sub in subs:
                 PathLog.debug("processing {} in {}".format(sub, base.Name))
                 if self.isHoleEnabled(obj, base, sub):
-                    pos = self.holePosition(obj, base, sub)
+                    pos = self.holePosition(rotatedBaseShp, sub)
                     if pos:
                         holes.append(
-                            FreeCAD.Vector(
-                                pos.x, pos.y, self.holeDiameter(obj, base, sub)
-                            )
+                            FreeCAD.Vector(pos.x, pos.y, self.holeDiameter(base, sub))
                         )
 
         for loc in obj.Locations:
             holes.append(FreeCAD.Vector(loc.x, loc.y, 0.0))
-
-        # if len(holes) > 0:
-        #    self.circularHoleExecute(obj, holes)
 
         return holes
 
@@ -460,12 +548,6 @@ class TargetShape(PathOp2.ObjectOp2):
         # print(f"restore rotations as: {self._getRotationsList(obj)}")
         # print(f"actual rotations: {rotations}")
 
-        # Get extensions and identify faces to avoid
-        extensions = FeatureExtensions.getExtensions(obj)
-        for e in extensions:
-            if e.extType == "Avoid":
-                avoidFeatures.append(e.feature)
-
         if rotations:
             rotatedStockShp = AlignToFeature.rotateShapeWithList(
                 self.job.Stock.Shape, rotations
@@ -474,6 +556,12 @@ class TargetShape(PathOp2.ObjectOp2):
             # Part.show(rotatedStockShp, "RotStock")
         else:
             rotatedStockShp = self.job.Stock.Shape
+
+        # Get extensions and identify faces to avoid
+        extensions = FeatureExtensions.getExtensions(obj)
+        for e in extensions:
+            if e.extType == "Avoid":
+                avoidFeatures.append(e.feature)
 
         if obj.Base:
             # PathLog.info("Processing base items ...")
@@ -586,6 +674,48 @@ class TargetShape(PathOp2.ObjectOp2):
 
 
 # Eclass
+
+
+def getDrillableTargets(obj, ToolDiameter=None, vector=FreeCAD.Vector(0, 0, 1)):
+    """
+    Returns a list of tuples for drillable subelements from the given object
+    [(obj,'Face1'),(obj,'Face3')]
+
+    Finds cylindrical faces that are larger than the tool diameter (if provided) and
+    oriented with the vector.  If vector is None, all drillables are returned
+
+    """
+
+    # shp = obj.Shape
+    shp = obj
+
+    results = []
+    for i in range(1, len(shp.Faces)):
+        fname = "Face{}".format(i)
+        PathLog.debug(fname)
+        # candidate = obj.getSubObject(fname)
+        candidate = obj.getElement(fname)
+
+        if not isinstance(candidate.Surface, Part.Cylinder):
+            continue
+
+        try:
+            drillable = drillableLib.isDrillable(
+                shp, candidate, tooldiameter=ToolDiameter, vector=vector
+            )
+            PathLog.debug("fname: {} : drillable {}".format(fname, drillable))
+        except Exception as e:
+            PathLog.debug(e)
+            continue
+
+        if drillable:
+            # results.append((obj, fname))
+            results.append(fname)
+
+    return results
+
+
+drillableLib.getDrillableTargets = getDrillableTargets
 
 
 def SetupProperties():

@@ -92,13 +92,17 @@ class ObjectDrilling(PathCircularHoleBase.ObjectOp):
 
         return data
 
-    def circularHoleFeatures(self, obj):
+    def circularHoleFeatures_orig(self, obj):
         """circularHoleFeatures(obj) ... drilling works on anything, turn on all Base geometries and Locations."""
         return (
             # PathOp.FeatureBaseGeometry
             # | PathOp.FeatureLocations
             PathOp.FeatureCoolant
         )
+
+    def circularHoleFeatures(self, obj):
+        """circularHoleFeatures(obj) ... drilling works on anything, turn on all Base geometries and Locations."""
+        return 0
 
     def initCircularHoleOperation(self, obj):
         """initCircularHoleOperation(obj) ... add drilling specific properties to obj."""
@@ -161,11 +165,20 @@ class ObjectDrilling(PathCircularHoleBase.ObjectOp):
             "Drill",
             QT_TRANSLATE_NOOP("App::Property", "How far the drill depth is extended"),
         )
+        # obj.addProperty(
+        #    "App::PropertyLink",
+        #    "TargetShape",
+        #    "Base",
+        #    QT_TRANSLATE_NOOP(
+        #        "App::Property",
+        #        "Link to Target Shape object as basis for path generation",
+        #    ),
+        # )
 
         for n in self.propertyEnumerations():
             setattr(obj, n[0], n[1])
 
-    def circularHoleExecute(self, obj, holes):
+    def circularHoleExecute_orig(self, obj, holes):
         """circularHoleExecute(obj, holes) ... generate drill operation for each hole in holes."""
         PathLog.track()
         machine = PathMachineState.MachineState()
@@ -256,6 +269,101 @@ class ObjectDrilling(PathCircularHoleBase.ObjectOp):
         # Apply feedrates to commands
         PathFeedRate.setFeedRate(self.commandlist, obj.ToolController)
 
+    def circularHoleExecute(self, obj):
+        """circularHoleExecute(obj, holes) ... generate drill operation for each hole in holes."""
+        PathLog.track()
+        print("PathDrilling circularHoleExecute()")
+
+        machine = PathMachineState.MachineState()
+
+        self.commandlist.append(Path.Command("(Begin Drilling)"))
+
+        # rapid to clearance height
+        command = Path.Command("G0", {"Z": obj.ClearanceHeight.Value})
+        machine.addCommand(command)
+        self.commandlist.append(command)
+
+        self.commandlist.append(Path.Command("G90"))  # Absolute distance mode
+
+        # Calculate offsets to add to target edge
+        endoffset = 0.0
+        if obj.ExtraOffset == "Drill Tip":
+            endoffset = PathUtils.drillTipLength(self.tool)
+        elif obj.ExtraOffset == "2x Drill Tip":
+            endoffset = PathUtils.drillTipLength(self.tool) * 2
+
+        # http://linuxcnc.org/docs/html/gcode/g-code.html#gcode:g98-g99
+        self.commandlist.append(Path.Command(obj.ReturnLevel))
+
+        self.commandlist.extend(self._getRotationCommands(obj))
+
+        holes = [{"x": v.x, "y": v.y, "r": v.z} for v in obj.TargetShape.PointLocations]
+        holes = PathUtils.sort_locations(holes, ["x", "y"])
+
+        # This section is technical debt. The computation of the
+        # target shapes should be factored out for re-use.
+        # This will likely mean refactoring upstream CircularHoleBase to pass
+        # spotshapes instead of holes.
+
+        startHeight = obj.StartDepth.Value + self.job.SetupSheet.SafeHeightOffset.Value
+
+        edgelist = []
+        for hole in holes:
+            v1 = FreeCAD.Vector(hole["x"], hole["y"], obj.StartDepth.Value)
+            v2 = FreeCAD.Vector(hole["x"], hole["y"], obj.FinalDepth.Value - endoffset)
+            edgelist.append(Part.makeLine(v1, v2))
+
+        # iterate the edgelist and generate gcode
+        for edge in edgelist:
+            PathLog.debug(edge)
+
+            # move to hole location
+            startPoint = edge.Vertexes[0].Point
+            command = Path.Command("G0", {"X": startPoint.x, "Y": startPoint.y})
+            self.commandlist.append(command)
+            machine.addCommand(command)
+
+            command = Path.Command("G0", {"Z": startHeight})
+            self.commandlist.append(command)
+            machine.addCommand(command)
+
+            # command = Path.Command("G1", {"Z": obj.StartDepth.Value})
+            # self.commandlist.append(command)
+            # machine.addCommand(command)
+
+            # Technical Debt:  We are assuming the edges are aligned.
+            # This assumption should be corrected and the necessary rotations
+            # performed to align the edge with the Z axis for drilling
+
+            # Perform drilling
+            dwelltime = obj.DwellTime if obj.DwellEnabled else 0.0
+            peckdepth = obj.PeckDepth.Value if obj.PeckEnabled else 0.0
+            repeat = 1  # technical debt:  Add a repeat property for user control
+
+            try:
+                drillcommands = generator.generate(
+                    edge, dwelltime, peckdepth, repeat, obj.RetractHeight.Value
+                )
+
+            except ValueError as e:  # any targets that fail the generator are ignored
+                PathLog.info(e)
+                continue
+
+            for command in drillcommands:
+                self.commandlist.append(command)
+                machine.addCommand(command)
+
+        # Cancel canned drilling cycle
+        self.commandlist.append(Path.Command("G80"))
+        command = Path.Command("G0", {"Z": obj.SafeHeight.Value})
+        self.commandlist.append(command)
+        machine.addCommand(command)
+
+        self.commandlist.extend(self._getRotationCommands(obj, reverse=True))
+
+        # Apply feedrates to commands
+        PathFeedRate.setFeedRate(self.commandlist, obj.ToolController)
+
     def opSetDefaultValues(self, obj, job):
         """opSetDefaultValues(obj, job) ... set default value for RetractHeight"""
         targetShps = [None]
@@ -308,7 +416,7 @@ def Create(name, obj=None, parentJob=None):
         obj = FreeCAD.ActiveDocument.addObject("Path::FeaturePython", name)
 
     obj.Proxy = ObjectDrilling(obj, name, parentJob)
-    if obj.Proxy:
-        obj.Proxy.findAllHoles(obj)
+    # if obj.Proxy:
+    #    obj.Proxy.findAllHoles(obj)
 
     return obj

@@ -60,7 +60,7 @@ OPS = {
         "Path_Helix",
     ),
     "Drilling": (
-        "PathScripts.PathDrillingGui",
+        "OpsGui.PathDrillingGui",
         translate("PathExp", "Drilling"),
         "Path_Drilling",
     ),

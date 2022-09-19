@@ -27,6 +27,7 @@ import Support.PathSelection as PathSelection
 import PathScripts.PathSetupSheet as PathSetupSheet
 import PathScripts.PathUtil as PathUtil
 import Taskpanels.PathTaskPanel as PathTaskPanel
+import PathScripts.PathUtils as PathUtils
 
 import importlib
 
