@@ -23,7 +23,7 @@
 from PySide.QtCore import QT_TRANSLATE_NOOP
 import FreeCAD
 import Path
-import PathScripts.PathLog as PathLog
+import Path.Log as PathLog
 import Ops.PathOp as PathOp
 import PathScripts.PathUtils as PathUtils
 import Macros.Macro_REST_Milling as Macro_REST_Milling
@@ -34,7 +34,7 @@ from lazy_loader.lazy_loader import LazyLoader
 
 Draft = LazyLoader("Draft", globals(), "Draft")
 Part = LazyLoader("Part", globals(), "Part")
-PathGeom = LazyLoader("PathScripts.PathGeom", globals(), "PathScripts.PathGeom")
+PathGeom = LazyLoader("Path.Geom", globals(), "Path.Geom")
 
 
 __title__ = "Base class for PathArea based operations."

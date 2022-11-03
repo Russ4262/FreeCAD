@@ -22,10 +22,10 @@
 
 import FreeCAD
 import FreeCADGui
-import PathScripts.PathLog as PathLog
+import Path.Log as PathLog
 import Support.PathSelection as PathSelection
-import PathScripts.PathSetupSheet as PathSetupSheet
-import PathScripts.PathUtil as PathUtil
+import Path.Base.SetupSheet as PathSetupSheet
+import Path.Base.Util as PathUtil
 import Taskpanels.PathTaskPanel as PathTaskPanel
 import PathScripts.PathUtils as PathUtils
 
@@ -194,7 +194,7 @@ class ViewProvider(object):
         """this makes sure that the base operation is added back to the project and visible"""
         PathLog.debug("Deleting Dressup")
         PathUtil.clearExpressionEngine(arg1.Object)
-        if arg1.Object and hasattr(arg1.Object, "TargetShape"):
+        if arg1.Object and hasattr(arg1.Object, "TargetShape") and arg1.Object.TargetShape is not None:
             FreeCADGui.ActiveDocument.getObject(
                 arg1.Object.TargetShape.Name
             ).Visibility = True

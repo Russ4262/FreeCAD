@@ -1,9 +1,9 @@
 import FreeCAD
 import Part
 import math
-import PathScripts.PathGeom as PathGeom
+import Path.Geom as PathGeom
 
-# import Generator_Utilities as GenUtils
+# import Macros.Generator_Utilities as GenUtils
 
 IS_MACRO = False  # Set to True to use as macro
 IS_DEBUG = False

@@ -25,11 +25,11 @@
 
 import FreeCAD
 import Path
-import PathScripts.PathLog as PathLog
+import Path.Log as PathLog
 import PathScripts.PathUtils as PathUtils
 import Part
-import PathScripts.PathGeom as PathGeom
-import PathScripts.PathOpTools as PathOpTools
+import Path.Geom as PathGeom
+import Path.Op.Util as PathOpTools
 import Generator_Utilities
 import math
 import area

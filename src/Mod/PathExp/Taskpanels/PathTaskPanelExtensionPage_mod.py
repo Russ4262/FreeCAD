@@ -21,9 +21,9 @@
 # ***************************************************************************
 
 import Part
-import PathScripts.PathGeom as PathGeom
-import PathScripts.PathGui as PathGui
-import PathScripts.PathLog as PathLog
+import Path.Geom as PathGeom
+import Path.Base.Gui.Util as PathGui
+import Path.Log as PathLog
 import Taskpanels.PathTaskPanelPage as PathTaskPanelPage
 import Features.PathFeatureExtensions as PathFeatureExtensions
 from pivy import coin

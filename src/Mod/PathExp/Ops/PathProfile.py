@@ -25,10 +25,11 @@
 import FreeCAD
 import Path
 import Ops.PathAreaOp as PathAreaOp
-import PathScripts.PathLog as PathLog
-import PathScripts.PathOp as PathOp
+import Path.Log as PathLog
+# import Path.Op.Base as PathOp
 import PathScripts.PathUtils as PathUtils
 from PySide.QtCore import QT_TRANSLATE_NOOP
+import Ops.PathOp as PathOp
 
 # lazily loaded modules
 from lazy_loader.lazy_loader import LazyLoader
@@ -58,7 +59,7 @@ class ObjectProfile(PathAreaOp.ObjectOp):
 
     def areaOpFeatures_orig(self, obj):
         """areaOpFeatures(obj) ... returns operation-specific features"""
-        return PathOp.FeatureBaseFaces | PathOp.FeatureBaseEdges
+        return PathOp.FeatureBaseFaces | PathOp.FeatureBaseEdges | PathOp.FeatureStepDown
 
     def initAreaOp(self, obj):
         """initAreaOp(obj) ... creates all profile specific properties."""

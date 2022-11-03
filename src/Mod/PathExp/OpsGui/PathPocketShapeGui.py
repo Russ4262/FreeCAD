@@ -21,11 +21,11 @@
 # ***************************************************************************
 
 import FreeCAD
-import PathScripts.PathLog as PathLog
+import Path.Log as PathLog
 import OpsGui.PathOpGui2 as PathOpGui  # import OpsGui.PathOpGui3 as PathOpGui
 import Ops.PathPocketShape as PathPocketShape
 import OpsGui.PathPocketBaseGui as PathPocketBaseGui
-import PathScripts.PathGui as PathGui
+import Path.Base.Gui.Util as PathGui
 
 from PySide.QtCore import QT_TRANSLATE_NOOP
 

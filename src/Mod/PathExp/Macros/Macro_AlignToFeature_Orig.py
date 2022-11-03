@@ -1,8 +1,8 @@
 import FreeCAD
 import Part
 import math
-import PathScripts.PathGeom as PathGeom
-import Generator_Utilities as GenUtils
+import Path.Geom as PathGeom
+import Macros.Generator_Utilities as GenUtils
 
 IS_MACRO = False  # Set to True to use as macro
 CENTER_OF_ROTATION = FreeCAD.Vector(0.0, 0.0, 0.0)

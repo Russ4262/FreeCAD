@@ -25,9 +25,9 @@ from pivy import coin
 import FreeCAD
 import FreeCADGui
 import Features.PathFeatureExtensions as FeatureExtensions
-import PathScripts.PathGeom as PathGeom
-import PathScripts.PathGui as PathGui
-import PathScripts.PathLog as PathLog
+import Path.Geom as PathGeom
+import Path.Base.Gui.Util as PathGui
+import Path.Log as PathLog
 import OpsGui.PathOpGui as PathOpGui
 
 # lazily loaded modules

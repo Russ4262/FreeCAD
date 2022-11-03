@@ -23,7 +23,7 @@
 import FreeCAD
 import FreeCADGui
 import PathGui as PGui  # ensure Path/Gui/Resources are loaded
-import PathScripts.PathLog as PathLog
+import Path.Log as PathLog
 import OpsGui.PathOpGui2 as PathOpGui2
 import Taskpanels.PathTaskPanelPage as PathTaskPanelPage
 
@@ -46,7 +46,7 @@ else:
 class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
     """Base class for circular hole based operation's page controller."""
 
-    #def taskPanelBaseGeometryPage(self, obj, features):
+    # def taskPanelBaseGeometryPage(self, obj, features):
     #    """taskPanelBaseGeometryPage(obj, features) ... Return circular hole specific page controller for Base Geometry."""
     #    return TaskPanelHoleGeometryPage(obj, features)
     pass

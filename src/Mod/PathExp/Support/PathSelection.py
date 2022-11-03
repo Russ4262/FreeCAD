@@ -25,9 +25,9 @@
 
 import FreeCAD
 import FreeCADGui
-import PathScripts.PathLog as PathLog
-import PathScripts.PathPreferences as PathPreferences
-import PathScripts.drillableLib as drillableLib
+import Path.Log as PathLog
+import Path.Preferences as PathPreferences
+import Path.Base.Drillable as drillableLib
 import math
 
 PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())

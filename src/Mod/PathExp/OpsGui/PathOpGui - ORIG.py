@@ -33,7 +33,7 @@ import Ops.PathOp as PathOp
 import PathScripts.PathPreferences as PathPreferences
 import Support.PathSelection as PathSelection
 import PathScripts.PathSetupSheet as PathSetupSheet
-import PathScripts.PathUtil as PathUtil
+import Path.Base.Util as PathUtil
 import PathScripts.PathUtils as PathUtils
 import importlib
 from PySide.QtCore import QT_TRANSLATE_NOOP

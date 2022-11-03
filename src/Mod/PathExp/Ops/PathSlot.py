@@ -32,7 +32,7 @@ __contributors__ = ""
 import FreeCAD
 from PySide import QtCore
 import Path
-import PathScripts.PathLog as PathLog
+import Path.Log as PathLog
 import PathScripts.PathUtils as PathUtils
 import Ops.PathOp as PathOp
 import math
@@ -42,7 +42,7 @@ from lazy_loader.lazy_loader import LazyLoader
 
 Part = LazyLoader("Part", globals(), "Part")
 Arcs = LazyLoader("draftgeoutils.arcs", globals(), "draftgeoutils.arcs")
-PathGeom = LazyLoader("PathScripts.PathGeom", globals(), "PathScripts.PathGeom")
+PathGeom = LazyLoader("Path.Geom", globals(), "Path.Geom")
 if FreeCAD.GuiUp:
     FreeCADGui = LazyLoader("FreeCADGui", globals(), "FreeCADGui")
 

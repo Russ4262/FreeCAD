@@ -24,7 +24,7 @@
 # import Ops.PathOp as PathOp
 # import Shape.PathShape as PathShape
 import Ops.PathOp2 as PathShape
-import PathScripts.PathLog as PathLog
+import Path.Log as PathLog
 import FreeCAD
 import Part
 import Features.PathFeatureExtensions as FeatureExtensions

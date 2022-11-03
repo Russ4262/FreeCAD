@@ -21,8 +21,8 @@
 # ***************************************************************************
 
 import FreeCAD
-import PathScripts.PathLog as PathLog
-import PathScripts.PathGeom as PathGeom
+import Path.Log as PathLog
+import Path.Geom as PathGeom
 import Part
 import math
 

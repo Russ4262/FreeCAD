@@ -24,10 +24,10 @@ import FreeCAD
 from PathScripts.PathUtils import waiting_effects
 from PySide.QtCore import QT_TRANSLATE_NOOP
 import Path
-import PathScripts.PathGeom as PathGeom
-import PathScripts.PathLog as PathLog
-import PathScripts.PathPreferences as PathPreferences
-import PathScripts.PathUtil as PathUtil
+import Path.Geom as PathGeom
+import Path.Log as PathLog
+import Path.Preferences as PathPreferences
+import Path.Base.Util as PathUtil
 import PathScripts.PathUtils as PathUtils
 import time
 
@@ -823,10 +823,6 @@ class ObjectOp(object):
         the receiver's Path property from the command list.
         """
         PathLog.track()
-
-        if PathUtils.isOperationCancelled(obj):
-            PathLog.debug("Operation cancelled")
-            return
 
         if not obj.Active:
             path = Path.Path("(inactive operation)")

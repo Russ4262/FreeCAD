@@ -23,8 +23,8 @@
 import FreeCAD
 from PySide.QtCore import QT_TRANSLATE_NOOP
 import Ops.PathAreaOp as PathAreaOp
-import PathScripts.PathLog as PathLog
-import PathScripts.PathOp as PathOp
+import Path.Log as PathLog
+import Path.Op.Base as PathOp
 
 
 __title__ = "Base Path Pocket Operation"
@@ -92,6 +92,7 @@ class ObjectPocket(PathAreaOp.ObjectOp):
         return (
             PathOp.FeatureBaseFaces
             | PathOp.FeatureFinishDepth
+            | PathOp.FeatureStepDown
             | self.pocketOpFeatures(obj)
         )
 
@@ -104,9 +105,12 @@ class ObjectPocket(PathAreaOp.ObjectOp):
         pass
 
     def areaOpSetDefaultValues(self, obj, job):
-        targetShps = [None] + [
-            o for o in job.Operations.Group if o.Name.startswith("TargetShape")
-        ]
+        targetShps = [None]
+        for o in job.Operations.Group:
+            if o.Name.startswith("TargetShape"):
+                targetShps.append(o)
+            elif hasattr(o, "TargetShape") and o.TargetShape is not None:
+                targetShps.append(o.TargetShape)
         print(f"areaOpSetDefaultValues() targetShapes: {targetShps}")
         obj.TargetShape = targetShps[-1]
         obj.PocketLastStepOver = 0

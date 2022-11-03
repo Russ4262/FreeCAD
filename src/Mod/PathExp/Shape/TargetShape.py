@@ -24,12 +24,12 @@
 import FreeCAD
 import Part
 import Ops.PathOp2 as PathOp2
-import PathScripts.PathLog as PathLog
+import Path.Log as PathLog
 import Features.PathFeatureExtensions as FeatureExtensions
 import Macros.Macro_CombineRegions as CombineRegions
 import Macros.Macro_AlignToFeature as AlignToFeature
 import PathScripts.PathUtils as PathUtils
-import PathScripts.drillableLib as drillableLib
+import Path.Base.Drillable as drillableLib
 
 
 __doc__ = "Class and implementation of a Target Shape."

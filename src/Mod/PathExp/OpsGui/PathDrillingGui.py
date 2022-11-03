@@ -25,8 +25,8 @@ import FreeCADGui
 import PathGui as PGui  # ensure Path/Gui/Resources are loaded
 import OpsGui.PathCircularHoleBaseGui as PathCircularHoleBaseGui
 import Ops.PathDrilling as PathDrilling
-import PathScripts.PathGui as PathGui
-import PathScripts.PathLog as PathLog
+import Path.Base.Gui.Util as PathGui
+import Path.Log as PathLog
 import OpsGui.PathOpGui2 as PathOpGui
 
 from PySide import QtCore

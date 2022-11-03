@@ -22,9 +22,9 @@
 
 from PySide.QtCore import QT_TRANSLATE_NOOP
 import FreeCAD
-import PathScripts.PathGeom as PathGeom
-import PathScripts.PathLog as PathLog
-import PathScripts.PathOp as PathOp
+import Path.Geom as PathGeom
+import Path.Log as PathLog
+import Path.Op.Base as PathOp
 import Ops.PathPocketBase as PathPocketBase
 
 

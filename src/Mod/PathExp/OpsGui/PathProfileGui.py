@@ -22,7 +22,7 @@
 
 import FreeCAD
 import FreeCADGui
-import PathScripts.PathGui as PathGui
+import Path.Base.Gui.Util as PathGui
 import OpsGui.PathOpGui2 as PathOpGui2  # import OpsGui.PathOpGui3 as PathOpGui3
 import Taskpanels.PathTaskPanelPage as PathTaskPanelPage
 import Ops.PathProfile as PathProfile
@@ -39,7 +39,6 @@ FeatureSide = 0x01
 FeatureProcessing = 0x02
 
 
-# class TaskPanelOpPage(PathOpGui2.TaskPanelPage):
 class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
     """Base class for profile operation page controllers. Two sub features are supported:
     FeatureSide       ... Is the Side property exposed in the UI

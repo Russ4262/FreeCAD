@@ -22,7 +22,7 @@
 
 import FreeCAD
 import FreeCADGui
-import PathScripts.PathLog as PathLog
+import Path.Log as PathLog
 import Ops.PathOp2 as PathOp2
 import Taskpanels.PathTaskPanelPage as PathTaskPanelPage
 

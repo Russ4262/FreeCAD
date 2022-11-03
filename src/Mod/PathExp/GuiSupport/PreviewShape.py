@@ -20,7 +20,7 @@
 # *                                                                         *
 # ***************************************************************************
 
-import PathScripts.PathLog as PathLog
+import Path.Log as PathLog
 from pivy import coin
 
 

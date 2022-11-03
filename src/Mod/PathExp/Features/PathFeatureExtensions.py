@@ -23,8 +23,8 @@
 from PySide.QtCore import QT_TRANSLATE_NOOP
 import FreeCAD
 import Part
-import PathScripts.PathGeom as PathGeom
-import PathScripts.PathLog as PathLog
+import Path.Geom as PathGeom
+import Path.Log as PathLog
 import math
 
 # lazily loaded modules

@@ -27,10 +27,10 @@ from PySide import QtCore
 
 from PathScripts.PathUtils import waiting_effects
 import Path
-import PathScripts.PathGeom as PathGeom
-import PathScripts.PathLog as PathLog
-import PathScripts.PathPreferences as PathPreferences
-import PathScripts.PathUtil as PathUtil
+import Path.Geom as PathGeom
+import Path.Log as PathLog
+import Path.Preferences as PathPreferences
+import Path.Base.Util as PathUtil
 import PathScripts.PathUtils as PathUtils
 
 # lazily loaded modules

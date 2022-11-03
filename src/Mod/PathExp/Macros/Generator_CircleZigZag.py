@@ -24,10 +24,10 @@
 
 
 import FreeCAD
-import PathScripts.PathLog as PathLog
+import Path.Log as PathLog
 import PathScripts.PathUtils as PathUtils
-import PathScripts.PathGeom as PathGeom
-import PathScripts.PathOpTools as PathOpTools
+import Path.Geom as PathGeom
+import Path.Op.Util as PathOpTools
 import DraftGeomUtils
 import Path
 import Part

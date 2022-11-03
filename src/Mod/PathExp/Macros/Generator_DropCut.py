@@ -1,6 +1,6 @@
 import FreeCAD
 import Part
-import PathScripts.PathGeom as PathGeom
+import Path.Geom as PathGeom
 import PathScripts.PathUtils as PathUtils
 
 IS_MACRO = False
@@ -325,7 +325,7 @@ def _getUserInput(Gui_Input):
 
 
 def executeAsMacro():
-    import Generator_Utilities as GenUtils
+    import Macros.Generator_Utilities as GenUtils
 
     job, tc = GenUtils.getJobAndToolController()
     if job is None:

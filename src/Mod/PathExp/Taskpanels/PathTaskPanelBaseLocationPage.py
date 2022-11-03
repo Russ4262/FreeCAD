@@ -22,8 +22,8 @@
 
 import FreeCAD
 import FreeCADGui
-import PathScripts.PathGetPoint as PathGetPoint
-import PathScripts.PathLog as PathLog
+import Path.Base.Gui.GetPoint as PathGetPoint
+import Path.Log as PathLog
 import Taskpanels.PathTaskPanelPage as PathTaskPanelPage
 
 from PySide import QtCore, QtGui

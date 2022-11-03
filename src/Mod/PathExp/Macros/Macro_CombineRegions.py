@@ -1,8 +1,8 @@
 import FreeCAD
 import Part
 import DraftGeomUtils
-import PathScripts.PathGeom as PathGeom
-import Generator_Utilities as GenUtils
+import Path.Geom as PathGeom
+import Macros.Generator_Utilities as GenUtils
 
 IS_MACRO = False  # False  # Set to True to use as macro
 SET_SELECTION = False

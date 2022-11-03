@@ -23,17 +23,20 @@
 from PySide.QtCore import QT_TRANSLATE_NOOP
 import FreeCAD
 import Part
-import PathScripts.PathLog as PathLog
-import PathScripts.PathOp as PathOp
+import Path.Log as PathLog
+import Path.Op.Base as PathOp
 import Ops.PathPocketBase as PathPocketBase
 import PathScripts.PathUtils as PathUtils
 
 # lazily loaded modules
 from lazy_loader.lazy_loader import LazyLoader
 
-PathGeom = LazyLoader("PathScripts.PathGeom", globals(), "PathScripts.PathGeom")
+PathGeom = LazyLoader("Path.Geom", globals(), "Path.Geom")
 FeatureExtensions = LazyLoader(
-    "PathScripts.PathFeatureExtensions", globals(), "PathScripts.PathFeatureExtensions"
+    # "PathScripts.PathFeatureExtensions", globals(), "PathScripts.PathFeatureExtensions"
+    "Path.Op.FeatureExtension",
+    globals(),
+    "Path.Op.FeatureExtension",
 )
 
 __title__ = "Path 3D Pocket Operation"

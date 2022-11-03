@@ -22,8 +22,8 @@
 
 import FreeCAD
 import FreeCADGui
-import PathScripts.PathGui as PathGui
-import PathScripts.PathLog as PathLog
+import Path.Base.Gui.Util as PathGui
+import Path.Log as PathLog
 import Taskpanels.PathTaskPanelPage as PathTaskPanelPage
 
 

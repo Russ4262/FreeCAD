@@ -22,10 +22,11 @@
 
 import FreeCAD
 import FreeCADGui
-import PathScripts.PathGui as PathGui
-import OpsGui.PathOpGui2 as PathOpGui  # import OpsGui.PathOpGui2 as PathOpGui
+import Path.Base.Gui.Util as PathGui
+# import OpsGui.PathOpGui2 as PathOpGui  # import OpsGui.PathOpGui2 as PathOpGui
 import Ops.PathPocket as PathPocket
-import PathScripts.PathLog as PathLog
+import Path.Log as PathLog
+import Taskpanels.PathTaskPanelPage as PathTaskPanelPage
 
 __title__ = "Path Pocket Base Operation UI"
 __author__ = "sliptonic (Brad Collette)"
@@ -45,7 +46,7 @@ FeatureFacing = 0x02
 FeatureOutline = 0x04
 
 
-class TaskPanelOpPage(PathOpGui.TaskPanelPage):
+class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
     """Page controller class for pocket operations, supports:
     FeaturePocket  ... used for pocketing operation
     FeatureFacing  ... used for face milling operation
@@ -61,12 +62,20 @@ class TaskPanelOpPage(PathOpGui.TaskPanelPage):
         pass
 
     def initPage(self, obj):
-        if FeatureFacing & self.pocketFeatures():
+        #if FeatureFacing & self.pocketFeatures():
+        #    self.setTitle("MillFace - " + obj.Label)
+        #elif FeaturePocket & self.pocketFeatures():
+        #    self.setTitle("3D Pocket - " + obj.Label)
+        #else:
+        #    self.setTitle("Pocket - " + obj.Label)
+
+        if obj.Name.startswith("Mill"):
             self.setTitle("MillFace - " + obj.Label)
-        elif FeaturePocket & self.pocketFeatures():
+        elif obj.Name.endswith("3D"):
             self.setTitle("3D Pocket - " + obj.Label)
         else:
             self.setTitle("Pocket - " + obj.Label)
+
         # self.updateVisibility()
 
     def getForm(self):

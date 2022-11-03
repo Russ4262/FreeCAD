@@ -24,8 +24,8 @@
 
 import Ops.PathOp as PathOp
 import PathScripts.PathUtils as PathUtils
-import PathScripts.PathLog as PathLog
-import PathScripts.PathGeom as PathGeom
+import Path.Log as PathLog
+import Path.Geom as PathGeom
 import Path
 import FreeCAD
 import time

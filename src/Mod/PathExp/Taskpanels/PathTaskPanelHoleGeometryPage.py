@@ -24,7 +24,7 @@ import FreeCAD
 import FreeCADGui
 import PathGui as PGui  # ensure Path/Gui/Resources are loaded
 import Ops.PathOp2 as PathOp2
-import PathScripts.PathLog as PathLog
+import Path.Log as PathLog
 import Taskpanels.PathTaskPanelPage as PathTaskPanelPage
 import Taskpanels.PathTaskPanelPage as PathTaskPanelPage
 

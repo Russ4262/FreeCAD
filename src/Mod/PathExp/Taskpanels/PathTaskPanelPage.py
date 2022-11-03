@@ -21,10 +21,10 @@
 # ***************************************************************************
 
 import FreeCAD
-import PathScripts.PathJob as PathJob
-import PathScripts.PathLog as PathLog
+import Path.Main.Job as PathJob
+import Path.Log as PathLog
 import PathScripts.PathUtils as PathUtils
-import PathScripts.PathGui as PathGui
+import Path.Base.Gui.Util as PathGui
 
 from PySide import QtCore
 
@@ -237,6 +237,10 @@ class TaskPanelPage(object):
         enumTups = {"TargetShape": tsObjects}
         comboBoxesPropertyMap = [("targetShape", "TargetShape")]
         PathGui.populateCombobox(self.form, enumTups, comboBoxesPropertyMap)
+
+    def populateCombobox(self, form, enumTups, comboBoxesPropertyMap):
+        """populateCombobox(form, enumTups, comboBoxesPropertyMap) ... proxy for PathGui.populateCombobox()"""
+        PathGui.populateCombobox(form, enumTups, comboBoxesPropertyMap)
 
     # Child classes to be overwritten
     def initPage(self, obj):

@@ -22,7 +22,7 @@
 
 from PySide.QtCore import QT_TRANSLATE_NOOP
 import FreeCAD
-import PathScripts.PathLog as PathLog
+import Path.Log as PathLog
 import Ops.PathOp2 as PathOp2
 import Generators.drillableLib as drillableLib
 import Macros.Macro_AlignToFeature as AlignToFeature

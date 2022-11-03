@@ -24,16 +24,16 @@ import FreeCAD
 import FreeCADGui
 
 # import PathGui as PGui  # ensure Path/Gui/Resources are loaded
-import PathScripts.PathGeom as PathGeom
-import PathScripts.PathGetPoint as PathGetPoint
-import PathScripts.PathGui as PathGui
-import PathScripts.PathJob as PathJob
-import PathScripts.PathLog as PathLog
+import Path.Geom as PathGeom
+import Path.Base.Gui.GetPoint as PathGetPoint
+import Path.Base.Gui.Util as PathGui
+import Path.Main.Job as PathJob
+import Path.Log as PathLog
 import Ops.PathOp as PathOp
-import PathScripts.PathPreferences as PathPreferences
+import Path.Preferences as PathPreferences
 import Support.PathSelection as PathSelection
-import PathScripts.PathSetupSheet as PathSetupSheet
-import PathScripts.PathUtil as PathUtil
+import Path.Base.SetupSheet as PathSetupSheet
+import Path.Base.Util as PathUtil
 import PathScripts.PathUtils as PathUtils
 import importlib
 from PySide.QtCore import QT_TRANSLATE_NOOP

@@ -24,13 +24,13 @@
 
 
 import FreeCAD
-import PathScripts.PathLog as PathLog
+import Path.Log as PathLog
 import PathScripts.PathUtils as PathUtils
-import PathScripts.PathGeom as PathGeom
+import Path.Geom as PathGeom
 import Path
 import Part
 import math
-import Generator_Utilities as GenUtils
+import Macros.Generator_Utilities as GenUtils
 import Generator_DropCut as DropCut
 import Macro_CombineRegions
 

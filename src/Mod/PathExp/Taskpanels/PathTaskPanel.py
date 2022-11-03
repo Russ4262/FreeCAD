@@ -22,11 +22,11 @@
 
 import FreeCAD
 import FreeCADGui
-import PathScripts.PathLog as PathLog
+import Path.Log as PathLog
 import Ops.PathOp2 as PathOp2
-import PathScripts.PathPreferences as PathPreferences
-import PathScripts.PathSelection as PathSelection
-import PathScripts.PathUtil as PathUtil
+import Path.Preferences as PathPreferences
+import Path.Op.Gui.Selection as PathSelection
+import Path.Base.Util as PathUtil
 from pivy import coin
 
 from PySide import QtCore, QtGui

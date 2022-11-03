@@ -27,7 +27,7 @@ import OpsGui.PathOpGui2 as PathShapeGui
 import GuiSupport.PreviewShape as PreviewShape
 import Taskpanels.PathTaskPanelPage as PathTaskPanelPage
 import Shape.TargetShape as TargetShape
-import PathScripts.PathGui as PathGui
+import Path.Base.Gui.Util as PathGui
 import Part
 
 from PySide import QtCore
