@@ -34,6 +34,11 @@ OPS = {
         translate("PathExp", "Adaptive"),
         "Path_Adaptive",
     ),
+    "Clearing": (
+        "OpsGui.PathClearingGui",
+        translate("PathExp", "Clearing"),
+        "Path_Clearing",
+    ),
     "3D Pocket": (
         "OpsGui.PathPocketGui",
         translate("PathExp", "3D Pocket"),

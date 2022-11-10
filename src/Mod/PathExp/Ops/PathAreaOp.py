@@ -425,6 +425,47 @@ class ObjectOp(PathOp.ObjectOp):
 
         return commands, None, pathGeom
 
+    def _buildPath(self, obj, solid, start):
+        PathLog.info("_buildProfilePath()")
+        import Macros.Generator_Profile as Generator_Profile
+
+        pathGeom = []
+        commands = []
+        cutDirections = {"CW": "Clockwise", "CCW": "CounterClockwise"}
+        offset = self.radius + obj.OffsetExtra.Value
+
+        if obj.Side == "Outside":
+            offset = -1.0 * self.radius
+            cutDirections = {"CCW": "Clockwise", "CW": "CounterClockwise"}
+
+        slices, depths = self._getSolidSlices(obj, solid)
+
+        for targetFace in slices:
+            pathWires = Generator_Profile.generatePathGeometry(
+                targetFace,
+                offset,
+                cutDirections[obj.Direction],
+                patternCenterAt="CenterOfBoundBox",
+                patternCenterCustom=FreeCAD.Vector(0.0, 0.0, 0.0),
+                cutPatternAngle=0.0,
+                cutPatternReversed=False,
+                minTravel=False,
+                keepToolDown=False,
+                jobTolerance=0.001,
+            )
+            pathGeom.extend(pathWires)
+
+            # print(f"depth: {targetFace.BoundBox.ZMin}")
+            paths = Generator_Profile.geometryToGcode(
+                pathWires,
+                obj.ToolController,
+                obj.SafeHeight.Value,
+                targetFace.BoundBox.ZMin,  # dep,  # obj.FinalDepth.Value,
+            )
+            commands.extend(paths)
+
+        return commands, None, pathGeom
+
     def _getSolidSlices(self, obj, solid):
         PathLog.info("_getSolidSlices()")
         import Macros.Macro_Slice_Solid as Macro_Slice_Solid

@@ -37,6 +37,7 @@ Part = LazyLoader("Part", globals(), "Part")
 DraftGeomUtils = LazyLoader("DraftGeomUtils", globals(), "DraftGeomUtils")
 PathGeom = LazyLoader("Path.Geom", globals(), "Path.Geom")
 PathOpTools = LazyLoader(
+    # "PathScripts.PathOpTools", globals(), "PathScripts.PathOpTools"
     "Path.Base.Util", globals(), "Path.Base.Util"
 )
 # time = LazyLoader('time', globals(), 'time')
@@ -785,19 +786,19 @@ class StrategyAdaptive:
                 for e in w.Edges:
                     self.pathArray.append([self._discretize(e)])
 
-        if FreeCAD.GuiUp:
+        if FreeCAD.GuiUp and self.viewObject:
             self.sceneGraph = FreeCADGui.ActiveDocument.ActiveView.getSceneGraph()
 
         # hide old toolpaths during recalculation
         # self.obj.Path = Path.Path("(Calculating...)")  # self.obj.Path should change to self.Path
 
-        if FreeCAD.GuiUp:
+        if FreeCAD.GuiUp and self.viewObject:
             # store old visibility state
-            # oldObjVisibility = self.viewObject.Visibility
-            # oldJobVisibility = self.job.ViewObject.Visibility
+            oldObjVisibility = self.viewObject.Visibility
+            oldJobVisibility = self.job.ViewObject.Visibility
 
-            #self.viewObject.Visibility = False
-            #self.job.ViewObject.Visibility = False
+            self.viewObject.Visibility = False
+            self.job.ViewObject.Visibility = False
 
             FreeCADGui.updateGui()
 
@@ -870,7 +871,7 @@ class StrategyAdaptive:
         # progress callback fn, if return true it will stop processing
         def progressFn(tpaths):
             motionCutting = area.AdaptiveMotionType.Cutting
-            if FreeCAD.GuiUp:
+            if FreeCAD.GuiUp and self.viewObject:
                 for (
                     path
                 ) in (
@@ -927,9 +928,9 @@ class StrategyAdaptive:
                 pass
 
         finally:
-            if FreeCAD.GuiUp:
-                #self.viewObject.Visibility = oldObjVisibility
-                #self.job.ViewObject.Visibility = oldJobVisibility
+            if FreeCAD.GuiUp and self.viewObject:
+                self.viewObject.Visibility = oldObjVisibility
+                self.job.ViewObject.Visibility = oldJobVisibility
                 self._sceneClean()
 
         return True

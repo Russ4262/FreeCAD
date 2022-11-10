@@ -25,37 +25,28 @@ import Path
 import Path.Log as PathLog
 import PathScripts.PathUtils as PathUtils
 import Generators.PathGeometryGenerator as GeometryGenerator
+# import strategies.PathStrategySlicing as PathStrategySlicing
+
+# import PathScripts.strategies.PathStrategyRestTools as PathStrategyRestTools
+import Path.Geom as PathGeom
+import Part
 
 from PySide import QtCore
 
 # lazily loaded modules
 from lazy_loader.lazy_loader import LazyLoader
 
-Part = LazyLoader("Part", globals(), "Part")
 DraftGeomUtils = LazyLoader("DraftGeomUtils", globals(), "DraftGeomUtils")
-PathGeom = LazyLoader("Path.Geom", globals(), "Path.Geom")
-PathOpTools = LazyLoader(
-    "Path.Op.Util", globals(), "Path.Op.Util"
-)
-# time = LazyLoader('time', globals(), 'time')
-json = LazyLoader("json", globals(), "json")
-math = LazyLoader("math", globals(), "math")
-area = LazyLoader("area", globals(), "area")
 PathStrategyAdaptive = LazyLoader(
     "Generators.PathStrategyAdaptive",
     globals(),
     "Generators.PathStrategyAdaptive",
 )
 TargetBuildUtils = LazyLoader(
-    "Generators.PathTargetBuildUtils",
+    "strategies.PathTargetBuildUtils",
     globals(),
-    "Generators.PathTargetBuildUtils",
+    "strategies.PathTargetBuildUtils",
 )
-
-
-if FreeCAD.GuiUp:
-    coin = LazyLoader("pivy.coin", globals(), "pivy.coin")
-    FreeCADGui = LazyLoader("FreeCADGui", globals(), "FreeCADGui")
 
 
 __title__ = "Path Strategy Clearing"
@@ -68,27 +59,25 @@ PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 # PathLog.trackModule(PathLog.thisModule())
 
 
-StrategyAdaptive = PathStrategyAdaptive.StrategyAdaptive  # Class reference
-PathGeometryGenerator = GeometryGenerator.PathGeometryGenerator  # Class reference
-
 # Qt translation handling
 def translate(context, text, disambig=None):
     return QtCore.QCoreApplication.translate(context, text, disambig)
 
 
-def getTransitionHeight(baseShape, start, end, toolDiameter):
-    """getTransitionHeight(baseShape, start, end, toolDiameter)...
+def isSafeTransition(baseFace, start, end, toolDiameter):
+    """isSafeTransition(baseFace, start, end, toolDiameter)...
     Make simple circle with diameter of tool, at start point.
     Extrude it latterally along path.
     Extrude it vertically.
     Check for collision with model."""
-    # Make path travel of tool as 3D solid.
-    if abs(start.z - end.z) > 0.0000001:
-        return None
 
-    clearanceHeight = baseShape.BoundBox.ZMax
-    layerDepth = start.z
-    rad = (toolDiameter / 2.0) - 0.0005  # reduce radius by 50 thousands millimeter
+    # Verify same Z height of points
+    if not PathGeom.isRoughly(end.z, start.z):
+        return False
+    # Verify points not same point
+    pathLen = end.sub(start).Length
+    if PathGeom.isRoughly(pathLen, 0.0):
+        return True
 
     def getPerp(start, end, dist):
         toEnd = end.sub(start)
@@ -99,61 +88,49 @@ def getTransitionHeight(baseShape, start, end, toolDiameter):
         perp.multiply(dist)
         return perp
 
+    rad = toolDiameter / 2.0  #  + 0.00025  # reduce radius by 25 thousands millimeter
+
     # Make first cylinder
     ce1 = Part.Wire(Part.makeCircle(rad, start).Edges)
     cylinder1 = Part.Face(ce1)
-    zTrans = layerDepth - cylinder1.BoundBox.ZMin
-    cylinder1.translate(FreeCAD.Vector(0.0, 0.0, zTrans))
-    extFwd = clearanceHeight - layerDepth
-    if extFwd <= 0.0:
-        extFwd = 1.0
-    extVect = FreeCAD.Vector(0.0, 0.0, extFwd)
-    startShp = cylinder1.extrude(extVect)
+    cylinder1.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - cylinder1.BoundBox.ZMin))
 
-    if end.sub(start).Length > 0:
-        # Make second cylinder
-        ce2 = Part.Wire(Part.makeCircle(rad, end).Edges)
-        cylinder2 = Part.Face(ce2)
-        zTrans = layerDepth - cylinder2.BoundBox.ZMin
-        cylinder2.translate(FreeCAD.Vector(0.0, 0.0, zTrans))
-        endShp = cylinder2.extrude(extVect)
+    # Make second cylinder
+    ce2 = Part.Wire(Part.makeCircle(rad, end).Edges)
+    cylinder2 = Part.Face(ce2)
+    cylinder2.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - cylinder2.BoundBox.ZMin))
 
-        # Make extruded rectangle to connect cylinders
-        perp = getPerp(start, end, rad)
-        v1 = start.add(perp)
-        v2 = start.sub(perp)
-        v3 = end.sub(perp)
-        v4 = end.add(perp)
-        e1 = Part.makeLine(v1, v2)
-        e2 = Part.makeLine(v2, v3)
-        e3 = Part.makeLine(v3, v4)
-        e4 = Part.makeLine(v4, v1)
-        edges = Part.__sortEdges__([e1, e2, e3, e4])
-        rectFace = Part.Face(Part.Wire(edges))
-        zTrans = layerDepth - rectFace.BoundBox.ZMin
-        rectFace.translate(FreeCAD.Vector(0.0, 0.0, zTrans))
-        boxShp = rectFace.extrude(extVect)
+    # Make extruded rectangle to connect cylinders
+    perp = getPerp(start, end, rad)
+    v1 = start.add(perp)
+    v2 = start.sub(perp)
+    v3 = end.sub(perp)
+    v4 = end.add(perp)
+    e1 = Part.makeLine(v1, v2)
+    e2 = Part.makeLine(v2, v3)
+    e3 = Part.makeLine(v3, v4)
+    e4 = Part.makeLine(v4, v1)
+    edges = Part.__sortEdges__([e1, e2, e3, e4])
+    rectFace = Part.Face(Part.Wire(edges))
+    rectFace.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - rectFace.BoundBox.ZMin))
 
-        # Fuse two cylinders and box together
-        part1 = startShp.fuse(boxShp)
-        pathTravel = part1.fuse(endShp).removeSplitter()
-    else:
-        pathTravel = startShp
+    # Fuse two cylinders and box together
+    part1 = cylinder1.fuse(rectFace)
+    pathTravel = part1.fuse(cylinder2).removeSplitter()
+    contact = pathTravel.common(baseFace)
+    # Part.show(baseFace, "baseFace")
+    # Part.show(pathTravel, "pathTravel")
+    # Part.show(contact, "contact")
 
-    # Debugging
-    # Part.show(pathTravel)
-    # FreeCAD.ActiveDocument.ActiveObject.Label = 'PathTravel'
-    # FreeCAD.ActiveDocument.ActiveObject.purgeTouched()
+    tol = 0.006 * pathLen / toolDiameter
+    if PathGeom.isRoughly(contact.Area, pathTravel.Area, tol):
+        return True
 
-    contact = pathTravel.common(baseShape)
-    if hasattr(contact, "Volume") and contact.Volume > 0.0:
-        # Debugging
-        # Part.show(contact)
-        # FreeCAD.ActiveDocument.ActiveObject.Label = 'contact'
-        # FreeCAD.ActiveDocument.ActiveObject.purgeTouched()
-        return contact.BoundBox.ZMax
+    # print("\npathTravel.Area: {}".format(pathTravel.Area))
+    # print("contact.Area: {}".format(contact.Area))
+    # print("path - contact areas: {}".format(pathTravel.Area - contact.Area))
 
-    return layerDepth
+    return False
 
 
 class StrategyClearVolume:
@@ -188,6 +165,7 @@ class StrategyClearVolume:
         callerClass,
         baseObject,
         volumeShape,
+        slices,
         depthOffset,
         patternCenterAt,
         patternCenterCustom,
@@ -227,9 +205,9 @@ class StrategyClearVolume:
         self.workingPlane = Part.makeCircle(2.0)  # make circle for workplane
         self.rawPathGeometry = None
         self.linkedPathGeom = None
-        self.endVectors = list()
-        self.pathGeometry = list()
-        self.commandList = list()
+        self.endVectors = []
+        self.pathGeometry = []
+        self.commandList = []
         self.useStaticCenter = True
         self.isCenterSet = False
         self.offsetDirection = -1.0  # 1.0=outside;  -1.0=inside
@@ -240,7 +218,7 @@ class StrategyClearVolume:
         self.transitionClearance = 2.0  # millimeters
         self.baseShape = None
         self.layerDepth = 0.0
-        self.startCommands = list()
+        self.startCommands = []
         self.useOCL = False
 
         # Save argument values to class instance
@@ -261,6 +239,7 @@ class StrategyClearVolume:
         self.jobTolerance = jobTolerance
         self.startPoint = startPoint
         self.depthParams = depthParams
+        self.slices = slices
 
         self.clearanceHeight = depthParams.clearance_height
         self.safeHeight = depthParams.safe_height
@@ -282,17 +261,13 @@ class StrategyClearVolume:
         self.toolRadius = self.toolDiameter / 2.0
         self.cutOut = self.toolDiameter * (self.stepOver / 100.0)
         # Setting toolDownThreshold below effective cut out (stepover * tool diameter) will keep tool down between transitions
-        self.toolDownThreshold = self.toolDiameter
+        self.toolDownThreshold = self.toolDiameter * 1.5
 
         # Grid and Triangle pattern requirements - paths produced by Path.Area() and Path.fromShapes()
         self.pocketMode = 6
         self.orientation = 0  # ['Conventional', 'Climb']
 
         # Adaptive-dependent attributes to be set by call to `setAdaptiveAttributes()` with required arguments
-        # self.startDepth = None
-        # self.finalDepth = None
-        # self.stepDown = None
-        # self.finishDepth = None
         self.operationType = None
         self.cutSide = None
         self.disableHelixEntry = None
@@ -340,7 +315,7 @@ class StrategyClearVolume:
             self._debugMsg("_getPathGeometry() No baseShape")
             return list()
 
-        pGG = PathGeometryGenerator(
+        pGG = GeometryGenerator.PathGeometryGenerator(
             self,
             face,
             self.patternCenterAt,
@@ -386,7 +361,7 @@ class StrategyClearVolume:
         return list()
 
     def _hopPath(self, upHeight, trgtX, trgtY, downHeight):
-        paths = list()
+        paths = []
         prevDepth = self.prevDepth + 0.5  # 1/2 mm buffer
         paths.append(
             Path.Command("G0", {"Z": upHeight, "F": self.vertRapid})
@@ -469,7 +444,8 @@ class StrategyClearVolume:
         # if self.keepToolDown:
         #    pathParams['threshold'] = self.toolDiameter * 1.001
 
-        for wire in wireList:
+        for w in wireList:
+            wire = w.copy()
             wire.translate(FreeCAD.Vector(0, 0, height))
 
             pathParams["shapes"] = [wire]
@@ -585,6 +561,7 @@ class StrategyClearVolume:
         self.endVector = end_vector  # pylint: disable=attribute-defined-outside-init
 
         simobj = None
+        """
         if getsim:
             areaParams["Thicken"] = True
             areaParams["ToolRadius"] = self.toolRadius - self.toolRadius * 0.005
@@ -593,7 +570,7 @@ class StrategyClearVolume:
                 -1
             ].getShape()
             simobj = sec.extrude(FreeCAD.Vector(0, 0, self.volumeShape.BoundBox.ZMax))
-
+        """
         self.commandList = pp.Commands
         self.simObj = simobj
 
@@ -608,7 +585,8 @@ class StrategyClearVolume:
         self._buildStartPath()
 
         if self.cutDirection == "Climb":
-            for wire in wireList:
+            for w in wireList:
+                wire = w.copy()
                 wire.translate(FreeCAD.Vector(0, 0, height))
 
                 e0 = wire.Edges[len(wire.Edges) - 1]
@@ -638,7 +616,8 @@ class StrategyClearVolume:
                 )
 
         else:
-            for wire in wireList:
+            for w in wireList:
+                wire = w.copy()
                 wire.translate(FreeCAD.Vector(0, 0, height))
 
                 e0 = wire.Edges[0]
@@ -675,36 +654,22 @@ class StrategyClearVolume:
 
         lastPnt = None
         if self.cutDirection == "Climb":
-            for wire in wireList:
+            for w in wireList:
+                wire = w.copy()
                 wire.translate(FreeCAD.Vector(0, 0, height))
                 e0 = wire.Edges[len(wire.Edges) - 1]
                 pnt0 = e0.Vertexes[1].Point
 
                 if lastPnt:
-                    # get transition height from end of last wire to start of current wire
-                    transHeight = getTransitionHeight(
+                    isKeepDownSafe = isSafeTransition(
                         self.safeBaseShape, lastPnt, pnt0, self.toolDiameter
                     )
-                    if not PathGeom.isRoughly(transHeight, height):
-                        transHeight += self.transitionClearance
-                        if transHeight < self.prevDepth + 1.0:
-                            transHeight = self.prevDepth + 1.0
-                        transHeight = min(transHeight, self.safeHeight)
-                        paths.extend(
-                            self._hopPath(
-                                transHeight, e0.Vertexes[1].X, e0.Vertexes[1].Y, height
-                            )
-                        )
-                    else:
-                        if (
-                            pnt0.sub(lastPnt).Length > self.toolDownThreshold
-                        ):  # if tran dist > toolDiam, hop
-                            # transHeight = min(height + 1.0, self.safeHeight)
-                            # transHeight = min(self.prevDepth + 1.0, self.safeHeight)
-                            transHeight = self.safeHeight
+                    # self._debugMsg("isKeepDownSafe: {}".format(isKeepDownSafe))
+                    if isKeepDownSafe:
+                        if pnt0.sub(lastPnt).Length > self.toolDownThreshold:
                             paths.extend(
                                 self._hopPath(
-                                    transHeight,
+                                    self.safeHeight,
                                     e0.Vertexes[1].X,
                                     e0.Vertexes[1].Y,
                                     height,
@@ -717,10 +682,19 @@ class StrategyClearVolume:
                                     {
                                         "X": e0.Vertexes[1].X,
                                         "Y": e0.Vertexes[1].Y,
-                                        "F": self.horizRapid,
+                                        "F": self.horizFeed,
                                     },
                                 )
                             )
+                    else:
+                        paths.extend(
+                            self._hopPath(
+                                self.safeHeight,
+                                e0.Vertexes[1].X,
+                                e0.Vertexes[1].Y,
+                                height,
+                            )
+                        )
                 else:
                     paths.append(
                         Path.Command(
@@ -749,37 +723,23 @@ class StrategyClearVolume:
                 lastPnt = wire.Edges[0].Vertexes[0].Point
 
         else:
-            for wire in wireList:
+            for w in wireList:
+                wire = w.copy()
                 wire.translate(FreeCAD.Vector(0, 0, height))
                 eCnt = len(wire.Edges)
                 e0 = wire.Edges[0]
                 pnt0 = e0.Vertexes[0].Point
 
                 if lastPnt:
-                    # get transition height from end of last wire to start of current wire
-                    transHeight = getTransitionHeight(
+                    isKeepDownSafe = isSafeTransition(
                         self.safeBaseShape, lastPnt, pnt0, self.toolDiameter
                     )
-                    if not PathGeom.isRoughly(transHeight, height):
-                        transHeight += self.transitionClearance
-                        if transHeight < self.prevDepth + 1.0:
-                            transHeight = self.prevDepth + 1.0
-                        transHeight = min(transHeight, self.safeHeight)
-                        paths.extend(
-                            self._hopPath(
-                                transHeight, e0.Vertexes[0].X, e0.Vertexes[0].Y, height
-                            )
-                        )
-                    else:
-                        if (
-                            pnt0.sub(lastPnt).Length > self.toolDownThreshold
-                        ):  # if tran dist > toolDiam, hop
-                            # transHeight = min(height + 1.0, self.safeHeight)
-                            # transHeight = min(self.prevDepth + 1.0, self.safeHeight)
-                            transHeight = self.safeHeight
+                    # self._debugMsg("isKeepDownSafe: {}".format(isKeepDownSafe))
+                    if isKeepDownSafe:
+                        if pnt0.sub(lastPnt).Length > self.toolDownThreshold:
                             paths.extend(
                                 self._hopPath(
-                                    transHeight,
+                                    self.safeHeight,
                                     e0.Vertexes[0].X,
                                     e0.Vertexes[0].Y,
                                     height,
@@ -796,6 +756,16 @@ class StrategyClearVolume:
                                     },
                                 )
                             )
+                    else:
+                        paths.extend(
+                            self._hopPath(
+                                self.safeHeight,
+                                e0.Vertexes[0].X,
+                                e0.Vertexes[0].Y,
+                                height,
+                            )
+                        )
+
                 else:
                     paths.append(
                         Path.Command(
@@ -833,7 +803,8 @@ class StrategyClearVolume:
         paths = []
         self._buildStartPath()
 
-        for wire in wireList:
+        for w in wireList:
+            wire = w.copy()
             wire.translate(FreeCAD.Vector(0, 0, height))
 
             e0 = wire.Edges[0]
@@ -875,46 +846,35 @@ class StrategyClearVolume:
         self._buildStartPath()
 
         lastPnt = None
-        for wire in wireList:
+        for w in wireList:
+            wire = w.copy()
             wire.translate(FreeCAD.Vector(0, 0, height))
             eCnt = len(wire.Edges)
             e0 = wire.Edges[0]
             pnt0 = e0.Vertexes[0].Point
 
             if lastPnt:
-                # get transition height from end of last wire to start of current wire
-                transHeight = getTransitionHeight(
+                isKeepDownSafe = isSafeTransition(
                     self.safeBaseShape, lastPnt, pnt0, self.toolDiameter
                 )
-                if not PathGeom.isRoughly(transHeight, height):
-                    transHeight += self.transitionClearance
-                    if transHeight < self.prevDepth + 1.0:
-                        transHeight = self.prevDepth + 1.0
-                    transHeight = min(transHeight, self.safeHeight)
-                    paths.extend(
-                        self._hopPath(
-                            transHeight, e0.Vertexes[0].X, e0.Vertexes[0].Y, height
+                # self._debugMsg("isKeepDownSafe: {}".format(isKeepDownSafe))
+                if isKeepDownSafe:
+                    paths.append(
+                        Path.Command(
+                            "G1",
+                            {
+                                "X": e0.Vertexes[0].X,
+                                "Y": e0.Vertexes[0].Y,
+                                "F": self.horizFeed,
+                            },
                         )
                     )
                 else:
-                    if pnt0.sub(lastPnt).Length > self.toolDownThreshold:
-                        transHeight = self.safeHeight
-                        paths.extend(
-                            self._hopPath(
-                                transHeight, e0.Vertexes[0].X, e0.Vertexes[0].Y, height
-                            )
+                    paths.extend(
+                        self._hopPath(
+                            self.safeHeight, e0.Vertexes[0].X, e0.Vertexes[0].Y, height
                         )
-                    else:
-                        paths.append(
-                            Path.Command(
-                                "G1",
-                                {
-                                    "X": e0.Vertexes[0].X,
-                                    "Y": e0.Vertexes[0].Y,
-                                    "F": self.horizRapid,
-                                },
-                            )
-                        )
+                    )
             else:
                 paths.append(
                     Path.Command(
@@ -951,7 +911,8 @@ class StrategyClearVolume:
         self._buildStartPath()
 
         wIdx = 0
-        for wire in wireList:
+        for w in wireList:
+            wire = w.copy()
             wire.translate(FreeCAD.Vector(0, 0, height))
 
             e0 = wire.Edges[0]
@@ -991,7 +952,7 @@ class StrategyClearVolume:
 
     def _getAdaptivePaths(self):
         """_getAdaptivePaths()... Proxy method for generating Adaptive paths"""
-        commandList = list()
+        commandList = []
         # Execute the Adaptive code to generate path data
 
         # Slice each solid at requested depth and apply Adaptive pattern to each layer
@@ -1006,7 +967,7 @@ class StrategyClearVolume:
                 faces = face.Faces
 
                 # Execute the Adaptive code to generate path data
-                strategy = StrategyAdaptive(
+                strategy = PathStrategyAdaptive.StrategyAdaptive(
                     faces,
                     self.toolController,
                     self.depthParams,
@@ -1046,7 +1007,7 @@ class StrategyClearVolume:
                     rtn = strategy.execute()
                 except Exception as e:  # pylint: disable=broad-except
                     FreeCAD.Console.PrintError(str(e) + "\n")
-                    FreeCAD.Console.PrintError(
+                    PathLog.error(
                         "Something unexpected happened. Check project and tool config. 3\n"
                     )
                 else:
@@ -1101,7 +1062,8 @@ class StrategyClearVolume:
         # if self.keepToolDown:
         #    pathParams['threshold'] = self.toolDiameter * 1.001
 
-        for wire in wireList:
+        for w in wireList:
+            wire = w.copy()
             wire.translate(FreeCAD.Vector(0, 0, height))
 
             pathParams["shapes"] = [wire]
@@ -1129,7 +1091,7 @@ class StrategyClearVolume:
         return paths
 
     def _oclScanEdges(self, ocl, pathGeom):
-        pointLists = list()
+        pointLists = []
 
         def lineToPoints(ocl, edge):
             p0 = edge.Vertexes[0].Point
@@ -1175,7 +1137,7 @@ class StrategyClearVolume:
         return pointLists
 
     def _limitPointsToDepth(self, pointLists, prevDepth, curDepth):
-        points = list()
+        points = []
         lastItms = None
 
         # Convert points to gcode
@@ -1184,7 +1146,7 @@ class StrategyClearVolume:
                 if lastItms:
                     points.append(itm)
             else:  # process points
-                itms = list()
+                itms = []
                 cutting = False
                 for pnt in itm:
                     z = pnt.z
@@ -1199,7 +1161,7 @@ class StrategyClearVolume:
                             if itms:
                                 points.append(itms)
                                 points.append("Skip")
-                                itms = list()
+                                itms = []
                             cutting = False
 
                 if itms:
@@ -1209,7 +1171,7 @@ class StrategyClearVolume:
         return points
 
     def _refinePointsList(self, pointLists, tolerance=1e-4):
-        points = list()
+        points = []
 
         if self.cutPattern in [
             "Circular",
@@ -1225,7 +1187,7 @@ class StrategyClearVolume:
             if isinstance(itm, str):  # process break
                 points.append(itm)
             else:  # process points
-                pnts = list()
+                pnts = []
                 tracking = False
                 itmCnt = len(itm)
 
@@ -1265,7 +1227,7 @@ class StrategyClearVolume:
         paths = []
         # self._buildStartPath()
         prev = None
-        edgeGroups = list()
+        edgeGroups = []
 
         def addPath(prev, cur, paths):
             paths.append(
@@ -1282,14 +1244,18 @@ class StrategyClearVolume:
                 )
             )
 
+        def addEdge(prev, cur, edges):
+            edges.append(Part.makeLine(prev, cur))
+
         # Convert points to gcode
         for itm in pointLists:
+            edges = []
             if isinstance(itm, str):  # process break
                 paths.append(
                     # Retract to clearance height
                     Path.Command(
                         "G0",
-                        {"Z": self.clearanceHeight, "F": self.vertFeed},
+                        {"Z": self.clearanceHeight, "F": self.vertRapid},
                     ),
                 )
             else:  # process points
@@ -1318,6 +1284,7 @@ class StrategyClearVolume:
                 if lenItm > 1:
                     cur = itm[1]
                     addPath(prev, cur, paths)
+                    addEdge(prev, cur, edges)
 
                     if lenItm > 2:
                         for nxt in itm:
@@ -1325,11 +1292,12 @@ class StrategyClearVolume:
                             prev = cur
                             cur = nxt
                             addPath(prev, cur, paths)
+                            addEdge(prev, cur, edges)
+            # Eif
+            edgeGroups.append(edges)
+        # Efor
 
-        wires = list()
-        for g in edgeGroups:
-            if g:
-                wires.append(Part.Wire(g))
+        wires = [Part.Wire(g) for g in edgeGroups if g]
 
         return paths, wires
 
@@ -1337,7 +1305,7 @@ class StrategyClearVolume:
         paths = []
         # self._buildStartPath()
         prev = None
-        edgeGroups = list()
+        edgeGroups = []
 
         def addPath(prev, cur, paths):
             paths.append(
@@ -1359,13 +1327,13 @@ class StrategyClearVolume:
 
         # Convert points to gcode
         for itm in pointLists:
-            edges = list()
+            edges = []
             if isinstance(itm, str):  # process break
                 paths.append(
                     # Retract to clearance height
                     Path.Command(
                         "G0",
-                        {"Z": self.clearanceHeight, "F": self.vertFeed},
+                        {"Z": self.clearanceHeight, "F": self.vertRapid},
                     ),
                 )
             else:  # process points
@@ -1408,21 +1376,15 @@ class StrategyClearVolume:
                     pass
             # Eif
             edgeGroups.append(edges)
+        # Efor
 
-        wires = list()
-        for g in edgeGroups:
-            if g:
-                wires.append(Part.Wire(g))
+        wires = [Part.Wire(g) for g in edgeGroups if g]
 
         return paths, wires
 
     # Public methods
     def setAdaptiveAttributes(
         self,
-        # startDepth,
-        # finalDepth,
-        # stepDown,
-        # finishDepth,
         operationType,
         cutSide,
         disableHelixEntry,
@@ -1502,31 +1464,23 @@ class StrategyClearVolume:
         # self.isDebug = True
         # self.showDebugShapes = True
 
-        commandList = list()
-        self.commandList = list()  # Reset list
-        self.pathGeometry = list()  # Reset list
-        self.startCommands = list()  # Reset list
+        commandList = []
+        self.commandList = []  # Reset list
+        self.pathGeometry = []  # Reset list
+        self.startCommands = []  # Reset list
         self.isCenterSet = False
-        depthParams = [i for i in self.depthParams]
+        # depthParams = [i for i in self.depthParams]
         self.prevDepth = self.safeHeight
 
         # Exit if pattern not available
         if self.cutPattern == "None":
             return False
 
+        """
         if len(depthParams) == 0:
             self._debugMsg("No depth parameters", True)
             return list()
         # PathLog.info("depthParams: {}".format(depthParams))
-
-        if self.keepToolDown:
-            if not self.safeBaseShape:
-                PathLog.warning(
-                    translate(
-                        "PathStrategyClearing", "No safe base shape for Keep Tool Down."
-                    )
-                )
-                self.keepToolDown = False
 
         # Verify input shape has volume (is an envelope)
         if hasattr(self.volumeShape, "Volume") and PathGeom.isRoughly(
@@ -1534,6 +1488,7 @@ class StrategyClearVolume:
         ):
             self._debugMsg("StrategyClearing: No volume in working shape.")
             return False
+        """
 
         # Use Path.Area() for Grid and Triangle cut patterns
         if self.cutPattern in ["Grid", "Triangle"]:
@@ -1545,73 +1500,92 @@ class StrategyClearVolume:
             self._getAdaptivePaths()
             return True
 
-        # Make box to serve as cut tool, and move into position above shape
-        sBB = self.volumeShape.BoundBox
+        # slices = PathStrategySlicing.sliceSolid(self.volumeShape, depthParams)
+        lastFace = None
+        lastPathGeom = None
+        # print("PathStrategyClearing.execute() len(slices): {}".format(len(slices)))
+        for slc in self.slices:
+            # Part.show(slc, "slice")
+            depth = slc.BoundBox.ZMin
+            self._debugMsg(f"Slice depth of {depth}.", isError=True)
 
-        success = False
-        for passDepth in depthParams:
-            self.layerDepth = passDepth
-            cutFace = PathGeom.makeBoundBoxFace(sBB, offset=5.0, zHeight=passDepth)
-            workingFaces = self.volumeShape.common(cutFace)
+            # copy slice face and translate to Z=0.0
+            useFace = slc.copy()
+            useFace.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - useFace.BoundBox.ZMin))
+            self.safeBaseShape = useFace
 
-            # Part.show(workingFaces)
-
-            self._debugMsg(
-                "{} faces at passDepth: {}".format(len(workingFaces.Faces), passDepth)
-            )
-            if workingFaces and len(workingFaces.Faces) > 0:
-                for wf in workingFaces.Faces:
-                    if self.materialAllowance != 0.0:
-                        offsetFace = PathUtils.getOffsetArea(wf, self.materialAllowance)
-                        useFace = offsetFace.cut(self.baseObject.Shape)
-                    else:
-                        useFace = wf
-                    useFace.translate(
-                        FreeCAD.Vector(0.0, 0.0, 0.0 - useFace.BoundBox.ZMin)
-                    )
-
-                    # self._addDebugObject(useFace, 'workingFace_' + str(round(passDepth, 2)))
+            if lastFace:
+                # Compare current slice face with last face
+                faceDif = lastFace.cut(useFace)
+                wireDif = abs(lastFace.Wires[0].Length - useFace.Wires[0].Length)
+                if PathGeom.isRoughly(faceDif.Area, 0.0, 0.0025) and PathGeom.isRoughly(
+                    wireDif, 0.0
+                ):
+                    # print("PathStrategyClearing.execute() slices identical")
+                    pathGeom = lastPathGeom
+                else:
                     pathGeom = self._getPathGeometry(useFace)
-                    if pathGeom:
-                        # self._addDebugObject(Part.makeCompound(pathGeom), 'pathGeom_' + str(round(passDepth, 2)))
-                        self.pathGeometry.extend(pathGeom)
-                        pathCmds = self._buildPaths(passDepth, pathGeom)
-                        if not self.keepToolDown:
-                            if pathCmds:
-                                pathCmds.append(
-                                    Path.Command(
-                                        "G0",
-                                        {
-                                            "Z": self.clearanceHeight,
-                                            "F": self.vertRapid,
-                                        },
-                                    )
-                                )
-                        commandList.extend(pathCmds)
-                        success = True
-                    else:
-                        self._debugMsg("No path geometry to process.", isError=True)
+                    lastPathGeom = pathGeom
             else:
-                self._debugMsg(
-                    "No working faces at {} mm. Canceling lower layers.".format(
-                        passDepth
+                pathGeom = self._getPathGeometry(useFace)
+                lastPathGeom = pathGeom
+
+            if pathGeom:
+                pathCmds = self._buildPaths(depth, pathGeom)
+                if pathCmds:
+                    if not self.keepToolDown:
+                        pathCmds.append(
+                            Path.Command(
+                                "G0",
+                                {
+                                    "Z": self.clearanceHeight,
+                                    "F": self.vertRapid,
+                                },
+                            )
+                        )
+                    # Save gcode
+                    commandList.append(Path.Command("(Begin slice)", {}))
+                    commandList.extend(pathCmds)
+                    commandList.append(
+                        Path.Command(
+                            "G0",
+                            {
+                                "Z": self.safeHeight,
+                                "F": self.vertRapid,
+                            },
+                        )
                     )
-                )
-                if success:
-                    break
-            self.prevDepth = passDepth
+
+                # Save path geometry at depth
+                pathGeomComp = Part.makeCompound(pathGeom)
+                pathGeomComp.translate(FreeCAD.Vector(0.0, 0.0, depth))
+                self.pathGeometry.append(pathGeomComp)
+                # Part.show(pathGeomComp, "pathGeomComp")
+
+                # rotate useFace
+                lastFace = useFace
+            else:
+                self._debugMsg(f"No path geometry to process at depth of {depth}.", isError=True)
+                # self._debugMsg(f"No path geometry to process at depth of {depth}.")
+                # break
+
+            self.prevDepth = depth
+        # Efor
 
         if len(commandList) > 0:
             self.commandList = self.startCommands + commandList
         else:
+            # self._debugMsg("No commands in commandList", isError=True)
             self._debugMsg("No commands in commandList")
 
-        self._debugMsg("commandList count: {}".format(len(self.commandList)))
-        self._debugMsg("Path with params: {}".format(self.pathParams))
+        PathLog.debug("commandList count: {}".format(len(self.commandList)))
+        PathLog.debug("Path with params: {}".format(self.pathParams))
 
         endVectCnt = len(self.endVectors)
         if endVectCnt > 0:
             self.endVector = self.endVectors[endVectCnt - 1]
+
+        # Part.show(Part.makeCompound(self.pathGeometry), "strategy.pathGeometry")
 
         return True
 
@@ -1625,18 +1599,18 @@ class StrategyClearVolume:
         import PathScripts.strategies.PathStrategyOCL as PathStrategyOCL
 
         # Uncomment as needed for localized class debugging
-        # self.isDebug = True
+        self.isDebug = True
         # self.showDebugShapes = True
 
-        # self.commandList = list()  # Reset list
-        self.pathGeometry = list()  # Reset list
+        # self.commandList = []  # Reset list
+        self.pathGeometry = []  # Reset list
         self.isCenterSet = False
-        commandList = list()
+        commandList = []
         depthParams = [i for i in self.depthParams]
         startDepth = self.depthParams.start_depth
         finalDepth = self.depthParams.final_depth
         self.prevDepth = self.safeHeight
-        pathGeometry = list()
+        pathGeometry = []
 
         # Create OCL cutter from tool controller attributes
         oclTool = PathStrategyOCL.OCL_Tool(obj.ToolController)
@@ -1655,6 +1629,7 @@ class StrategyClearVolume:
 
         self._buildStartPath()
 
+        """
         if self.keepToolDown:
             if not self.safeBaseShape:
                 PathLog.warning(
@@ -1663,6 +1638,7 @@ class StrategyClearVolume:
                     )
                 )
                 self.keepToolDown = False
+        """
 
         if self.cutPattern in [
             "Circular",
@@ -1704,6 +1680,7 @@ class StrategyClearVolume:
                 pathCmds, edgeGroups = conversionMethod(refinedPointLists)
 
                 self.pathGeometry.extend(edgeGroups)
+
                 commandList.extend(pathCmds)
             else:
                 self._debugMsg("No path geometry to process.", isError=True)
@@ -1745,7 +1722,9 @@ class StrategyClearVolume:
             self.endVector = self.endVectors[endVectCnt - 1]
 
         if len(commandList) > 0:
-            self.commandList = self.startCommands + commandList
+            self.commandList = []
+            self.commandList.extend(self.startCommands)
+            self.commandList.extend(commandList)
         else:
             self._debugMsg("No commands in commandList")
 

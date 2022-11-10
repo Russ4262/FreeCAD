@@ -36,11 +36,13 @@ from lazy_loader.lazy_loader import LazyLoader
 Part = LazyLoader("Part", globals(), "Part")
 DraftGeomUtils = LazyLoader("DraftGeomUtils", globals(), "DraftGeomUtils")
 PathGeom = LazyLoader("Path.Geom", globals(), "Path.Geom")
+#PathOpTools = LazyLoader(
+#    "PathScripts.PathOpTools", globals(), "PathScripts.PathOpTools"
+#)
 PathOpTools = LazyLoader(
-    # "PathScripts.PathOpTools", globals(), "PathScripts.PathOpTools"
-    "Path.Op.Util", globals(), "Path.Op.Util"
+    "Path.Base.Util", globals(), "Path.Base.Util"
 )
-time = LazyLoader('time', globals(), 'time')
+# time = LazyLoader('time', globals(), 'time')
 json = LazyLoader("json", globals(), "json")
 math = LazyLoader("math", globals(), "math")
 area = LazyLoader("area", globals(), "area")
@@ -207,7 +209,7 @@ class PathGeometryGenerator:
         self.orientation = 0  # ['Conventional', 'Climb']
 
         ### Adaptive-specific attributes ###
-        # self.adaptiveGeometry = list()
+        self.adaptiveGeometry = list()
         self.pathArray = list()
         self.operationType = None
         self.cutSide = None
@@ -594,8 +596,8 @@ class PathGeometryGenerator:
         Returns raw set of Adaptive wires at Z=0.0 using a condensed version of code from the Adaptive operation.
         Currently, no helix entry wires are included, only the clearing portion of wires.
         """
-        PathLog.debug("_Adaptive() *** Adaptive path geometry generation started...")
-        startTime = time.time()
+        # PathLog.info("*** Adaptive path geometry generation started...")
+        # startTime = time.time()
 
         self.targetFace.translate(
             FreeCAD.Vector(0.0, 0.0, 0.0 - self.targetFace.BoundBox.ZMin)
@@ -692,10 +694,9 @@ class PathGeometryGenerator:
                                 edges.append(Part.makeLine(p1, p2))
                                 p1 = p2
                         wires.append(Part.Wire(Part.__sortEdges__(edges)))
-            # self.adaptiveGeometry = wires
-            PathLog.debug("*** Done. Elapsed time: %f sec" % (time.time()-startTime))
-            # return self.adaptiveGeometry
-            return wires
+            self.adaptiveGeometry = wires
+            # PathLog.info("*** Done. Elapsed time: %f sec" % (time.time()-startTime))
+            return self.adaptiveGeometry
 
     # Path linking methods
     def _Link_Line(self):

@@ -383,7 +383,8 @@ def turnselect():
 def select(op):
     opsel = {}
     opsel["TargetShape"] = profileselect
-    opsel["Contour"] = contourselect  # deprecated
+    opsel["Clearing"] = profileselect
+    # opsel["Contour"] = contourselect  # deprecated
     opsel["Deburr"] = chamferselect
     opsel["Drilling"] = drillselect
     opsel["Engrave"] = engraveselect
@@ -391,10 +392,10 @@ def select(op):
     opsel["MillFace"] = pocketselect
     opsel["Pocket"] = pocketselect
     opsel["Pocket 3D"] = pocketselect
-    opsel["Pocket3D"] = pocketselect  # deprecated
+    # opsel["Pocket3D"] = pocketselect  # deprecated
     opsel["Pocket Shape"] = pocketselect
-    opsel["Profile Edges"] = eselect  # deprecated
-    opsel["Profile Faces"] = fselect  # deprecated
+    # opsel["Profile Edges"] = eselect  # deprecated
+    # opsel["Profile Faces"] = fselect  # deprecated
     opsel["Profile"] = profileselect
     opsel["Slot"] = slotselect
     opsel["Surface"] = surfaceselect
