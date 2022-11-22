@@ -230,7 +230,7 @@ class TaskPanelPage(object):
     def _populateTargetShapes(self, obj):
         tsObjects = []
         for o in obj.Proxy.job.Operations.Group:
-            if o.Name.startswith("TargetShape"):
+            if o.Name.startswith("TargetShape") or o.Name.startswith("RestShape"):
                 tsObjects.append((o.Label, o.Name))
             elif hasattr(o, "TargetShape") and o.TargetShape is not None:
                 tsObjects.append((o.TargetShape.Label, o.TargetShape.Name))

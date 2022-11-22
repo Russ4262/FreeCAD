@@ -510,8 +510,10 @@ class ObjectClearing(PathOp2.ObjectOp2):
 
         pathGeometry = []
         self.targetShapes = []
+        # targetShapes = []
         removalShapes = []
         restShapes = []
+        commandsList = []
         pathGeometryLists = []
         startTime = datetime.datetime.now()
         self.endVector = None
@@ -547,6 +549,31 @@ class ObjectClearing(PathOp2.ObjectOp2):
         depths = [d for d in self.depthparams]
         depths.insert(0, self.depthparams.start_depth)
 
+        """
+        # shapes = self.getTargetShape(obj)
+        shapes = []
+        if obj.TargetShape:
+            # print(f"SD: {obj.StartDepth.Value};  FD: {obj.FinalDepth.Value}")
+            for s in obj.TargetShape.Shape.Solids:
+                isHole = True if obj.CutSide == "Inside" else False
+                # print(f"isHole: {isHole}")
+                shp = s.copy()
+                tup = shp, isHole, obj.TargetShape
+                shapes.append(tup)
+        # Sort operations
+        if len(shapes) > 1:
+            jobs = []
+            for s in shapes:
+                shp = s[0]
+                jobs.append(
+                    {"x": shp.BoundBox.XMax, "y": shp.BoundBox.YMax, "shape": s}
+                )
+
+            jobs = PathUtils.sort_jobs(jobs, ["x", "y"])
+
+            shapes = [j["shape"] for j in jobs]
+
+        """
         shapes = getWorkingShapes(obj.TargetShape, obj.CutSide)
 
         # Apply any rotation for object
@@ -605,6 +632,37 @@ class ObjectClearing(PathOp2.ObjectOp2):
                     # Part.show(useShape, "TargetShape")
 
             if restShapeEnabled and removalShape:
+                """
+                cont = True
+                # Make and save REST shape
+                if len(removalShape.SubShapes) == 1:
+                    adjustedShape = getHeightAdjustedShape(
+                        useShape, obj.StartDepth.Value
+                    )
+                    rawRestShape = adjustedShape.cut(removalShape.SubShapes)
+                elif len(removalShape.SubShapes) > 1:
+                    adjustedShape = getHeightAdjustedShape(
+                        useShape, obj.StartDepth.Value
+                    )
+                    rawRestShape = adjustedShape.cut(removalShape.SubShapes[0])
+                    for ss in removalShape.SubShapes[1:]:
+                        cut = rawRestShape.cut(ss)
+                        rawRestShape = cut
+                elif obj.UseOCL:
+                    rawRestShape = useShape.cut(removalShape)
+                else:
+                    cont = False
+                    PathLog.error("restShapeEnabled error.  Showing removalShape.")
+                    Part.show(removalShape, "RemovalShape")
+                # Part.show(rawRestShape, "RawRestShape")
+
+                if cont:
+                    restShape = cleanVolume(rawRestShape)
+                    restShapes.append(restShape)
+                    self.targetShapes.append((restShape, baseObj, "pathClearing"))
+                    # Part.show(restShape, "RestShape")
+                """
+
                 restShape = self.buildRestShape(removalShape, useShape, obj)
                 if restShape is not None:
                     restShapes.append(restShape)
@@ -681,7 +739,7 @@ class ObjectClearing(PathOp2.ObjectOp2):
         else:
             cont = False
             PathLog.error("restShapeEnabled error.  Showing removalShape.")
-            # Part.show(removalShape, "RemovalShape")
+            Part.show(removalShape, "RemovalShape")
         # Part.show(rawRestShape, "RawRestShape")
 
         if cont:

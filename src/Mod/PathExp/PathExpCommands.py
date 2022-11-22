@@ -243,6 +243,34 @@ class _StartOperation:
         FreeCAD.ActiveDocument.recompute()
 
 
+class _RestShape:
+    "command definition to build a rest shape"
+
+    def GetResources(self):
+        return {
+            "Pixmap": "Path_SelectLoop",  # Path_SelectLoop
+            "MenuText": QT_TRANSLATE_NOOP("PathExp", "Rest Shape"),
+            "Accel": "P, R",
+            "ToolTip": QT_TRANSLATE_NOOP(
+                "PathExp",
+                "Build a rest shape as a basis for a subsequent cutting operation.",
+            ),
+            "CmdType": "ForEdit",
+        }
+
+    def IsActive(self):
+        if FreeCAD.ActiveDocument is None:
+            return False
+        return True
+
+    def Activated(self):
+        import Shape.RestShapeGui as RestShapeGui
+
+        RestShapeGui.Command.Activated()
+
+        FreeCAD.ActiveDocument.recompute()
+
+
 # FreeCADGui.addCommand("PathExp_Toggle", _Toggle())
 # FreeCADGui.addCommand("PathExp_Profile", _ProfileOperation())
 # FreeCADGui.addCommand("PathExp_Sample", _SampleOperation())

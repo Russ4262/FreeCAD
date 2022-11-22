@@ -82,6 +82,7 @@ class PathExpWorkbench(Workbench):
         FreeCADGui.addCommand("_LoadPathWorkbench", pwbc)
         FreeCADGui.addCommand("_TargetShape", PathExpCommands._TargetShape())
         FreeCADGui.addCommand("_StartOperation", PathExpCommands._StartOperation())
+        FreeCADGui.addCommand("_RestShape", PathExpCommands._RestShape())
 
         # import MyModuleA, MyModuleB  # import here all the needed files that create your FreeCAD commands
 
@@ -94,6 +95,7 @@ class PathExpWorkbench(Workbench):
             "_LoadPathWorkbench",
             "_TargetShape",
             "_StartOperation",
+            "_RestShape",
         ]
         # creates a new toolbar with your commands
         self.appendToolbar("My Commands", self.list)

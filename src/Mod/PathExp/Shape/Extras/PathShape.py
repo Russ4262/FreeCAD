@@ -23,13 +23,10 @@
 import FreeCAD
 from PathScripts.PathUtils import waiting_effects
 from PySide.QtCore import QT_TRANSLATE_NOOP
-import Path
 import Path.Geom as PathGeom
 import Path.Log as PathLog
-import Path.Preferences as PathPreferences
 import Path.Base.Util as PathUtil
 import PathScripts.PathUtils as PathUtils
-import time
 
 
 # lazily loaded modules
@@ -63,7 +60,6 @@ FeatureBaseEdges = 0x0200  # Base
 FeatureBaseFaces = 0x0400  # Base
 FeatureBasePanels = 0x0800  # Base
 FeatureLocations = 0x1000  # Locations
-FeatureCoolant = 0x2000  # Coolant
 FeatureDiameters = 0x4000  # Turning Diameters
 
 FeatureBaseGeometry = FeatureBaseVertexes | FeatureBaseFaces | FeatureBaseEdges
@@ -78,7 +74,7 @@ class PathNoTCException(Exception):
         super().__init__("No Tool Controller found")
 
 
-class ObjectOp(object):
+class ObjectShape(object):
     """
     Base class for proxy objects of all Path operations.
 
@@ -99,7 +95,6 @@ class ObjectOp(object):
         FeatureBaseEdges     ... Base geometry support for edges
         FeatureBaseFaces     ... Base geometry support for faces
         FeatureLocations     ... Base location support
-        FeatureCoolant       ... Support for operation coolant
         FeatureDiameters     ... Support for turning operation diameters
 
     The base class handles all base API and forwards calls to subclasses with
@@ -187,13 +182,6 @@ class ObjectOp(object):
             "Path",
             QT_TRANSLATE_NOOP("App::Property", "User Assigned Label"),
         )
-        obj.addProperty(
-            "App::PropertyString",
-            "CycleTime",
-            "Path",
-            QT_TRANSLATE_NOOP("App::Property", "Operations Cycle Time Estimation"),
-        )
-        obj.setEditorMode("CycleTime", 1)  # read-only
 
         features = self.opFeatures(obj)
 
@@ -219,14 +207,6 @@ class ObjectOp(object):
                 ),
             )
             self.addOpValues(obj, ["tooldia"])
-
-        if FeatureCoolant & features:
-            obj.addProperty(
-                "App::PropertyEnumeration",
-                "CoolantMode",
-                "Path",
-                QT_TRANSLATE_NOOP("App::Property", "Coolant mode for this operation"),
-            )
 
         if FeatureDepths & features:
             obj.addProperty(
@@ -357,7 +337,7 @@ class ObjectOp(object):
 
         if not hasattr(obj, "DoNotSetDefaultValues") or not obj.DoNotSetDefaultValues:
             if parentJob:
-                self.job = addToJob(obj, jobname=parentJob.Name)
+                self.job = PathUtils.addToJob(obj, jobname=parentJob.Name)
             job = self.setDefaultValues(obj)
             if job:
                 job.SetupSheet.Proxy.setOperationProperties(obj, name)
@@ -375,13 +355,7 @@ class ObjectOp(object):
         'translated' is list of translated string literals
         """
 
-        enums = {
-            "CoolantMode": [
-                (translate("Path_Operation", "None"), "None"),
-                (translate("Path_Operation", "Flood"), "Flood"),
-                (translate("Path_Operation", "Mist"), "Mist"),
-            ],
-        }
+        enums = {}
 
         if dataType == "raw":
             return enums
@@ -400,7 +374,7 @@ class ObjectOp(object):
     def setEditorModes(self, obj, features):
         """Editor modes are not preserved during document store/restore, set editor modes for all properties"""
 
-        for op in ["OpStartDepth", "OpFinalDepth", "OpToolDiameter", "CycleTime"]:
+        for op in ["OpStartDepth", "OpFinalDepth", "OpToolDiameter"]:
             if hasattr(obj, op):
                 obj.setEditorMode(op, 1)  # read-only
 
@@ -426,29 +400,6 @@ class ObjectOp(object):
         if FeatureTool & features and not hasattr(obj, "OpToolDiameter"):
             self.addOpValues(obj, ["tooldia"])
 
-        if FeatureCoolant & features:
-            oldvalue = str(obj.CoolantMode) if hasattr(obj, "CoolantMode") else "None"
-            if (
-                hasattr(obj, "CoolantMode")
-                and not obj.getTypeIdOfProperty("CoolantMode")
-                == "App::PropertyEnumeration"
-            ):
-                obj.removeProperty("CoolantMode")
-
-            if not hasattr(obj, "CoolantMode"):
-                obj.addProperty(
-                    "App::PropertyEnumeration",
-                    "CoolantMode",
-                    "Path",
-                    QT_TRANSLATE_NOOP(
-                        "App::Property", "Coolant option for this operation"
-                    ),
-                )
-                for n in self.opPropertyEnumerations():
-                    if n[0] == "CoolantMode":
-                        setattr(obj, n[0], n[1])
-                obj.CoolantMode = oldvalue
-
         if FeatureDepths & features and not hasattr(obj, "OpStartDepth"):
             self.addOpValues(obj, ["start", "final"])
             if FeatureNoFinalDepth & features:
@@ -456,14 +407,6 @@ class ObjectOp(object):
 
         if not hasattr(obj, "OpStockZMax"):
             self.addOpValues(obj, ["stockz"])
-
-        if not hasattr(obj, "CycleTime"):
-            obj.addProperty(
-                "App::PropertyString",
-                "CycleTime",
-                "Path",
-                QT_TRANSLATE_NOOP("App::Property", "Operations Cycle Time Estimation"),
-            )
 
         self.setEditorModes(obj, features)
         self.opOnDocumentRestored(obj)
@@ -489,7 +432,6 @@ class ObjectOp(object):
             | FeatureStartPoint
             | FeatureBaseGeometry
             | FeatureFinishDepth
-            | FeatureCoolant
         )
 
     def initOperation(self, obj):
@@ -561,7 +503,7 @@ class ObjectOp(object):
         if self.job:
             job = self.job
         else:
-            job = addToJob(obj)
+            job = PathUtils.addToJob(obj)
 
         obj.Active = True
 
@@ -569,23 +511,14 @@ class ObjectOp(object):
 
         if FeatureTool & features:
             if 1 < len(job.Operations.Group):
-                # print("PathOp.setDefaultValues() 1<len(opGrp)")
                 obj.ToolController = PathUtil.toolControllerForOp(
                     job.Operations.Group[-2]
                 )
-                if not obj.ToolController:
-                    obj.ToolController = PathUtils.findToolController(obj, self)
             else:
-                # print("PathOp.setDefaultValues() ELSE 1<len(opGrp)")
                 obj.ToolController = PathUtils.findToolController(obj, self)
             if not obj.ToolController:
                 raise PathNoTCException()
             obj.OpToolDiameter = obj.ToolController.Tool.Diameter
-
-        if FeatureCoolant & features:
-            PathLog.track()
-            PathLog.debug(obj.getEnumerationsOfProperty("CoolantMode"))
-            obj.CoolantMode = job.SetupSheet.CoolantMode
 
         if FeatureDepths & features:
             if self.applyExpression(
@@ -748,60 +681,6 @@ class ObjectOp(object):
                 return True
         return False
 
-    def _getRotationCommands_orig(self, obj, reverse=False):
-        cmds = []
-        if not hasattr(obj, "TargetShape"):
-            return cmds
-
-        if obj.TargetShape is None:
-            return cmds
-
-        r = obj.TargetShape.Rotations
-        if reverse:
-            r = r.negative()
-        else:
-            cmds.append(
-                Path.Command(
-                    "G0", {"Z": obj.ClearanceHeight.Value, "F": self.vertRapid}
-                )
-            )
-
-        if not PathGeom.isRoughly(r.x, 0.0):
-            cmds.append(Path.Command("G1", {"A": r.x, "F": self.vertFeed}))
-        if not PathGeom.isRoughly(r.y, 0.0):
-            cmds.append(Path.Command("G1", {"B": r.y, "F": self.vertFeed}))
-        if not PathGeom.isRoughly(r.z, 0.0):
-            cmds.append(Path.Command("G1", {"C": r.z, "F": self.vertFeed}))
-        return cmds
-
-    def _getRotationCommands(self, obj, reverse=False):
-        cmds = []
-        if not hasattr(obj, "TargetShape"):
-            return cmds
-
-        if obj.TargetShape is None:
-            return cmds
-
-        rotations = obj.TargetShape.Proxy._getRotationsList(
-            obj.TargetShape, mapped=True
-        )
-        if reverse:
-            #useRotations = [(a, -1.0 * d) for a, d in rotations]
-            #useRotations.reverse()
-            useRotations = [(a, 0.0) for a, d in rotations]
-        else:
-            useRotations = rotations
-            cmds.append(
-                Path.Command(
-                    "G0", {"Z": obj.ClearanceHeight.Value, "F": self.vertRapid}
-                )
-            )
-
-        for axis, deg in useRotations:
-            if not PathGeom.isRoughly(deg, 0.0):
-                cmds.append(Path.Command("G1", {axis: deg, "F": self.vertFeed}))
-        return cmds
-
     @waiting_effects
     def execute(self, obj):
         """execute(obj) ... base implementation - do not overwrite!
@@ -826,8 +705,6 @@ class ObjectOp(object):
         PathLog.track()
 
         if not obj.Active:
-            path = Path.Path("(inactive operation)")
-            obj.Path = path
             return
 
         if not self._setBaseAndStock(obj):
@@ -870,68 +747,10 @@ class ObjectOp(object):
         obj.recompute()
 
         self.commandlist = []
-        self.commandlist.append(Path.Command("(%s)" % obj.Label))
-        if obj.Comment:
-            self.commandlist.append(Path.Command("(%s)" % obj.Comment))
 
         result = self.opExecute(obj)
 
-        if self.commandlist and (FeatureHeights & self.opFeatures(obj)):
-            # Let's finish by rapid to clearance...just for safety
-            self.commandlist.append(
-                Path.Command("G0", {"Z": obj.ClearanceHeight.Value})
-            )
-
-        path = Path.Path(self.commandlist)
-        obj.Path = path
-        obj.CycleTime = self.getCycleTimeEstimate(obj)
-        self.job.Proxy.getCycleTime()
         return result
-
-    def getCycleTimeEstimate(self, obj):
-
-        tc = obj.ToolController
-
-        if tc is None or tc.ToolNumber == 0:
-            PathLog.error(translate("Path", "No Tool Controller selected."))
-            return translate("Path", "Tool Error")
-
-        hFeedrate = tc.HorizFeed.Value
-        vFeedrate = tc.VertFeed.Value
-        hRapidrate = tc.HorizRapid.Value
-        vRapidrate = tc.VertRapid.Value
-
-        if (
-            hFeedrate == 0 or vFeedrate == 0
-        ) and not PathPreferences.suppressAllSpeedsWarning():
-            PathLog.warning(
-                translate(
-                    "Path",
-                    "Tool Controller feedrates required to calculate the cycle time.",
-                )
-            )
-            return translate("Path", "Feedrate Error")
-
-        if (
-            hRapidrate == 0 or vRapidrate == 0
-        ) and not PathPreferences.suppressRapidSpeedsWarning():
-            PathLog.warning(
-                translate(
-                    "Path",
-                    "Add Tool Controller Rapid Speeds on the SetupSheet for more accurate cycle times.",
-                )
-            )
-
-        # Get the cycle time in seconds
-        seconds = obj.Path.getCycleTime(hFeedrate, vFeedrate, hRapidrate, vRapidrate)
-
-        if not seconds:
-            return translate("Path", "Cycletime Error")
-
-        # Convert the cycle time to a HH:MM:SS format
-        cycleTime = time.strftime("%H:%M:%S", time.gmtime(seconds))
-
-        return cycleTime
 
     def addBase(self, obj, base, sub):
         PathLog.track(obj, base, sub)
@@ -975,56 +794,3 @@ class ObjectOp(object):
         This function can safely be overwritten by subclasses."""
 
         return True
-
-
-def addToJob(obj, jobname=None, beforeOp=None):
-    """adds a path object to a job
-    obj = obj
-    jobname = None
-    before = None
-    """
-    PathLog.track(jobname)
-    before = None
-
-    job = None
-    if jobname is not None:
-        jobs = PathUtils.GetJobs(jobname)
-        if len(jobs) == 1:
-            job = jobs[0]
-        else:
-            PathLog.error(translate("Path", "Didn't find job {}".format(jobname)))
-            return None
-    else:
-        jobs = PathUtils.GetJobs()
-        if len(jobs) == 0 and PathUtils.UserInput:
-            job = PathUtils.UserInput.createJob()
-        elif len(jobs) == 1:
-            job = jobs[0]
-        elif PathUtils.UserInput:
-            job = PathUtils.UserInput.chooseJob(jobs)
-
-    if obj and job:
-        if before is None:
-            print("before is None")
-            if hasattr(obj, "TargetShape"):
-                print("obj.TargetShape is found")
-                before = obj.TargetShape
-        addOperation(job, obj, before)
-
-    return job
-
-
-def addOperation(job, op, before=None, removeBefore=False):
-    group = job.Operations.Group
-    if op not in group:
-        if before:
-            try:
-                group.insert(group.index(before), op)
-                if removeBefore:
-                    group.remove(before)
-            except Exception as e:
-                PathLog.error(e)
-                group.append(op)
-        else:
-            group.append(op)
-        job.Operations.Group = group

@@ -26,6 +26,7 @@ import FreeCAD
 import Path
 import Ops.PathAreaOp as PathAreaOp
 import Path.Log as PathLog
+
 # import Path.Op.Base as PathOp
 import PathScripts.PathUtils as PathUtils
 from PySide.QtCore import QT_TRANSLATE_NOOP
@@ -59,7 +60,9 @@ class ObjectProfile(PathAreaOp.ObjectOp):
 
     def areaOpFeatures_orig(self, obj):
         """areaOpFeatures(obj) ... returns operation-specific features"""
-        return PathOp.FeatureBaseFaces | PathOp.FeatureBaseEdges | PathOp.FeatureStepDown
+        return (
+            PathOp.FeatureBaseFaces | PathOp.FeatureBaseEdges | PathOp.FeatureStepDown
+        )
 
     def initAreaOp(self, obj):
         """initAreaOp(obj) ... creates all profile specific properties."""
@@ -358,7 +361,7 @@ class ObjectProfile(PathAreaOp.ObjectOp):
 
     def opUpdateDepths(self, obj):
         # print("ObjectProfile.opUpdateDepths()")
-        if obj.TargetShape:
+        if obj.TargetShape is not None:
             obj.setExpression(
                 "OpStockZMax", "{} mm".format(obj.TargetShape.StartDepth.Value)
             )
