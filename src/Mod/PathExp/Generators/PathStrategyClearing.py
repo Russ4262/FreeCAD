@@ -34,9 +34,7 @@ from lazy_loader.lazy_loader import LazyLoader
 Part = LazyLoader("Part", globals(), "Part")
 DraftGeomUtils = LazyLoader("DraftGeomUtils", globals(), "DraftGeomUtils")
 PathGeom = LazyLoader("Path.Geom", globals(), "Path.Geom")
-PathOpTools = LazyLoader(
-    "Path.Op.Util", globals(), "Path.Op.Util"
-)
+PathOpTools = LazyLoader("Path.Op.Util", globals(), "Path.Op.Util")
 # time = LazyLoader('time', globals(), 'time')
 json = LazyLoader("json", globals(), "json")
 math = LazyLoader("math", globals(), "math")
@@ -68,12 +66,8 @@ PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 # PathLog.trackModule(PathLog.thisModule())
 
 
-StrategyAdaptive = PathStrategyAdaptive.StrategyAdaptive  # Class reference
-PathGeometryGenerator = GeometryGenerator.PathGeometryGenerator  # Class reference
-
 # Qt translation handling
-def translate(context, text, disambig=None):
-    return QtCore.QCoreApplication.translate(context, text, disambig)
+translate = FreeCAD.Qt.translate
 
 
 def getTransitionHeight(baseShape, start, end, toolDiameter):
@@ -197,6 +191,7 @@ class StrategyClearVolume:
         cutDirection,
         stepOver,
         materialAllowance,
+        profileOutside,
         minTravel,
         keepToolDown,
         toolController,
@@ -204,10 +199,10 @@ class StrategyClearVolume:
         depthParams,
         jobTolerance,
     ):
-        """__init__(callerClass, volumeShape, depthOffset, patternCenterAt,
-                    patternCenterCustom, cutPatternReversed, cutPatternAngle, stepOver,
-                    cutPattern, cutDirection, materialAllowance,
-                    toolController, startPoint, depthParams, jobTolerance)...
+        """__init__(callerClass, baseObject, volumeShape, depthOffset, patternCenterAt,
+                    patternCenterCustom, cutPatternReversed, cutPatternAngle,
+                    cutPattern, cutDirection, stepOver, materialAllowance, profileOutside,
+                    minTravel, keepToolDown, toolController, startPoint, depthParams, jobTolerance)...
         StrategyClearing class constructor method.
         """
         PathLog.debug("StrategyClearing.__init__()")
@@ -227,12 +222,14 @@ class StrategyClearVolume:
         self.workingPlane = Part.makeCircle(2.0)  # make circle for workplane
         self.rawPathGeometry = None
         self.linkedPathGeom = None
-        self.endVectors = list()
-        self.pathGeometry = list()
-        self.commandList = list()
+        self.endVectors = []
+        self.pathGeometry = []
+        self.commandList = []
         self.useStaticCenter = True
         self.isCenterSet = False
-        self.offsetDirection = -1.0  # 1.0=outside;  -1.0=inside
+        self.offsetDirection = (
+            1.0 if profileOutside else -1.0
+        )  # 1.0=outside;  -1.0=inside
         self.endVector = None
         self.pathParams = ""
         self.areaParams = ""
@@ -240,7 +237,7 @@ class StrategyClearVolume:
         self.transitionClearance = 2.0  # millimeters
         self.baseShape = None
         self.layerDepth = 0.0
-        self.startCommands = list()
+        self.startCommands = []
         self.useOCL = False
 
         # Save argument values to class instance
@@ -261,6 +258,7 @@ class StrategyClearVolume:
         self.jobTolerance = jobTolerance
         self.startPoint = startPoint
         self.depthParams = depthParams
+        self.profileOutside = profileOutside
 
         self.clearanceHeight = depthParams.clearance_height
         self.safeHeight = depthParams.safe_height
@@ -289,23 +287,19 @@ class StrategyClearVolume:
         self.orientation = 0  # ['Conventional', 'Climb']
 
         # Adaptive-dependent attributes to be set by call to `setAdaptiveAttributes()` with required arguments
-        # self.startDepth = None
-        # self.finalDepth = None
-        # self.stepDown = None
-        # self.finishDepth = None
         self.operationType = None
         self.cutSide = None
-        self.disableHelixEntry = None
-        self.forceInsideOut = None
+        self.disableHelixEntry = False
+        self.forceInsideOut = False
         self.liftDistance = None
-        self.finishingProfile = None
+        self.finishingProfile = False
         self.helixAngle = None
         self.helixConeAngle = None
         self.useHelixArcs = None
         self.helixDiameterLimit = None
         self.keepToolDownRatio = None
         self.tolerance = None
-        self.stockObj = None
+        self.stockShape = None
         self.viewObject = None
 
     def _debugMsg(self, msg, isError=False):
@@ -333,14 +327,31 @@ class StrategyClearVolume:
             O.Shape = objShape
             O.purgeTouched()
 
+    def _debugShape(self, objShape, objName="shape"):
+        """_debugShape(objShape, objName='shape')
+        If `self.isDebug` and `self.showDebugShapes` flags are True, the provided
+        debug shape will be added to the active document with the provided name.
+        """
+        O = FreeCAD.ActiveDocument.addObject("Part::Feature", "debug_" + objName)
+        O.Shape = objShape
+        O.purgeTouched()
+
     def _getPathGeometry(self, face):
         """_getPathGeometry(face)... Simple switch controller for obtaining the path geometry."""
 
+        if face is None:
+            self._debugMsg("_getPathGeometry() Face is None")
+            return []
+
+        if hasattr(face, "Area") and PathGeom.isRoughly(face.Area, 0.0):
+            self._debugMsg("_getPathGeometry() No area in face.")
+            return []
+
         if not self.baseShape:
             self._debugMsg("_getPathGeometry() No baseShape")
-            return list()
+            return []
 
-        pGG = PathGeometryGenerator(
+        pGG = GeometryGenerator.PathGeometryGenerator(
             self,
             face,
             self.patternCenterAt,
@@ -351,6 +362,7 @@ class StrategyClearVolume:
             self.cutDirection,
             self.stepOver,
             self.materialAllowance,
+            self.profileOutside,
             self.minTravel,
             self.keepToolDown,
             self.toolController,
@@ -373,20 +385,24 @@ class StrategyClearVolume:
                 self.helixDiameterLimit,
                 self.keepToolDownRatio,
                 self.tolerance,
-                self.stockObj,
+                self.stockType,
+                self.stockShape,
             )
 
         pGG.useStaticCenter = self.useStaticCenter
         pGG.isDebug = self.isDebug  # Pass isDebug flag
 
-        if pGG.execute():
+        pathGeomList = pGG.execute()
+        if len(pathGeomList) > 0:
             self.centerOfPattern = pGG.centerOfPattern  # Retreive center of cut pattern
-            return pGG.pathGeometry
+            PathLog.info(f"received len(pathGeometry): {len(pathGeomList)}")
+            return pathGeomList
 
-        return list()
+        self._debugMsg("_getPathGeometry() pGG.execute() returned negative.")
+        return []
 
     def _hopPath(self, upHeight, trgtX, trgtY, downHeight):
-        paths = list()
+        paths = []
         prevDepth = self.prevDepth + 0.5  # 1/2 mm buffer
         paths.append(
             Path.Command("G0", {"Z": upHeight, "F": self.vertRapid})
@@ -991,7 +1007,8 @@ class StrategyClearVolume:
 
     def _getAdaptivePaths(self):
         """_getAdaptivePaths()... Proxy method for generating Adaptive paths"""
-        commandList = list()
+        PathLog.debug("_getAdaptivePaths()")
+        commandList = []
         # Execute the Adaptive code to generate path data
 
         # Slice each solid at requested depth and apply Adaptive pattern to each layer
@@ -1006,7 +1023,7 @@ class StrategyClearVolume:
                 faces = face.Faces
 
                 # Execute the Adaptive code to generate path data
-                strategy = StrategyAdaptive(
+                strategy = PathStrategyAdaptive.StrategyAdaptive(
                     faces,
                     self.toolController,
                     self.depthParams,
@@ -1027,7 +1044,8 @@ class StrategyClearVolume:
                     self.tolerance,
                     self.stopped,
                     self.stopProcessing,
-                    self.stockObj,
+                    self.stockType,
+                    self.stockShape,
                     self.job,
                     self.adaptiveOutputState,
                     self.adaptiveInputState,
@@ -1036,10 +1054,12 @@ class StrategyClearVolume:
                 strategy.isDebug = self.isDebug  # Transfer debug status
                 if self.disableHelixEntry:
                     strategy.disableHelixEntry()
-                strategy.generateGeometry = False  # Set True to make geometry list available in `adaptiveGeometry` attribute
-                strategy.generateCommands = (
-                    True  # Set False to disable path command generation
-                )
+                # Set generateGeometry=True to make geometry list available in `adaptiveGeometry` attribute
+                strategy.generateGeometry = False
+                # Set generateCommands=False to disable path command generation
+                strategy.generateCommands = True
+                # Set guiPreviewPaths = True to visualize paths for adaptive while being calculated
+                strategy.guiPreviewPaths = True
 
                 try:
                     # Generate the path commands
@@ -1062,6 +1082,8 @@ class StrategyClearVolume:
             startDep = dep
         # Efor
         self.commandList = commandList
+        # PathLog.info(f"Adaptive commandList len: {len(commandList)}")
+        return success
 
     # OCL build path methods
     def _buildPathsOCL(self, height, wireList):
@@ -1129,7 +1151,7 @@ class StrategyClearVolume:
         return paths
 
     def _oclScanEdges(self, ocl, pathGeom):
-        pointLists = list()
+        pointLists = []
 
         def lineToPoints(ocl, edge):
             p0 = edge.Vertexes[0].Point
@@ -1175,7 +1197,7 @@ class StrategyClearVolume:
         return pointLists
 
     def _limitPointsToDepth(self, pointLists, prevDepth, curDepth):
-        points = list()
+        points = []
         lastItms = None
 
         # Convert points to gcode
@@ -1184,7 +1206,7 @@ class StrategyClearVolume:
                 if lastItms:
                     points.append(itm)
             else:  # process points
-                itms = list()
+                itms = []
                 cutting = False
                 for pnt in itm:
                     z = pnt.z
@@ -1199,7 +1221,7 @@ class StrategyClearVolume:
                             if itms:
                                 points.append(itms)
                                 points.append("Skip")
-                                itms = list()
+                                itms = []
                             cutting = False
 
                 if itms:
@@ -1209,7 +1231,7 @@ class StrategyClearVolume:
         return points
 
     def _refinePointsList(self, pointLists, tolerance=1e-4):
-        points = list()
+        points = []
 
         if self.cutPattern in [
             "Circular",
@@ -1225,7 +1247,7 @@ class StrategyClearVolume:
             if isinstance(itm, str):  # process break
                 points.append(itm)
             else:  # process points
-                pnts = list()
+                pnts = []
                 tracking = False
                 itmCnt = len(itm)
 
@@ -1265,7 +1287,7 @@ class StrategyClearVolume:
         paths = []
         # self._buildStartPath()
         prev = None
-        edgeGroups = list()
+        edgeGroups = []
 
         def addPath(prev, cur, paths):
             paths.append(
@@ -1326,7 +1348,7 @@ class StrategyClearVolume:
                             cur = nxt
                             addPath(prev, cur, paths)
 
-        wires = list()
+        wires = []
         for g in edgeGroups:
             if g:
                 wires.append(Part.Wire(g))
@@ -1337,7 +1359,7 @@ class StrategyClearVolume:
         paths = []
         # self._buildStartPath()
         prev = None
-        edgeGroups = list()
+        edgeGroups = []
 
         def addPath(prev, cur, paths):
             paths.append(
@@ -1359,7 +1381,7 @@ class StrategyClearVolume:
 
         # Convert points to gcode
         for itm in pointLists:
-            edges = list()
+            edges = []
             if isinstance(itm, str):  # process break
                 paths.append(
                     # Retract to clearance height
@@ -1409,7 +1431,7 @@ class StrategyClearVolume:
             # Eif
             edgeGroups.append(edges)
 
-        wires = list()
+        wires = []
         for g in edgeGroups:
             if g:
                 wires.append(Part.Wire(g))
@@ -1419,10 +1441,6 @@ class StrategyClearVolume:
     # Public methods
     def setAdaptiveAttributes(
         self,
-        # startDepth,
-        # finalDepth,
-        # stepDown,
-        # finishDepth,
         operationType,
         cutSide,
         disableHelixEntry,
@@ -1437,7 +1455,8 @@ class StrategyClearVolume:
         stopped,
         stopProcessing,
         tolerance,
-        stockObj,
+        stockType,
+        stockShape,
         job,
         adaptiveOutputState,
         adaptiveInputState,
@@ -1460,16 +1479,13 @@ class StrategyClearVolume:
                                  stopped,
                                  stopProcessing,
                                  tolerance,
-                                 stockObj,
+                                 stockType,
+                                 stockShape,
                                  job,
                                  adaptiveOutputState,
                                  adaptiveInputState,
                                  viewObj):
         Call to set adaptive-dependent attributes."""
-        # self.startDepth = startDepth
-        # self.finalDepth = finalDepth
-        # self.stepDown = stepDown
-        # self.finishDepth = finishDepth
         self.operationType = operationType
         self.cutSide = cutSide
         self.disableHelixEntry = disableHelixEntry
@@ -1484,7 +1500,8 @@ class StrategyClearVolume:
         self.stopped = stopped
         self.stopProcessing = stopProcessing
         self.tolerance = tolerance
-        self.stockObj = stockObj
+        self.stockType = stockType
+        self.stockShape = stockShape
         self.job = job
         self.adaptiveOutputState = adaptiveOutputState
         self.adaptiveInputState = adaptiveInputState
@@ -1502,10 +1519,10 @@ class StrategyClearVolume:
         # self.isDebug = True
         # self.showDebugShapes = True
 
-        commandList = list()
-        self.commandList = list()  # Reset list
-        self.pathGeometry = list()  # Reset list
-        self.startCommands = list()  # Reset list
+        commandList = []
+        self.commandList = []  # Reset list
+        self.pathGeometry = []  # Reset list
+        self.startCommands = []  # Reset list
         self.isCenterSet = False
         depthParams = [i for i in self.depthParams]
         self.prevDepth = self.safeHeight
@@ -1516,7 +1533,7 @@ class StrategyClearVolume:
 
         if len(depthParams) == 0:
             self._debugMsg("No depth parameters", True)
-            return list()
+            return []
         # PathLog.info("depthParams: {}".format(depthParams))
 
         if self.keepToolDown:
@@ -1541,17 +1558,16 @@ class StrategyClearVolume:
             return True
 
         # Use refactored Adaptive op for Adaptive cut pattern
-        if self.cutPattern == "Adaptive":
-            self._getAdaptivePaths()
-            return True
+        # if self.cutPattern == "Adaptive":
+        #    return self._getAdaptivePaths()
 
         # Make box to serve as cut tool, and move into position above shape
-        sBB = self.volumeShape.BoundBox
+        volShpBB = self.volumeShape.BoundBox
 
         success = False
         for passDepth in depthParams:
             self.layerDepth = passDepth
-            cutFace = PathGeom.makeBoundBoxFace(sBB, offset=5.0, zHeight=passDepth)
+            cutFace = PathGeom.makeBoundBoxFace(volShpBB, offset=5.0, zHeight=passDepth)
             workingFaces = self.volumeShape.common(cutFace)
 
             # Part.show(workingFaces)
@@ -1561,19 +1577,37 @@ class StrategyClearVolume:
             )
             if workingFaces and len(workingFaces.Faces) > 0:
                 for wf in workingFaces.Faces:
-                    if self.materialAllowance != 0.0:
-                        offsetFace = PathUtils.getOffsetArea(wf, self.materialAllowance)
-                        useFace = offsetFace.cut(self.baseObject.Shape)
+                    offsetVal = (
+                        0.0
+                        if self.cutPattern in ["Adaptive", "Profile", "MultiProfile"]
+                        else self.toolDiameter
+                    )
+                    offsetVal += self.materialAllowance
+
+                    if offsetVal != 0.0:
+                        offsetVal = -1.0 * offsetVal * self.offsetDirection
+                        PathLog.info(f"PathStrategyClearing offset: {offsetVal}")
+                        if self.cutPattern in ["Profile", "MultiProfile"]:
+                            useFace = PathUtils.getOffsetArea(wf, offsetVal)
+                        else:
+                            offsetFace = PathUtils.getOffsetArea(wf, offsetVal)
+                            if offsetFace is False:
+                                useFace = None
+                            else:
+                                useFace = offsetFace.cut(self.baseObject.Shape)
                     else:
                         useFace = wf
-                    useFace.translate(
-                        FreeCAD.Vector(0.0, 0.0, 0.0 - useFace.BoundBox.ZMin)
-                    )
+
+                    if useFace is not None:
+                        useFace.translate(
+                            FreeCAD.Vector(0.0, 0.0, 0.0 - useFace.BoundBox.ZMin)
+                        )
+
+                    # Part.show(useFace, "UseFace")
 
                     # self._addDebugObject(useFace, 'workingFace_' + str(round(passDepth, 2)))
                     pathGeom = self._getPathGeometry(useFace)
                     if pathGeom:
-                        # self._addDebugObject(Part.makeCompound(pathGeom), 'pathGeom_' + str(round(passDepth, 2)))
                         self.pathGeometry.extend(pathGeom)
                         pathCmds = self._buildPaths(passDepth, pathGeom)
                         if not self.keepToolDown:
@@ -1602,6 +1636,7 @@ class StrategyClearVolume:
             self.prevDepth = passDepth
 
         if len(commandList) > 0:
+            # PathLog.debug(f"Commands count: {len(commandList)}")
             self.commandList = self.startCommands + commandList
         else:
             self._debugMsg("No commands in commandList")
@@ -1628,15 +1663,15 @@ class StrategyClearVolume:
         # self.isDebug = True
         # self.showDebugShapes = True
 
-        # self.commandList = list()  # Reset list
-        self.pathGeometry = list()  # Reset list
+        # self.commandList = []  # Reset list
+        self.pathGeometry = []  # Reset list
         self.isCenterSet = False
-        commandList = list()
+        commandList = []
         depthParams = [i for i in self.depthParams]
         startDepth = self.depthParams.start_depth
         finalDepth = self.depthParams.final_depth
         self.prevDepth = self.safeHeight
-        pathGeometry = list()
+        pathGeometry = []
 
         # Create OCL cutter from tool controller attributes
         oclTool = PathStrategyOCL.OCL_Tool(obj.ToolController)

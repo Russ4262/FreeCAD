@@ -143,7 +143,7 @@
        </widget>
       </item>
       <item row="5" column="1">
-       <widget class="Gui::QuantitySpinBox" name="cutPatternAngle">
+       <widget class="Gui::QuantitySpinBox" name="cutPatternAngle" native="true">
         <property name="sizePolicy">
          <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
           <horstretch>0</horstretch>
@@ -163,7 +163,7 @@
        </widget>
       </item>
       <item row="7" column="1">
-       <widget class="Gui::QuantitySpinBox" name="stepOverPercent">
+       <widget class="Gui::QuantitySpinBox" name="stepOverPercent" native="true">
         <property name="sizePolicy">
          <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
           <horstretch>0</horstretch>
@@ -183,7 +183,7 @@
        </widget>
       </item>
       <item row="9" column="1">
-       <widget class="Gui::QuantitySpinBox" name="materialAllowance">
+       <widget class="Gui::QuantitySpinBox" name="materialAllowance" native="true">
         <property name="sizePolicy">
          <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
           <horstretch>0</horstretch>
@@ -297,7 +297,7 @@
           </widget>
          </item>
          <item row="2" column="1">
-          <widget class="Gui::QuantitySpinBox" name="sampleInterval">
+          <widget class="Gui::QuantitySpinBox" name="sampleInterval" native="true">
            <property name="unit" stdset="0">
             <string notr="true"/>
            </property>
@@ -317,7 +317,7 @@
           </widget>
          </item>
          <item row="3" column="1">
-          <widget class="Gui::QuantitySpinBox" name="linearDeflection">
+          <widget class="Gui::QuantitySpinBox" name="linearDeflection" native="true">
            <property name="unit" stdset="0">
             <string notr="true"/>
            </property>
@@ -331,7 +331,7 @@
           </widget>
          </item>
          <item row="4" column="1">
-          <widget class="Gui::QuantitySpinBox" name="angularDeflection">
+          <widget class="Gui::QuantitySpinBox" name="angularDeflection" native="true">
            <property name="unit" stdset="0">
             <string notr="true"/>
            </property>
@@ -345,13 +345,20 @@
           </widget>
          </item>
          <item row="5" column="1">
-          <widget class="Gui::QuantitySpinBox" name="depthOffset">
+          <widget class="Gui::QuantitySpinBox" name="depthOffset" native="true">
            <property name="unit" stdset="0">
             <string notr="true"/>
            </property>
           </widget>
          </item>
         </layout>
+       </widget>
+      </item>
+      <item row="12" column="0">
+       <widget class="QCheckBox" name="profileOutside">
+        <property name="text">
+         <string>Profile Outside</string>
+        </property>
        </widget>
       </item>
      </layout>

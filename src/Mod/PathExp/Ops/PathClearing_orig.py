@@ -569,7 +569,7 @@ class ObjectClearing(PathOp2.ObjectOp2):
                     {"x": shp.BoundBox.XMax, "y": shp.BoundBox.YMax, "shape": s}
                 )
 
-            jobs = PathUtils.sort_jobs(jobs, ["x", "y"])
+            jobs = PathUtils.sort_locations(jobs, ["x", "y"])
 
             shapes = [j["shape"] for j in jobs]
 
@@ -896,7 +896,7 @@ def getWorkingShapes(targetShapeObj, cutSide):
             shp = s[0]
             jobs.append({"x": shp.BoundBox.XMax, "y": shp.BoundBox.YMax, "shape": s})
 
-        jobs = PathUtils.sort_jobs(jobs, ["x", "y"])
+        jobs = PathUtils.sort_locations(jobs, ["x", "y"])
 
         shapes = [j["shape"] for j in jobs]
 

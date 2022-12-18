@@ -36,9 +36,7 @@ from lazy_loader.lazy_loader import LazyLoader
 Part = LazyLoader("Part", globals(), "Part")
 DraftGeomUtils = LazyLoader("DraftGeomUtils", globals(), "DraftGeomUtils")
 PathGeom = LazyLoader("Path.Geom", globals(), "Path.Geom")
-PathOpTools = LazyLoader(
-    "Path.Base.Util", globals(), "Path.Base.Util"
-)
+PathOpTools = LazyLoader("Path.Base.Util", globals(), "Path.Base.Util")
 # time = LazyLoader('time', globals(), 'time')
 json = LazyLoader("json", globals(), "json")
 math = LazyLoader("math", globals(), "math")
@@ -95,7 +93,8 @@ class StrategyAdaptive:
         tolerance,
         stopped,
         stopProcessing,
-        stock,
+        stockType,
+        stockShape,
         job,
         adaptiveOutputState,
         adaptiveInputState,
@@ -110,9 +109,9 @@ class StrategyAdaptive:
 
         self.isDebug = True if PathLog.getLevel(PathLog.thisModule()) == 4 else False
         self.useHelixEntry = True  # Set False to disable helix entry
-        self.adaptiveGeometry = list()
-        self.pathArray = list()
-        self.commandList = list()
+        self.adaptiveGeometry = []
+        self.pathArray = []
+        self.commandList = []
 
         # Apply limits to argument values
         if tolerance < 0.001:
@@ -132,7 +131,8 @@ class StrategyAdaptive:
         self.cutSide = cutSide
         self.forceInsideOut = forceInsideOut
         self.materialAllowance = materialAllowance
-        self.stock = stock
+        self.stockType = stockType
+        self.stockShape = stockShape
         self.job = job
         self.stepOver = stepOver
         self.liftDistance = liftDistance
@@ -166,7 +166,11 @@ class StrategyAdaptive:
             else float(toolController.Tool.Diameter)
         )
 
-        self.stockShape = stock.Shape
+        # self.stockShape = stock.Shape
+        self.stockShape = stockShape
+        self.generateGeometry = False
+        self.generateCommands = True
+        self.guiPreviewPaths = False
 
     # Private methods
     def _convertTo2d(self, pathArray):
@@ -220,17 +224,18 @@ class StrategyAdaptive:
 
     def _generateGCode(self, adaptiveResults):
         PathLog.debug("StrategyAdaptive._generateGCode()")
-        self.commandList = list()
-        commandList = list()
+        self.commandList = []
+        commandList = []
         motionCutting = area.AdaptiveMotionType.Cutting
         motionLinkClear = area.AdaptiveMotionType.LinkClear
         motionLinkNotClear = area.AdaptiveMotionType.LinkNotClear
 
         # pylint: disable=unused-argument
         if len(adaptiveResults) == 0 or len(adaptiveResults[0]["AdaptivePaths"]) == 0:
+            # PathLog.info("No adaptiveResults to process.")
             return
 
-        helixRadius = 0
+        helixRadius = 0.0
         for region in adaptiveResults:
             p1 = region["HelixCenterPoint"]
             p2 = region["StartPoint"]
@@ -296,9 +301,15 @@ class StrategyAdaptive:
                     (p1[0] - p2[0]) * (p1[0] - p2[0])
                     + (p1[1] - p2[1]) * (p1[1] - p2[1])
                 )
+                PathLog.info(
+                    f"P1: {p1[0]}, {p1[1]};   P2: {p2[0]}, {p2[1]};  helixRadius: {helixRadius}"
+                )
 
                 # Helix ramp
+                PathLog.info(f"Using helix entry: {self.useHelixEntry}")
+                PathLog.info(f"helixRadius: {helixRadius} mm")
                 if self.useHelixEntry and helixRadius > 0.01:
+                    PathLog.info("Using helix entry.")
                     r = helixRadius - 0.01
 
                     maxfi = passDepth / depthPerOneCircle * 2 * math.pi
@@ -765,6 +776,7 @@ class StrategyAdaptive:
         lz = z
 
         # Save commands
+        # PathLog.info(f"Adaptive cmd count: {len(commandList)}")
         self.commandList = commandList
 
     # Public methods
@@ -778,6 +790,8 @@ class StrategyAdaptive:
 
         # PathLog.info("*** Adaptive toolpath processing started...")
         # startTime = time.time()
+        if not FreeCAD.GuiUp:
+            self.guiPreviewPaths = False
 
         for shp in self.faces:
             shp.translate(FreeCAD.Vector(0.0, 0.0, self.finalDepth - shp.BoundBox.ZMin))
@@ -785,35 +799,31 @@ class StrategyAdaptive:
                 for e in w.Edges:
                     self.pathArray.append([self._discretize(e)])
 
-        if FreeCAD.GuiUp:
+        path2d = self._convertTo2d(self.pathArray)
+
+        if self.guiPreviewPaths:
             self.sceneGraph = FreeCADGui.ActiveDocument.ActiveView.getSceneGraph()
 
         # hide old toolpaths during recalculation
         # self.obj.Path = Path.Path("(Calculating...)")  # self.obj.Path should change to self.Path
 
-        if FreeCAD.GuiUp:
+        if self.guiPreviewPaths:
             # store old visibility state
             # oldObjVisibility = self.viewObject.Visibility
             # oldJobVisibility = self.job.ViewObject.Visibility
 
-            #self.viewObject.Visibility = False
-            #self.job.ViewObject.Visibility = False
+            # self.viewObject.Visibility = False
+            # self.job.ViewObject.Visibility = False
 
             FreeCADGui.updateGui()
-
         self.topZ = self.stockShape.BoundBox.ZMax
         self.stopped = False
         self.stopProcessing = False
 
-        path2d = self._convertTo2d(self.pathArray)
-
         stockPaths = []
-        if (
-            hasattr(self.stock, "StockType")
-            and self.stock.StockType == "CreateCylinder"
-        ):
+        if self.stockType == "CreateCylinder":
             stockPaths.append([self._discretize(self.stockShape.Edges[0])])
-
+            PathLog.info("Adaptive stock type is cylinder")
         else:
             stockBB = self.stockShape.BoundBox
             v = []
@@ -825,6 +835,7 @@ class StrategyAdaptive:
             stockPaths.append([v])
 
         stockPath2d = self._convertTo2d(stockPaths)
+        # Part.show(self.stockShape, "StockShape")
 
         opType = area.AdaptiveOperationType.ClearingInside
         if self.operationType == "Clearing":
@@ -870,7 +881,7 @@ class StrategyAdaptive:
         # progress callback fn, if return true it will stop processing
         def progressFn(tpaths):
             motionCutting = area.AdaptiveMotionType.Cutting
-            if FreeCAD.GuiUp:
+            if self.guiPreviewPaths:
                 for (
                     path
                 ) in (
@@ -905,6 +916,7 @@ class StrategyAdaptive:
             # need to convert results to python object to be JSON serializable
             adaptiveResults = []
             for result in results:
+                PathLog.info(f"CP: {result.HelixCenterPoint};  SP: {result.StartPoint}")
                 adaptiveResults.append(
                     {
                         "HelixCenterPoint": result.HelixCenterPoint,
@@ -915,7 +927,8 @@ class StrategyAdaptive:
                 )
 
             # Generate G-Code
-            self._generateGCode(adaptiveResults)
+            if self.generateCommands:
+                self._generateGCode(adaptiveResults)
 
             if not self.stopProcessing:
                 # PathLog.info("*** Done. Elapsed time: %f sec" % (time.time()-startTime))
@@ -927,9 +940,9 @@ class StrategyAdaptive:
                 pass
 
         finally:
-            if FreeCAD.GuiUp:
-                #self.viewObject.Visibility = oldObjVisibility
-                #self.job.ViewObject.Visibility = oldJobVisibility
+            if self.guiPreviewPaths:
+                # self.viewObject.Visibility = oldObjVisibility
+                # self.job.ViewObject.Visibility = oldJobVisibility
                 self._sceneClean()
 
         return True
@@ -1053,14 +1066,34 @@ class StrategyAdaptive:
         }
 
     @classmethod
-    def adaptivePropertyEnumerations(cls):
+    def propEnumerations(cls, dataType="data"):
         """adaptivePropertyEnumerations() ... returns a dictionary of enumeration lists
         for the operation's enumeration type properties."""
         # Enumeration lists for App::PropertyEnumeration properties
-        return {
-            "OperationType": ["Clearing", "Profile"],
-            "CutSide": ["Outside", "Inside"],
+        enums = {
+            "OperationType": [
+                (translate("Path", "Clearing"), "Clearing"),
+                (translate("Path", "Profile"), "Profile"),
+            ],
+            "CutSide": [
+                (translate("Path", "Outside"), "Outside"),
+                (translate("Path", "Inside"), "Inside"),
+            ],
         }
+
+        if dataType == "raw":
+            return enums
+
+        data = []
+        idx = 0 if dataType == "translated" else 1
+
+        Path.Log.debug(enums)
+
+        for k, v in enumerate(enums):
+            data.append((v, [tup[idx] for tup in enums[v]]))
+        Path.Log.debug(data)
+
+        return data
 
     @classmethod
     def adaptiveSetEditorModes(cls, obj, hide=False):

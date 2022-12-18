@@ -144,6 +144,22 @@
         </property>
        </widget>
       </item>
+      <item row="1" column="1">
+       <widget class="QComboBox" name="boundary">
+        <item>
+         <property name="text">
+          <string>None</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="boundary_label">
+        <property name="text">
+         <string>Boundary</string>
+        </property>
+       </widget>
+      </item>
      </layout>
     </widget>
    </item>

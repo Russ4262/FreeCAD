@@ -124,13 +124,14 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
         cbox.blockSignals(True)
         cbox.clear()
         models = [
-            op for op in self.obj.Proxy.job.Operations.Group if op.Name != self.obj.Name
+            op
+            for op in self.obj.Proxy.job.Operations.Group
+            if op.Name != self.obj.Name and not op.Name.startswith("RestShape")
         ]
+        cbox.addItem("None", "None")
         if len(models) > 0:
             for mdl in models:
                 cbox.addItem(mdl.Label, mdl.Name)
-        else:
-            cbox.addItem("None", "None")
         cbox.blockSignals(False)
 
 

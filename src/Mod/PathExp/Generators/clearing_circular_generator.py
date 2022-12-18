@@ -151,7 +151,7 @@ class CircularClearingGenerator:
 
         if finalDepth > retractHeight:
             raise ValueError(
-                "Retract height must be greater than or equal to final depth"
+                "Retract height must be greater than or equal to final depth\n"
             )
 
         if not type(stepOver) is float:

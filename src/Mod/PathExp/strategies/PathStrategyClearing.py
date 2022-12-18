@@ -25,6 +25,7 @@ import Path
 import Path.Log as PathLog
 import PathScripts.PathUtils as PathUtils
 import Generators.PathGeometryGenerator as GeometryGenerator
+
 # import strategies.PathStrategySlicing as PathStrategySlicing
 
 # import PathScripts.strategies.PathStrategyRestTools as PathStrategyRestTools
@@ -60,8 +61,7 @@ PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 
 
 # Qt translation handling
-def translate(context, text, disambig=None):
-    return QtCore.QCoreApplication.translate(context, text, disambig)
+translate = FreeCAD.Qt.translate
 
 
 def isSafeTransition(baseFace, start, end, toolDiameter):
@@ -133,7 +133,7 @@ def isSafeTransition(baseFace, start, end, toolDiameter):
     return False
 
 
-class StrategyClearVolume:
+class StrategyClearVolume_ORIG:
     """StrategyClearVolume()...
     Creates a path geometry shape from an assigned pattern for conversion to tool paths.
     Arguments:
@@ -175,6 +175,7 @@ class StrategyClearVolume:
         cutDirection,
         stepOver,
         materialAllowance,
+        profileOutside,
         minTravel,
         keepToolDown,
         toolController,
@@ -182,10 +183,10 @@ class StrategyClearVolume:
         depthParams,
         jobTolerance,
     ):
-        """__init__(callerClass, volumeShape, depthOffset, patternCenterAt,
-                    patternCenterCustom, cutPatternReversed, cutPatternAngle, stepOver,
-                    cutPattern, cutDirection, materialAllowance,
-                    toolController, startPoint, depthParams, jobTolerance)...
+        """__init__(callerClass, baseObject, volumeShape, slices, depthOffset, patternCenterAt,
+                    patternCenterCustom, cutPatternReversed, cutPatternAngle,
+                    cutPattern, cutDirection, stepOver, materialAllowance, profileOutside,
+                    minTravel, keepToolDown, toolController, startPoint, depthParams, jobTolerance)...
         StrategyClearing class constructor method.
         """
         PathLog.debug("StrategyClearing.__init__()")
@@ -233,6 +234,7 @@ class StrategyClearVolume:
         self.cutDirection = cutDirection
         self.stepOver = stepOver
         self.materialAllowance = materialAllowance
+        self.profileOutside = profileOutside
         self.minTravel = minTravel
         self.keepToolDown = keepToolDown
         self.toolController = toolController
@@ -313,7 +315,7 @@ class StrategyClearVolume:
 
         if not self.baseShape:
             self._debugMsg("_getPathGeometry() No baseShape")
-            return list()
+            return []
 
         pGG = GeometryGenerator.PathGeometryGenerator(
             self,
@@ -326,6 +328,7 @@ class StrategyClearVolume:
             self.cutDirection,
             self.stepOver,
             self.materialAllowance,
+            self.profileOutside,
             self.minTravel,
             self.keepToolDown,
             self.toolController,
@@ -358,7 +361,7 @@ class StrategyClearVolume:
             self.centerOfPattern = pGG.centerOfPattern  # Retreive center of cut pattern
             return pGG.pathGeometry
 
-        return list()
+        return []
 
     def _hopPath(self, upHeight, trgtX, trgtY, downHeight):
         paths = []
@@ -412,6 +415,12 @@ class StrategyClearVolume:
         self._debugMsg("_buildPaths()")
 
         if self.cutPattern == "Offset":
+            return self._buildOffsetPaths(height, wireList)
+
+        if self.cutPattern == "Profile":
+            return self._buildOffsetPaths(height, wireList)
+
+        if self.cutPattern == "MultiProfile":
             return self._buildOffsetPaths(height, wireList)
 
         if self.cutPattern == "Spiral":
@@ -580,6 +589,78 @@ class StrategyClearVolume:
 
         if self.keepToolDown:
             return self._buildKeepOffsetDownPaths(height, wireList)
+
+        paths = []
+        self._buildStartPath()
+
+        if self.cutDirection == "Climb":
+            for w in wireList:
+                wire = w.copy()
+                wire.translate(FreeCAD.Vector(0, 0, height))
+
+                e0 = wire.Edges[len(wire.Edges) - 1]
+                paths.append(
+                    Path.Command(
+                        "G0",
+                        {
+                            "X": e0.Vertexes[1].X,
+                            "Y": e0.Vertexes[1].Y,
+                            "F": self.horizRapid,
+                        },
+                    )
+                )
+                paths.append(
+                    Path.Command("G0", {"Z": self.prevDepth + 0.1, "F": self.vertRapid})
+                )
+                paths.append(Path.Command("G1", {"Z": height, "F": self.vertFeed}))
+
+                for i in range(len(wire.Edges) - 1, -1, -1):
+                    e = wire.Edges[i]
+                    paths.extend(
+                        PathGeom.cmdsForEdge(e, flip=True, hSpeed=self.horizFeed)
+                    )
+
+                paths.append(
+                    Path.Command("G0", {"Z": self.safeHeight, "F": self.vertRapid})
+                )
+
+        else:
+            for w in wireList:
+                wire = w.copy()
+                wire.translate(FreeCAD.Vector(0, 0, height))
+
+                e0 = wire.Edges[0]
+                paths.append(
+                    Path.Command(
+                        "G0",
+                        {
+                            "X": e0.Vertexes[0].X,
+                            "Y": e0.Vertexes[0].Y,
+                            "F": self.horizRapid,
+                        },
+                    )
+                )
+                paths.append(
+                    Path.Command("G0", {"Z": self.prevDepth + 0.1, "F": self.vertRapid})
+                )
+                paths.append(Path.Command("G1", {"Z": height, "F": self.vertFeed}))
+
+                for e in wire.Edges:
+                    paths.extend(PathGeom.cmdsForEdge(e, hSpeed=self.horizFeed))
+
+                paths.append(
+                    Path.Command("G0", {"Z": self.safeHeight, "F": self.vertRapid})
+                )
+
+        return paths
+
+    def _buildProfilePaths(self, height, wireList):
+        """_buildProfilePaths(height, wireList) ... Convert Offset pattern wires to paths."""
+        self._debugMsg("_buildProfilePaths()")
+
+        if self.keepToolDown:
+            # return self._buildKeepOffsetDownPaths(height, wireList)
+            self._debugMsg("_buildProfilePaths()", isError=True)
 
         paths = []
         self._buildStartPath()
@@ -1479,7 +1560,7 @@ class StrategyClearVolume:
         """
         if len(depthParams) == 0:
             self._debugMsg("No depth parameters", True)
-            return list()
+            return []
         # PathLog.info("depthParams: {}".format(depthParams))
 
         # Verify input shape has volume (is an envelope)
@@ -1565,8 +1646,9 @@ class StrategyClearVolume:
                 # rotate useFace
                 lastFace = useFace
             else:
-                self._debugMsg(f"No path geometry to process at depth of {depth}.", isError=True)
-                # self._debugMsg(f"No path geometry to process at depth of {depth}.")
+                self._debugMsg(
+                    f"No path geometry to process at depth of {depth}.", isError=True
+                )
                 # break
 
             self.prevDepth = depth

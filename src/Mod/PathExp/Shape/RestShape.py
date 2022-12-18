@@ -65,8 +65,8 @@ class RestShape(PathOp2.ObjectOp2):
             (
                 "App::PropertyString",
                 "Model",
-                "Rotation",
-                translate("Path", "Base model name."),
+                "Operation",
+                translate("Path", "Source operation name."),
             ),
             (
                 "App::PropertyLink",
@@ -82,13 +82,20 @@ class RestShape(PathOp2.ObjectOp2):
     def opPropertyDefaults(self, obj, job):
         """opPropertyDefaults(obj, job) ... returns a dictionary of default values
         for the operation's properties."""
-        model = "None"
+        model = ""
         if len(job.Operations.Group) > 0:
-            models = [op.Name for op in job.Operations.Group if op.Name != obj.Name]
+            models = [
+                op.Name
+                for op in job.Operations.Group
+                if op.Name != obj.Name and not op.Name.startswith("RestShape")
+            ]
             model = models[-1]
 
+        # defaults = {
+        #    "Model": model,
+        # }
         defaults = {
-            "Model": model,
+            "Model": "None",
         }
 
         return defaults
@@ -133,21 +140,19 @@ class RestShape(PathOp2.ObjectOp2):
 
     # Main executable method
     def opExecute(self, obj):
-        """opExecute(obj) ... called whenever the receiver needs to be recalculated.
-        See documentation of execute() for a list of base functionality provided."""
-        # PathLog.debug("TargetShape.opExecute()")
-        print("RestShape.opExecute()")
-        print(f"Base object name: {obj.Model}")
+        """opExecute(obj) ..."""
+        # PathLog.debug("RestShape.opExecute()")
+        PathLog.info("RestShape.opExecute()")
+        PathLog.info(f"Base object name: {obj.Model}")
 
         if obj.Model == "None":
-            PathLog.info("No obj.Model provided.")
+            PathLog.info("No source operation provided.")
             return
 
         removalShapes = []
         restShapes = []
 
         op = FreeCAD.ActiveDocument.getObject(obj.Model)
-        PathLog.info(f"Base op: {op.Name}.")
         obj.BaseObj = op
 
         toolcontroller = op.ToolController
@@ -172,12 +177,26 @@ class RestShape(PathOp2.ObjectOp2):
             makeRemovalShape(c.Wires, toolcontroller, depths)
             for c in op.CutPatternShape.Compounds
         ]
-        removalShape = Part.makeCompound(removalShapes)
-        # Part.show(removalShape, "RemovalShape")
-        restShape = op.TargetShape.Shape.cut(removalShape)
-        obj.Shape = restShape
-        Part.show(restShape, f"{op.Label}_RestShape")
-        obj.Label = f"RestShape_{op.Label}"
+        # removalShape = Part.makeCompound(removalShapes)  # This method functions correctly with workflow
+        if len(removalShapes) == 0:
+            PathLog.error("No removal shapes created.")
+        else:
+            removed = fuseShapes(removalShapes, method=2)
+            removalShape = putRotatedShape(
+                removed, op
+            )  # orient removal to natural model position
+
+            prevRestObj = getPreviousRestObj(
+                self.job, obj.Name
+            )  # if first op, prevRestObj will be job stock
+            restShape = prevRestObj.Shape.cut(removalShape)
+
+            obj.Shape = restShape
+
+            rstObj = FreeCAD.ActiveDocument.addObject("Part::Feature", "RestShape")
+            rstObj.Shape = restShape
+            rstObj.Label = f"RestShape_{op.Label}"
+            rstObj.purgeTouched()
 
         if obj.ShowShape:
             rstShp = FreeCAD.ActiveDocument.addObject(
@@ -191,8 +210,8 @@ class RestShape(PathOp2.ObjectOp2):
         """opExecute(obj) ... called whenever the receiver needs to be recalculated.
         See documentation of execute() for a list of base functionality provided."""
         # PathLog.debug("TargetShape.opExecute()")
-        print("RestShape.opExecute()")
-        print(f"Base object name: {obj.Model}")
+        PathLog.info("RestShape.opExecute()")
+        PathLog.info(f"Base object name: {obj.Model}")
 
         if obj.Model == "None":
             PathLog.info("No obj.Model provided.")
@@ -202,7 +221,6 @@ class RestShape(PathOp2.ObjectOp2):
         restShapes = []
 
         op = FreeCAD.ActiveDocument.getObject(obj.Model)
-        PathLog.info(f"Base op: {op.Name}.")
 
         toolcontroller = op.ToolController
 
@@ -268,6 +286,55 @@ class RestShape(PathOp2.ObjectOp2):
 
 
 # Eclass
+
+
+def getPreviousOperation(job, opName):
+    ops = job.Operations.Group
+    if len(ops) < 2:
+        return None
+    prevOp = ops[0]
+    for op in job.Operations.Group[1:]:
+        if op.Name == opName:
+            return prevOp
+
+
+def getPreviousRestObj(job, opName):
+    ops = job.Operations.Group
+    if len(ops) < 2:
+        return None
+    prevRest = None
+    for op in job.Operations.Group[1:]:
+        if op.Name == opName:
+            break  # Do not look past current RestShape object
+        if op.Name.startswith("RestShape") and op.Name != opName:
+            prevRest = op
+            PathLog.info(f"previous rest shape is '{op.Name}'")
+
+    if prevRest is None:
+        return job.Stock
+
+    return prevRest
+
+
+def getRotatedShape(shape, refObj):
+    """getRotatedShape(shape, refObj) ... get shape in rotated orientation ready for path generation."""
+    AlignToFeature.CENTER_OF_ROTATION = refObj.TargetShape.CenterOfRotation
+    rotations, __ = AlignToFeature.getRotationsForObject(refObj.TargetShape)
+    # PathLog.info(f"Rotations: {rotations}")
+    rotatedShape = AlignToFeature.rotateShapeWithList(shape, rotations)
+    rotatedShape.translate(refObj.TargetShape.CenterOfRotation.negative())
+    return rotatedShape
+
+
+def putRotatedShape(shape, refObj):
+    """putRotatedShape(shape, refObj) ... restores a rotated shape to original, natural position."""
+    AlignToFeature.CENTER_OF_ROTATION = refObj.TargetShape.CenterOfRotation
+    rots, __ = AlignToFeature.getRotationsForObject(refObj.TargetShape)
+    rotations = AlignToFeature.reverseRotationsList(rots)
+    # PathLog.info(f"Rotations: {rotations}")
+    rotatedShape = AlignToFeature.rotateShapeWithList(shape, rotations)
+    rotatedShape.translate(refObj.TargetShape.CenterOfRotation.negative())
+    return rotatedShape
 
 
 def cleanVolume(volume):
@@ -336,6 +403,11 @@ def makeRemovalShape(pathGeomList, ToolController, depths):
 
 
 def fuseShapes(shapeList, method=1):
+    if len(shapeList) == 0:
+        return None
+    elif len(shapeList) == 1:
+        return shapeList[0]
+
     if method == 1:
         return Part.makeCompound(shapeList)
     if method == 2 or method == 3:
@@ -348,7 +420,7 @@ def fuseShapes(shapeList, method=1):
             return seed
         if method == 3:
             return seed.removeSplitter()
-    PathLog.error()
+    PathLog.error("fuseShapes() error")
     return None
 
 

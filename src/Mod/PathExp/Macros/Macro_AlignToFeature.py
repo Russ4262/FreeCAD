@@ -52,7 +52,7 @@ def _normalizeDegrees(degree):
 def getRotationsForObject(obj):
     # print("getRotationsForObject()")
     if obj.Face == "None" and obj.Edge == "None":
-        FreeCAD.Console.PrintWarning("Feature name is None.\n")
+        # FreeCAD.Console.PrintWarning("Feature name is None.\n")
         return ([], False)
 
     if obj.Edge != "None":
@@ -342,6 +342,31 @@ def _rotationsToOrderAndValues(rotations):
         axisOrder += attr
         setattr(degreeValues, attr, degree)
     return axisOrder, degreeValues
+
+
+def buildRotationsList(obj, mapped=False):
+    axisMap = {"x": "A", "y": "B", "z": "C"}
+    rotations = []
+    for i in range(len(obj.RotationsOrder)):
+        axis = obj.RotationsOrder[i]
+        useAxis = axis.upper()
+        if mapped:
+            useAxis = axisMap[axis]
+
+        rotations.append(
+            (
+                useAxis,
+                getattr(obj.RotationsValues, axis),
+            )
+        )
+
+    return rotations
+
+
+def reverseRotationsList(rotations):
+    reversed = [(axis, -1.0 * val) for axis, val in rotations]
+    reversed.reverse()
+    return reversed
 
 
 # Regular functions

@@ -24,8 +24,8 @@
 
 import FreeCAD
 import Part
-import PathScripts.PathGeom as PathGeom
-import PathScripts.PathLog as PathLog
+import Path.Geom as PathGeom
+import Path.Log as PathLog
 import math
 from PySide import QtCore
 

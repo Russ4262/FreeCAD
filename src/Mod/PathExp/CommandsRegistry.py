@@ -29,6 +29,25 @@ __doc__ = "Commands registry for Path Experimental workbench."
 
 translate = FreeCAD.Qt.translate
 OPS = {
+    "Clearing": (
+        "OpsGui.PathClearingGui",
+        translate("PathExp", "Clearing"),
+        "Path_Clearing",
+    ),
+    "Helix": (
+        "PathScripts.PathHelixGui",
+        translate("PathExp", "Helix"),
+        "Path_Helix",
+    ),
+    "Drilling": (
+        "OpsGui.PathDrillingGui",
+        translate("PathExp", "Drilling"),
+        "Path_Drilling",
+    ),
+    "Slot": ("OpsGui.PathSlotGui", translate("PathExp", "Slot"), "Path_Slot"),
+}
+
+OPS_old = {
     "Adaptive": (
         "OpsGui.PathAdaptiveGui",
         translate("PathExp", "Adaptive"),
@@ -76,5 +95,6 @@ OPS = {
     ),
     "Slot": ("OpsGui.PathSlotGui", translate("PathExp", "Slot"), "Path_Slot"),
 }
+
 
 FreeCAD.Console.PrintMessage("Loaded the Ops registry.\n")

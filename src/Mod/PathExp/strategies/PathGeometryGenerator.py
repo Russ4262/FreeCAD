@@ -36,12 +36,10 @@ from lazy_loader.lazy_loader import LazyLoader
 Part = LazyLoader("Part", globals(), "Part")
 DraftGeomUtils = LazyLoader("DraftGeomUtils", globals(), "DraftGeomUtils")
 PathGeom = LazyLoader("Path.Geom", globals(), "Path.Geom")
-#PathOpTools = LazyLoader(
+# PathOpTools = LazyLoader(
 #    "PathScripts.PathOpTools", globals(), "PathScripts.PathOpTools"
-#)
-PathOpTools = LazyLoader(
-    "Path.Base.Util", globals(), "Path.Base.Util"
-)
+# )
+PathOpTools = LazyLoader("Path.Base.Util", globals(), "Path.Base.Util")
 # time = LazyLoader('time', globals(), 'time')
 json = LazyLoader("json", globals(), "json")
 math = LazyLoader("math", globals(), "math")
@@ -64,8 +62,7 @@ PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 
 
 # Qt translation handling
-def translate(context, text, disambig=None):
-    return QtCore.QCoreApplication.translate(context, text, disambig)
+translate = FreeCAD.Qt.translate
 
 
 class PathGeometryGenerator:
@@ -107,6 +104,8 @@ class PathGeometryGenerator:
         "Line",
         "LineOffset",
         "Offset",
+        "Profile",
+        "MultiProfile",
         "Spiral",
         "Triangle",
         "ZigZag",
@@ -421,6 +420,161 @@ class PathGeometryGenerator:
         Additional offset loop ordering is handled in the linking method.
         """
         PathLog.debug("_Offset()")
+
+        wires = list()
+        shape = self.face
+        offset = 0.0
+        direction = 0
+        doLast = 0
+        loop = 1
+
+        def _get_direction(w):
+            if PathOpTools._isWireClockwise(w):
+                return 1
+            return -1
+
+        def _reverse_wire(w):
+            rev_list = list()
+            for e in w.Edges:
+                rev_list.append(PathUtils.reverseEdge(e))
+            rev_list.reverse()
+            return Part.Wire(Part.__sortEdges__(rev_list))
+
+        if self.stepOver > 49.0:
+            doLast += 1
+
+        while True:
+            offsetArea = PathUtils.getOffsetArea(shape, offset, plane=self.workingPlane)
+            if not offsetArea:
+                # Attempt clearing of residual area
+                if doLast:
+                    doLast += 1
+                    offset += self.cutOut / 2.0
+                    offsetArea = PathUtils.getOffsetArea(
+                        shape, offset, plane=self.workingPlane
+                    )
+                    if not offsetArea:
+                        # Area fully consumed
+                        break
+                else:
+                    # Area fully consumed
+                    break
+
+            # set initial cut direction
+            if direction == 0:
+                first_face_wire = offsetArea.Faces[0].Wires[0]
+                direction = _get_direction(first_face_wire)
+                if direction == 1:
+                    direction = -1
+
+            # process each wire within face
+            for f in offsetArea.Faces:
+                for w in f.Wires:
+                    use_direction = direction
+                    if self.cutPatternReversed:
+                        use_direction = -1 * direction
+                    wire_direction = _get_direction(w)
+                    # Process wire
+                    if wire_direction == use_direction:  # direction is correct
+                        wire = w
+                    else:  # incorrect direction, so reverse wire
+                        wire = _reverse_wire(w)
+                    wires.append(wire)
+
+            offset -= self.cutOut
+            loop += 1
+            if doLast > 1:
+                break
+        # Ewhile
+
+        return wires
+
+    def _Profile(self):
+        """_Profile()...  based on _Offset()
+        Returns raw set of Offset wires at Z=0.0.
+        Direction of cut is taken into account.
+        Additional offset loop ordering is handled in the linking method.
+        """
+        PathLog.debug("_Profile()")
+
+        wires = list()
+        shape = self.face
+        offset = 0.0
+        direction = 0
+        doLast = 0
+        loop = 1
+
+        def _get_direction(w):
+            if PathOpTools._isWireClockwise(w):
+                return 1
+            return -1
+
+        def _reverse_wire(w):
+            rev_list = list()
+            for e in w.Edges:
+                rev_list.append(PathUtils.reverseEdge(e))
+            rev_list.reverse()
+            return Part.Wire(Part.__sortEdges__(rev_list))
+
+        if self.stepOver > 49.0:
+            doLast += 1
+
+        while True:
+            offsetArea = PathUtils.getOffsetArea(shape, offset, plane=self.workingPlane)
+            if not offsetArea:
+                # Attempt clearing of residual area
+                if doLast:
+                    doLast += 1
+                    offset += self.cutOut / 2.0
+                    offsetArea = PathUtils.getOffsetArea(
+                        shape, offset, plane=self.workingPlane
+                    )
+                    if not offsetArea:
+                        # Area fully consumed
+                        break
+                else:
+                    # Area fully consumed
+                    break
+
+            # set initial cut direction
+            if direction == 0:
+                first_face_wire = offsetArea.Faces[0].Wires[0]
+                direction = _get_direction(first_face_wire)
+                if direction == 1:
+                    direction = -1
+
+            # process each wire within face
+            for f in offsetArea.Faces:
+                for w in f.Wires:
+                    use_direction = direction
+                    if self.cutPatternReversed:
+                        use_direction = -1 * direction
+                    wire_direction = _get_direction(w)
+                    # Process wire
+                    if wire_direction == use_direction:  # direction is correct
+                        wire = w
+                    else:  # incorrect direction, so reverse wire
+                        wire = _reverse_wire(w)
+                    wires.append(wire)
+
+            offset -= self.cutOut
+            loop += 1
+            if doLast > 1:
+                break
+            if loop > 1:
+                PathLog.info("Breaking offsetting process at end of first loop")
+                break
+        # Ewhile
+
+        return wires
+
+    def _MultiProfile(self):
+        """_MultiProfile()...  based on _Offset()
+        Returns raw set of Offset wires at Z=0.0.
+        Direction of cut is taken into account.
+        Additional offset loop ordering is handled in the linking method.
+        """
+        PathLog.debug("_MultiProfile()")
 
         wires = list()
         shape = self.face
@@ -948,6 +1102,32 @@ class PathGeometryGenerator:
         return self._Link_Line()
 
     def _Link_Offset(self):
+        """_Link_Offset()... Apply necessary linking to resulting wire set after common between target face and raw wire set."""
+        if self.cutPatternReversed:
+            return sorted(
+                self.rawPathGeometry.Wires, key=lambda wire: Part.Face(wire).Area
+            )
+        else:
+            return sorted(
+                self.rawPathGeometry.Wires,
+                key=lambda wire: Part.Face(wire).Area,
+                reverse=True,
+            )
+
+    def _Link_Profile(self):
+        """_Link_Offset()... Apply necessary linking to resulting wire set after common between target face and raw wire set."""
+        if self.cutPatternReversed:
+            return sorted(
+                self.rawPathGeometry.Wires, key=lambda wire: Part.Face(wire).Area
+            )
+        else:
+            return sorted(
+                self.rawPathGeometry.Wires,
+                key=lambda wire: Part.Face(wire).Area,
+                reverse=True,
+            )
+
+    def _Link_MultiProfile(self):
         """_Link_Offset()... Apply necessary linking to resulting wire set after common between target face and raw wire set."""
         if self.cutPatternReversed:
             return sorted(

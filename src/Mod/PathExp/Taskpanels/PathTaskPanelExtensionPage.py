@@ -191,7 +191,6 @@ class TaskPanelExtensionPage(PathTaskPanelPage.TaskPanelPage):
 
     def setFields(self, obj):
         PathLog.track(obj.Label)
-        print("TaskPanelExtensionPage.setFields()")
 
         if obj.ExtensionCorners != self.form.extendCorners.isChecked():
             self.form.extendCorners.toggle()

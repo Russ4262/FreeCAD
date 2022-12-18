@@ -461,7 +461,7 @@ def geometryToGcode(pathGeometry, toolController, retractHeight, finalDepth=None
         raise ValueError("Final depth must be a float")
 
     if finalDepth is not None and finalDepth > retractHeight:
-        raise ValueError("Retract height must be greater than or equal to final depth")
+        raise ValueError("Retract height must be greater than or equal to final depth\n")
 
     _retractHeight = retractHeight
     _finalDepth = finalDepth

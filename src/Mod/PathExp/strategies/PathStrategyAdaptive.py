@@ -38,7 +38,9 @@ DraftGeomUtils = LazyLoader("DraftGeomUtils", globals(), "DraftGeomUtils")
 PathGeom = LazyLoader("Path.Geom", globals(), "Path.Geom")
 PathOpTools = LazyLoader(
     # "PathScripts.PathOpTools", globals(), "PathScripts.PathOpTools"
-    "Path.Base.Util", globals(), "Path.Base.Util"
+    "Path.Base.Util",
+    globals(),
+    "Path.Base.Util",
 )
 # time = LazyLoader('time', globals(), 'time')
 json = LazyLoader("json", globals(), "json")
@@ -61,8 +63,7 @@ PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 
 
 # Qt translation handling
-def translate(context, text, disambig=None):
-    return QtCore.QCoreApplication.translate(context, text, disambig)
+translate = FreeCAD.Qt.translate
 
 
 class StrategyAdaptive:
@@ -1054,14 +1055,34 @@ class StrategyAdaptive:
         }
 
     @classmethod
-    def adaptivePropertyEnumerations(cls):
+    def adaptivePropertyEnumerations(cls, dataType="data"):
         """adaptivePropertyEnumerations() ... returns a dictionary of enumeration lists
         for the operation's enumeration type properties."""
         # Enumeration lists for App::PropertyEnumeration properties
-        return {
-            "OperationType": ["Clearing", "Profile"],
-            "CutSide": ["Outside", "Inside"],
+        enums = {
+            "OperationType": [
+                (translate("Path", "Clearing"), "Clearing"),
+                (translate("Path", "Profile"), "Profile"),
+            ],
+            "CutSide": [
+                (translate("Path", "Outside"), "Outside"),
+                (translate("Path", "Inside"), "Inside"),
+            ],
         }
+
+        if dataType == "raw":
+            return enums
+
+        data = []
+        idx = 0 if dataType == "translated" else 1
+
+        Path.Log.debug(enums)
+
+        for k, v in enumerate(enums):
+            data.append((v, [tup[idx] for tup in enums[v]]))
+        Path.Log.debug(data)
+
+        return data
 
     @classmethod
     def adaptiveSetEditorModes(cls, obj, hide=False):

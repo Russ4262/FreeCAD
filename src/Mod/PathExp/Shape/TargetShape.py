@@ -30,6 +30,11 @@ import Macros.Macro_CombineRegions as CombineRegions
 import Macros.Macro_AlignToFeature as AlignToFeature
 import PathScripts.PathUtils as PathUtils
 import Path.Base.Drillable as drillableLib
+import DraftGeomUtils
+import Path.Geom as PathGeom
+import strategies.PathTargetBuildUtils as PathTargetBuildUtils
+import math
+import TechDraw
 
 
 __doc__ = "Class and implementation of a Target Shape."
@@ -113,6 +118,12 @@ class TargetShape(PathOp2.ObjectOp2):
                 ),
             ),
             (
+                "App::PropertyEnumeration",
+                "FeatureBoundary",
+                "Shape",
+                translate("Path", "Boundary for base geometry features."),
+            ),
+            (
                 "App::PropertyBool",
                 "InvertDirection",
                 "Rotation",
@@ -189,6 +200,7 @@ class TargetShape(PathOp2.ObjectOp2):
         defaults = {
             "RespectFeatureHoles": True,
             "RespectMergedHoles": True,
+            "FeatureBoundary": "Feature",
             "Model": job.Model.Group[0].Name,
             "Face": "None",
             "Edge": "None",
@@ -202,7 +214,7 @@ class TargetShape(PathOp2.ObjectOp2):
         return defaults
 
     @classmethod
-    def propertyEnumerations(self, dataType="data"):
+    def propertyEnumerations(cls, dataType="data"):
         """helixOpPropertyEnumerations(dataType="data")... return property enumeration lists of specified dataType.
         Args:
             dataType = 'data', 'raw', 'translated'
@@ -213,12 +225,22 @@ class TargetShape(PathOp2.ObjectOp2):
         """
 
         # Enumeration lists for App::PropertyEnumeration properties
-        enums = {}
+        enums = {
+            "FeatureBoundary": [
+                (translate("Path", "Feature"), "Feature"),
+                (translate("Path", "Feature Extended"), "FeatureExt"),
+                (translate("Path", "BoundBox"), "Boundbox"),
+                (translate("Path", "Stock"), "Stock"),
+                (translate("Path", "Stock Extended"), "StockExt"),
+                (translate("Path", "Waterline"), "Waterline"),
+                (translate("Path", "Waterline Extended"), "WaterlineExt"),
+            ]
+        }
 
         if dataType == "raw":
             return enums
 
-        data = list()
+        data = []
         idx = 0 if dataType == "translated" else 1
 
         PathLog.debug(enums)
@@ -241,42 +263,45 @@ class TargetShape(PathOp2.ObjectOp2):
         # self._printCurrentDepths(obj, "Pre-opUpdateDepths")
         AlignToFeature.CENTER_OF_ROTATION = obj.CenterOfRotation
         rotations, __ = AlignToFeature.getRotationsForObject(obj)
-        # print(f"opUpdateDepths() rotations: {rotations}")
-        mins = []
-        if not obj.Base or len(obj.Base) == 0:
-            for m in self.job.Model.Group:
-                rotatedBase = AlignToFeature.rotateShapeWithList(m.Shape, rotations)
-                rotatedBase.translate(obj.CenterOfRotation.negative())
-                mins.append(rotatedBase.BoundBox.ZMin)
-                # m.purgeTouched()
-            finDep = min(mins)
-        else:
-            for base, subs in obj.Base:
-                rotatedBase = AlignToFeature.rotateShapeWithList(base.Shape, rotations)
-                rotatedBase.translate(obj.CenterOfRotation.negative())
-                base.purgeTouched()
-                for s in subs:
-                    mins.append(rotatedBase.getElement(s).BoundBox.ZMin)
-            finDep = min(mins)
+        if len(rotations) > 0:
+            print(f"opUpdateDepths() rotations: {rotations}")
+            mins = []
+            if not obj.Base or len(obj.Base) == 0:
+                for m in self.job.Model.Group:
+                    rotatedBase = AlignToFeature.rotateShapeWithList(m.Shape, rotations)
+                    rotatedBase.translate(obj.CenterOfRotation.negative())
+                    mins.append(rotatedBase.BoundBox.ZMin)
+                    # m.purgeTouched()
+                finDep = min(mins)
+            else:
+                for base, subs in obj.Base:
+                    rotatedBase = AlignToFeature.rotateShapeWithList(
+                        base.Shape, rotations
+                    )
+                    rotatedBase.translate(obj.CenterOfRotation.negative())
+                    base.purgeTouched()
+                    for s in subs:
+                        mins.append(rotatedBase.getElement(s).BoundBox.ZMin)
+                finDep = min(mins)
 
-        # Rotate stock and adjust start height
-        rotatedStock = AlignToFeature.rotateShapeWithList(
-            self.job.Stock.Shape, rotations
-        )
-        rotatedStock.translate(obj.CenterOfRotation.negative())
-        # self.job.Stock.purgeTouched()
-        strDep = rotatedStock.BoundBox.ZMax
+            # Rotate stock and adjust start height
+            rotatedStock = AlignToFeature.rotateShapeWithList(
+                self.job.Stock.Shape, rotations
+            )
+            rotatedStock.translate(obj.CenterOfRotation.negative())
+            # self.job.Stock.purgeTouched()
+            strDep = rotatedStock.BoundBox.ZMax
 
-        # print(f"opUpdateDepths() strDep: {strDep};  finDep: {finDep}")
-        obj.setExpression("OpStockZMax", "{} mm".format(strDep))
-        obj.setExpression("OpStartDepth", "{} mm".format(strDep))
-        obj.setExpression("OpFinalDepth", "{} mm".format(finDep))
-        # self.applyExpression(obj, "OpStartDepth", "{} mm".format(strDep))
-        # self.applyExpression(obj, "OpFinalDepth", "{} mm".format(finDep))
-        self.applyExpression(obj, "StartDepth", "OpStartDepth")
-        self.applyExpression(obj, "FinalDepth", "OpFinalDepth")
-        obj.OpStartDepth = "{} mm".format(strDep)
-        obj.OpFinalDepth = "{} mm".format(finDep)
+            # print(f"opUpdateDepths() strDep: {strDep};  finDep: {finDep}")
+            obj.setExpression("OpStockZMax", "{} mm".format(strDep))
+            obj.setExpression("OpStartDepth", "{} mm".format(strDep))
+            obj.setExpression("OpFinalDepth", "{} mm".format(finDep))
+            # self.applyExpression(obj, "OpStartDepth", "{} mm".format(strDep))
+            # self.applyExpression(obj, "OpFinalDepth", "{} mm".format(finDep))
+            self.applyExpression(obj, "StartDepth", "OpStartDepth")
+            self.applyExpression(obj, "FinalDepth", "OpFinalDepth")
+            obj.OpStartDepth = "{} mm".format(strDep)
+            obj.OpFinalDepth = "{} mm".format(finDep)
 
         # self._printCurrentDepths(obj, "Post-opUpdateDepths")
         pass
@@ -567,6 +592,7 @@ class TargetShape(PathOp2.ObjectOp2):
             # PathLog.info("Processing base items ...")
             for (base, subList) in obj.Base:
                 rawFaces = []
+                rawEdges = []
                 if rotations:
                     rotatedBaseShp = AlignToFeature.rotateShapeWithList(
                         base.Shape, rotations
@@ -578,7 +604,32 @@ class TargetShape(PathOp2.ObjectOp2):
 
                 for sub in subList:
                     if sub.startswith("Face"):
-                        rawFaces.append(rotatedBaseShp.getElement(sub).copy())
+                        # rawFaces.append(rotatedBaseShp.getElement(sub).copy())
+                        fc = applyFeatureBoundary(
+                            obj.FeatureBoundary,
+                            rotatedBaseShp.getElement(sub),
+                            base.Shape,
+                            self.stock.Shape,
+                            obj.RespectFeatureHoles,
+                            obj.ExtensionLengthDefault.Value,
+                        )  # featureBoundary, face, baseShape, stockShape
+                        rawFaces.append(fc)
+                        # Add applicable extension
+                        for ext in extensions:
+                            if ext.feature == sub:
+                                # Set indexed base shape for extension
+                                ext.rotatedBaseShp = rotatedBaseShp
+                                wire = ext.getWire()
+                                if wire:
+                                    faces = ext.getExtensionFaces(wire)
+                                    for f in faces:
+                                        rawFaces.append(f)
+                                        # Part.show(f, "ExtFace")
+                                        # self.exts.append(f)
+                            else:
+                                PathLog.debug(f"No extension found for {ext.feature}")
+                    elif sub.startswith("Edge"):
+                        rawEdges.append(rotatedBaseShp.getElement(sub).copy())
                         # Add applicable extension
                         for ext in extensions:
                             if ext.feature == sub:
@@ -599,7 +650,40 @@ class TargetShape(PathOp2.ObjectOp2):
                         )
                 # Efor
 
-                # region, fusedFaces = CombineRegions._executeAsMacro2(rawFaces)  # Uses Gui if available
+                # Process all edges
+                openEdges0 = []
+                wires0 = DraftGeomUtils.findWires(rawEdges)
+                for w in wires0:
+                    if w.isClosed():
+                        fc = applyFeatureBoundary(
+                            obj.FeatureBoundary,
+                            Part.Face(w),
+                            base.Shape,
+                            self.stock.Shape,
+                            obj.RespectFeatureHoles,
+                            obj.ExtensionLengthDefault.Value,
+                        )  # featureBoundary, face, baseShape, stockShape
+                        rawFaces.append(fc)
+                    else:
+                        # PathLog.error("Wire not closed.")
+                        # Part.show(w, "OpenWireError 1")
+                        openEdges0.extend(flattenOpenWire(w).Edges)
+                wires1 = DraftGeomUtils.findWires(openEdges0)
+                for w in wires1:
+                    if w.isClosed():
+                        fc = applyFeatureBoundary(
+                            obj.FeatureBoundary,
+                            Part.Face(w),
+                            base.Shape,
+                            self.stock.Shape,
+                            obj.RespectFeatureHoles,
+                            obj.ExtensionLengthDefault.Value,
+                        )  # featureBoundary, face, baseShape, stockShape
+                        rawFaces.append(fc)
+                    else:
+                        PathLog.error("Wire not closed.")
+                        Part.show(w, "OpenWireError 2")
+
                 region, fusedFaces = CombineRegions._executeAsMacro3(
                     rawFaces, obj.RespectFeatureHoles, obj.RespectMergedHoles
                 )
@@ -637,10 +721,11 @@ class TargetShape(PathOp2.ObjectOp2):
             # Efor
             del rotatedStockShp
 
-            # Efor
-
-            # obj.Shape = Part.makeCompound(targetShapes)
             hasGeometry = True
+
+        else:
+            # No base geometry provide
+            pass
 
         holes = self._processHoles(obj)
         if holes:
@@ -664,7 +749,26 @@ class TargetShape(PathOp2.ObjectOp2):
                 modelEnv = PathUtils.getEnvelope(
                     rotatedBaseShp, subshape=None, depthparams=self.depthparams
                 )
-                targetShapes.append(modelEnv)
+                mdlCS = PathTargetBuildUtils.getCrossSectionFace(modelEnv)
+                mdlCS.translate(
+                    FreeCAD.Vector(
+                        0.0, 0.0, m.Shape.BoundBox.ZMin - mdlCS.BoundBox.ZMin
+                    )
+                )
+                fc = applyFeatureBoundary(
+                    obj.FeatureBoundary,
+                    mdlCS,
+                    m.Shape,
+                    self.stock.Shape,
+                    obj.RespectFeatureHoles,
+                    obj.ExtensionLengthDefault.Value,
+                )
+                ftExt = fc.extrude(
+                    FreeCAD.Vector(
+                        0.0, 0.0, self.stock.Shape.BoundBox.ZMax - m.Shape.BoundBox.ZMin
+                    )
+                )
+                targetShapes.append(ftExt)
 
         obj.Shape = Part.makeCompound(targetShapes)
 
@@ -674,6 +778,118 @@ class TargetShape(PathOp2.ObjectOp2):
 
 
 # Eclass
+
+
+def edgesToFaces(edges):
+    wires = DraftGeomUtils.findWires(edges)
+    for w in wires:
+        if w.isClosed():
+            fc = applyFeatureBoundary(
+                obj.FeatureBoundary,
+                Part.Face(w),
+                base.Shape,
+                self.stock.Shape,
+                obj.RespectFeatureHoles,
+                obj.ExtensionLengthDefault.Value,
+            )  # featureBoundary, face, baseShape, stockShape
+            rawFaces.append(fc)
+        else:
+            PathLog.error("Wire not closed.")
+            Part.show(ew, "OpenWireError")
+            openWires.append(flattenOpenWire(ew))
+
+
+def flattenOpenWire(wire, matchHeight=False):
+    # Part.show(w, "WireToFlatten")
+    wBB = wire.BoundBox
+    face = PathGeom.makeBoundBoxFace(wBB, 2.0, wBB.ZMin - 2.0)
+    flat = face.makeParallelProjection(wire, FreeCAD.Vector(0.0, 0.0, 1.0))
+    if len(flat.Edges) == 0:
+        return None
+    if matchHeight:
+        flat.translate(FreeCAD.Vector(0.0, 0.0, wBB.ZMin - flat.BoundBox.ZMin))
+    else:
+        flat.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - flat.BoundBox.ZMin))
+    return flat
+
+
+def applyFeatureBoundary(
+    featureBoundary, face, baseShape, stockShape, respectFeatureHoles, extLength
+):
+    if featureBoundary == "Boundbox":
+        newFace = PathGeom.makeBoundBoxFace(face.BoundBox, zHeight=face.BoundBox.ZMin)
+    elif featureBoundary == "Stock":
+        newFace = PathTargetBuildUtils.getCrossSectionFace(stockShape)
+        newFace.translate(
+            FreeCAD.Vector(0.0, 0.0, face.BoundBox.ZMin - stockShape.BoundBox.ZMin)
+        )
+    elif featureBoundary == "Waterline":
+        newFace = getWaterlineFace(stockShape, baseShape, face)
+        if newFace is None:
+            PathLog.error("Waterline creation failed.  Using 'Feature' boundary.")
+            newFace = face.copy()
+    elif featureBoundary == "WaterlineExt":
+        newFace = getWaterlineFace(stockShape, baseShape, face, extLength)
+        if newFace is None:
+            PathLog.error("Waterline creation failed.  Using 'Feature' boundary.")
+            newFace = face.copy()
+    elif featureBoundary == "StockExt":
+        # wFace = PathGeom.makeBoundBoxFace(face.BoundBox, zHeight=face.BoundBox.ZMin)
+        stockFace = PathTargetBuildUtils.getCrossSectionFace(stockShape)
+        stockFace.translate(
+            FreeCAD.Vector(0.0, 0.0, face.BoundBox.ZMin - stockFace.BoundBox.ZMin)
+        )
+        newFace = PathUtils.getOffsetArea(stockFace, extLength)
+    elif featureBoundary == "FeatureExt":
+        newFace = PathUtils.getOffsetArea(face, extLength)
+    else:
+        newFace = face.copy()
+
+    # Part.show(newFace, "NewFace")
+
+    if not respectFeatureHoles or len(face.Wires) == 1:
+        return newFace
+
+    PathLog.info("Respecting feature holes")
+    rawInnerWires = [w.copy() for w in face.Wires[1:]]
+    flatInnerWiresRaw = CombineRegions._flattenWires(rawInnerWires)
+    extrusions = []
+    for fiw in flatInnerWiresRaw:
+        fiw.translate(
+            FreeCAD.Vector(0.0, 0.0, newFace.BoundBox.ZMin - 1.0 - fiw.BoundBox.ZMin)
+        )
+        fc = Part.Face(fiw)
+        extrusions.append(fc.extrude(FreeCAD.Vector(0.0, 0.0, 2.0)))
+    extHoles = Part.makeCompound(extrusions)
+    return newFace.cut(extHoles)
+
+
+# Waterline extension face generation function
+def getWaterlineFace(stockShape, baseShape, face, extLength=0.0):
+    # Get stock cross-section and translate to face height
+    if extLength != 0.0:
+        cs = PathTargetBuildUtils.getCrossSectionFace(stockShape)
+        stockCS = PathUtils.getOffsetArea(cs, extLength)
+    else:
+        stockCS = PathTargetBuildUtils.getCrossSectionFace(stockShape)
+    stockCS.translate(
+        FreeCAD.Vector(0.0, 0.0, face.BoundBox.ZMin - stockCS.BoundBox.ZMin)
+    )
+
+    # cut CS by base shape
+    cutFace = stockCS.cut(baseShape)
+    # fuse face with cut, removing splitters
+    rawFace = cutFace.fuse(face.copy())
+    connected = PathGeom.combineConnectedShapes(rawFace.Faces)
+    # cycle through faces, identifying one common with face
+    for f in connected:
+        f.translate(FreeCAD.Vector(0.0, 0.0, face.BoundBox.ZMin - f.BoundBox.ZMin))
+        cmn = f.common(face)
+        if PathGeom.isRoughly(cmn.Area, face.Area):
+            negative = stockCS.cut(f)
+            return stockCS.cut(negative)
+
+    return None
 
 
 def getDrillableTargets(obj, ToolDiameter=None, vector=FreeCAD.Vector(0, 0, 1)):

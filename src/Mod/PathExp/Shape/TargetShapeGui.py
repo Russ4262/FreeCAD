@@ -42,6 +42,7 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
         self.jobModels = obj.Proxy.job.Model.Group
         self.jobStock = obj.Proxy.job.Stock
         self._populateModel()
+        self._populateBoundary()
         self.rotations = []
         self.initialYawPitchRollValues = {}
         self.roatedShapes = {}
@@ -73,6 +74,7 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
         """setFields(obj) ... Transfers obj's property values to UI."""
         self.form.respectFeatureHoles.setChecked(obj.RespectFeatureHoles)
         self.form.respectMergedHoles.setChecked(obj.RespectMergedHoles)
+        self.selectInComboBox(obj.FeatureBoundary, self.form.boundary)
         self.selectInComboBox(obj.Model, self.form.model)
         self.selectInComboBox(obj.Face, self.form.face)
         self.selectInComboBox(obj.Edge, self.form.edge)
@@ -85,7 +87,7 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
             # New instance of Target Shape object
             return
         self._setRotationsAttr(modelName, featName)
-        print(f"setFields() Applying these rotations: {self.rotations}")
+        print(f"TargetShapeGui.setFields() Applying these rotations: {self.rotations}")
         if obj.Edge == "None":
             self.form.invertDirection.setEnabled(False)
             self.form.invertDirection.hide()
@@ -99,6 +101,9 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
 
         if self.form.respectMergedHoles.isChecked() != obj.RespectMergedHoles:
             obj.RespectMergedHoles = self.form.respectMergedHoles.isChecked()
+
+        if str(self.form.boundary.currentData()) != obj.FeatureBoundary:
+            obj.FeatureBoundary = str(self.form.boundary.currentData())
 
         if str(self.form.model.currentData()) != obj.Model:
             obj.Model = str(self.form.model.currentData())
@@ -146,6 +151,7 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
         signals = []
         signals.append(self.form.respectFeatureHoles.stateChanged)
         signals.append(self.form.respectMergedHoles.stateChanged)
+        signals.append(self.form.boundary.currentIndexChanged)
         # signals.append(self.form.depthAllowance.editingFinished)
         signals.append(self.form.model.currentIndexChanged)
         signals.append(self.form.face.currentIndexChanged)
@@ -180,7 +186,7 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
         for obj, (y, p, r) in self.initialYawPitchRollValues.values():
             obj.Placement.Rotation.setYawPitchRoll(y, p, r)
             print(
-                f"_resetModelStockRotation() Setting '{obj.Name}' Yaw-Pitch-Roll to : {FreeCAD.Vector(r, p, y)}"
+                f"TargetShapeGui._resetModelStockRotation() Setting '{obj.Name}' Yaw-Pitch-Roll to : {FreeCAD.Vector(r, p, y)}"
             )
 
     def _removePreviewType(self, previewType):
@@ -224,7 +230,7 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
         if not isPlanar:
             FreeCAD.Console.PrintWarning("Selection must be planar.\n")
             return
-        print(f"_setRotationsAttr() rotations: {rotVect}")
+        print(f"TargetShapeGui._setRotationsAttr() rotations: {rotVect}")
         self.rotations = rotVect
         self.rotatedShapes = {}
         rotSum = abs(rotVect.x) + abs(rotVect.y) + abs(rotVect.z)
@@ -250,7 +256,7 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
         if not isPlanar:
             FreeCAD.Console.PrintWarning("Selection must be planar.\n")
             return
-        print(f"_setRotationsAttr() rotations: {rotations}")
+        print(f"TargetShapeGui._setRotationsAttr() rotations: {rotations}")
         self.rotations = rotations
         self.rotatedShapes = {}
         rotSum = 0.0
@@ -365,6 +371,15 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
         fName = str(self.form.face.currentText())
         FreeCADGui.Selection.clearSelection()
         FreeCADGui.Selection.addSelection(mdl, (fName))
+
+    def _populateBoundary(self):
+        cbox = self.form.boundary
+        cbox.blockSignals(True)
+        cbox.clear()
+        enums = TargetShape.TargetShape.propertyEnumerations(dataType="raw")
+        for lbl, data in enums["FeatureBoundary"]:
+            cbox.addItem(lbl, data)
+        cbox.blockSignals(False)
 
 
 Command = PathShapeGui.SetupOperation(

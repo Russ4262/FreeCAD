@@ -32,6 +32,7 @@ import PathScripts.PathUtils as PathUtils
 import Ops.PathOp2 as PathOp2
 import Generators.PathStrategySlicing as PathStrategySlicing
 import Generators.PathStrategyClearing as PathStrategyClearing
+import Macros.Macro_AlignToFeature as AlignToFeature
 
 # import PathScripts.strategies.PathStrategyRestTools as PathStrategyRestTools
 
@@ -52,8 +53,7 @@ PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 
 
 # Qt translation handling
-def translate(context, text, disambig=None):
-    return QtCore.QCoreApplication.translate(context, text, disambig)
+translate = FreeCAD.Qt.translate
 
 
 class ObjectClearing(PathOp2.ObjectOp2):
@@ -159,6 +159,14 @@ class ObjectClearing(PathOp2.ObjectOp2):
                 QtCore.QT_TRANSLATE_NOOP(
                     "App::Property",
                     "Reverse the cut order of the stepover paths. For circular cut patterns, begin at the outside and work toward the center.",
+                ),
+            ),
+            (
+                "App::PropertyBool",
+                "ProfileOutside",
+                "PathOptions",
+                QtCore.QT_TRANSLATE_NOOP(
+                    "App::Property", "Profile outside of target shape."
                 ),
             ),
             (
@@ -285,41 +293,60 @@ class ObjectClearing(PathOp2.ObjectOp2):
         return definitions
 
     @classmethod
-    def propEnumerations(cls):
+    def propEnumerations(cls, dataType="data"):
         """propEnumerations() ... returns a dictionary of enumeration lists
         for the operation's enumeration type properties."""
         # Enumeration lists for App::PropertyEnumeration properties
         enums = {
-            "CutMode": ["Single-pass", "Multi-pass"],
-            "CutDirection": ["Climb", "Conventional"],
+            "CutMode": [
+                (translate("Path", "Single-pass"), "Single-pass"),
+                (translate("Path", "Multi-pass"), "Multi-pass"),
+            ],
+            "CutDirection": [
+                (translate("Path", "Climb"), "Climb"),
+                (translate("Path", "Conventional"), "Conventional"),
+            ],
             "CutPattern": [
-                "Adaptive",
-                "Circular",
-                "CircularZigZag",
-                "Grid",
-                "Line",
-                "LineOffset",
-                "Offset",
-                "Spiral",
-                "Triangle",
-                "ZigZag",
-                "ZigZagOffset",
+                (translate("Path", "Adaptive"), "Adaptive"),
+                (translate("Path", "Circular"), "Circular"),
+                (translate("Path", "Circular Zig-Zag"), "CircularZigZag"),
+                (translate("Path", "Grid"), "Grid"),
+                (translate("Path", "Line"), "Line"),
+                (translate("Path", "Line Offset"), "LineOffset"),
+                (translate("Path", "Offset"), "Offset"),
+                (translate("Path", "Profile"), "Profile"),
+                (translate("Path", "Multi-Profile"), "MultiProfile"),
+                (translate("Path", "Spiral"), "Spiral"),
+                (translate("Path", "Triangle"), "Triangle"),
+                (translate("Path", "Zig-Zag"), "ZigZag"),
+                (translate("Path", "Zig-Zag Offset"), "ZigZagOffset"),
             ],
             "PatternCenterAt": [
-                "CenterOfMass",
-                "CenterOfBoundBox",
-                "XminYmin",
-                "Custom",
+                (translate("Path", "Center Of Mass"), "CenterOfMass"),
+                (translate("Path", "Center Of Bound Box"), "CenterOfBoundBox"),
+                (translate("Path", "X-min Y-min"), "XminYmin"),
+                (translate("Path", "Custom"), "Custom"),
             ],
         }
-        for (
-            k,
-            v,
-        ) in (
-            PathStrategyAdaptive.StrategyAdaptive.adaptivePropertyEnumerations().items()
-        ):
+
+        for (k, v,) in PathStrategyAdaptive.StrategyAdaptive.propEnumerations(
+            dataType="raw"
+        ).items():
             enums[k] = v
-        return enums
+
+        if dataType == "raw":
+            return enums
+
+        data = []
+        idx = 0 if dataType == "translated" else 1
+
+        Path.Log.debug(enums)
+
+        for k, v in enumerate(enums):
+            data.append((v, [tup[idx] for tup in enums[v]]))
+        Path.Log.debug(data)
+
+        return data
 
     @classmethod
     def propDefaults(cls, obj, job):
@@ -331,12 +358,13 @@ class ObjectClearing(PathOp2.ObjectOp2):
             "MaterialAllowance": 0.0,
             "StepOver": 50.0,
             "CutPatternAngle": 0.0,
-            "CutPattern": "ZigZag",
+            "CutPattern": "Line",
             "UseComp": True,
             "MinTravel": False,
             "KeepToolDown": False,
             "Cut3DPocket": False,
             "CutPatternReversed": False,
+            "ProfileOutside": True,
             "PatternCenterCustom": FreeCAD.Vector(0.0, 0.0, 0.0),
             "PatternCenterAt": "CenterOfBoundBox",
             "AreaParams": "",
@@ -379,10 +407,11 @@ class ObjectClearing(PathOp2.ObjectOp2):
         self.isDebug = True if PathLog.getLevel(PathLog.thisModule()) == 4 else False
         self.targetShapes = []
 
-    def opPropertyDefinitions(cls):
+    def opPropertyDefinitions(self):
         return ObjectClearing.propDefinitions()
 
-    def opPropertyEnumerations(cls):
+    def opPropertyEnumerations(self):
+        # Return list of tuples (prop, enumeration_list) as default
         return ObjectClearing.propEnumerations()
 
     def opPropertyDefaults(cls, obj, job):
@@ -633,7 +662,7 @@ class ObjectClearing(PathOp2.ObjectOp2):
             PathLog.info("removalShapes is True")
             obj.RemovalShape = Part.makeCompound(removalShapes)
             if obj.ShowRemovalShape:
-                print("Showing removal shape...")
+                PathLog.info("Showing removal shape...")
                 obj.ShowRemovalShape = False
                 name = "{}_Removal_Shape".format(obj.Name)
                 if FreeCAD.ActiveDocument.getObject(name):
@@ -651,7 +680,7 @@ class ObjectClearing(PathOp2.ObjectOp2):
 
         if restShapeEnabled:
             if restShapes:
-                print("Rest Shape exists.")
+                PathLog.info("Rest Shape exists.")
                 obj.Shape = Part.makeCompound(restShapes)
         else:
             PathLog.warning(
@@ -691,6 +720,11 @@ class ObjectClearing(PathOp2.ObjectOp2):
 
     def getClearingPaths(self, obj, baseObj, shape, startPoint):
         PathLog.debug("getClearingPaths()")
+
+        # Part.show(shape, "Shape")
+        rotatedStockShape = self.getRotatedStock(obj)
+        # workingShape = rotatedStockShape.common(shape)
+        # Part.show(workingShape, "WorkingShape")
         slices = sliceShape(shape, [d for d in self.depthparams])
         noAdaptivePreview = True
 
@@ -700,7 +734,6 @@ class ObjectClearing(PathOp2.ObjectOp2):
             self,
             baseObj,
             shape,
-            # slices,
             obj.DepthOffset.Value,
             obj.PatternCenterAt,
             obj.PatternCenterCustom,
@@ -710,6 +743,7 @@ class ObjectClearing(PathOp2.ObjectOp2):
             obj.CutDirection,
             obj.StepOver.Value if hasattr(obj.StepOver, "Value") else obj.StepOver,
             obj.MaterialAllowance.Value,
+            obj.ProfileOutside,
             obj.MinTravel,
             obj.KeepToolDown,
             obj.ToolController,
@@ -717,12 +751,19 @@ class ObjectClearing(PathOp2.ObjectOp2):
             self.depthparams,
             self.job.GeometryTolerance.Value,
         )
+
         if not baseObj:
-            print("no baseObj in PathClearing")
+            PathLog.info("no baseObj in PathClearing")
         strategy.baseShape = baseObj.Shape
 
         if obj.CutPattern == "Adaptive":
             PathLog.debug("Passing Adaptive-specific values to clearing strategy.")
+            stockType = (
+                "CreateCylinder"
+                if hasattr(self.stock, "StockType")
+                and self.stock.StockType == "CreateCylinder"
+                else ""
+            )
             # set adaptive-dependent attributes
             strategy.setAdaptiveAttributes(
                 obj.OperationType,
@@ -739,7 +780,8 @@ class ObjectClearing(PathOp2.ObjectOp2):
                 obj.Stopped,
                 obj.StopProcessing,
                 obj.Tolerance,
-                self.stock,
+                stockType,
+                rotatedStockShape,
                 self.job,
                 obj.AdaptiveOutputState,
                 obj.AdaptiveInputState,
@@ -782,7 +824,7 @@ class ObjectClearing(PathOp2.ObjectOp2):
 
     def getTargetShape(self, obj, isPreview=False):
         """getTargetShape(obj) ... returns envelope for all base shapes or wires for Arch.Panels."""
-        print("PathClearing.getTargetShape()")
+        PathLog.info("PathClearing.getTargetShape()")
         PathLog.track()
         baseShapes = []
         shape_types = ["2D Extrusion", "3D Volume"]
@@ -790,7 +832,7 @@ class ObjectClearing(PathOp2.ObjectOp2):
             shape_types = ["2D Area"]
         # Identify working shapes for Profile operation
         if obj.TargetShape is not None:
-            print("... Using TargetShape provided! ...")
+            PathLog.info("... Using TargetShape provided! ...")
             baseShapes = obj.TargetShape.Proxy.getTargetGeometry(
                 obj.TargetShape, shapeTypes=shape_types
             )
@@ -799,9 +841,19 @@ class ObjectClearing(PathOp2.ObjectOp2):
 
         return baseShapes
 
+    def getRotatedStock(self, obj):
+        """getRotatedStock(obj) ... get rotated stock shape."""
+        AlignToFeature.CENTER_OF_ROTATION = obj.TargetShape.CenterOfRotation
+        rotations, __ = AlignToFeature.getRotationsForObject(obj.TargetShape)
+        rotatedStock = AlignToFeature.rotateShapeWithList(
+            self.job.Stock.Shape, rotations
+        )
+        rotatedStock.translate(obj.TargetShape.CenterOfRotation.negative())
+        return rotatedStock
+
     # Public methods
     def getTargetGeometry(self, obj, shapeTypes=["3D Volume"]):
-        print("PathClearing.getTargetGeometry()")
+        PathLog.info("PathClearing.getTargetGeometry()")
         if "3D Volume" not in shapeTypes:
             PathLog.error("Incorrect target shape type.")
             return list()
@@ -820,13 +872,10 @@ class ObjectClearing(PathOp2.ObjectOp2):
 
 # Eclass
 def getWorkingShapes(targetShapeObj, cutSide):
-    # shapes = self.getTargetShape(obj)
     shapes = []
     if targetShapeObj:
-        # print(f"SD: {obj.StartDepth.Value};  FD: {obj.FinalDepth.Value}")
         for s in targetShapeObj.Shape.Solids:
             isHole = True if cutSide == "Inside" else False
-            # print(f"isHole: {isHole}")
             shp = s.copy()
             tup = shp, isHole, targetShapeObj
             shapes.append(tup)
@@ -838,7 +887,7 @@ def getWorkingShapes(targetShapeObj, cutSide):
             shp = s[0]
             jobs.append({"x": shp.BoundBox.XMax, "y": shp.BoundBox.YMax, "shape": s})
 
-        jobs = PathUtils.sort_jobs(jobs, ["x", "y"])
+        jobs = PathUtils.sort_locations(jobs, ["x", "y"])
 
         shapes = [j["shape"] for j in jobs]
 
@@ -1017,9 +1066,6 @@ def cleanVolume(volume):
     cleanExt.translate(FreeCAD.Vector(0.0, 0.0, -1.0))
     clean = negative.cut(cleanExt)
     clean.translate(FreeCAD.Vector(0.0, 0.0, vbb.ZMin))
-    # print("clean.Volume: {}".format(clean.Volume))
-    # print("clean.BB.XLength: {}".format(clean.BoundBox.XLength))
-    # print("clean.BB.YLength: {}".format(clean.BoundBox.YLength))
     if PathGeom.isRoughly(clean.Volume, 0.0):
         # Cleaning failed
         return volume

@@ -24,7 +24,9 @@ from PySide.QtCore import QT_TRANSLATE_NOOP
 import FreeCAD
 import Path
 import Path.Log as PathLog
-import Ops.PathOp as PathOp
+
+# import Ops.PathOp as PathOp
+import Ops.PathOp2 as PathOp2
 import PathScripts.PathUtils as PathUtils
 import Macros.Macro_REST_Milling as Macro_REST_Milling
 
@@ -52,8 +54,8 @@ else:
 
 translate = FreeCAD.Qt.translate
 
-
-class ObjectOp(PathOp.ObjectOp):
+# class ObjectOp(PathOp.ObjectOp):
+class ObjectOp(PathOp2.ObjectOp2):
     """Base class for all Path.Area based operations.
     Provides standard features including debugging properties AreaParams,
     PathParams and removalshape, all hidden.
@@ -66,13 +68,14 @@ class ObjectOp(PathOp.ObjectOp):
         The standard feature list is OR'ed with the return value of areaOpFeatures().
         Do not overwrite, implement areaOpFeatures(obj) instead."""
         return (
-            PathOp.FeatureTool
-            | PathOp.FeatureDepths
-            | PathOp.FeatureStepDown
-            | PathOp.FeatureHeights
-            | PathOp.FeatureStartPoint
+            PathOp2.FeatureTool
+            # | PathOp2.FeatureDepths
+            | PathOp2.FeatureHeightsDepths
+            | PathOp2.FeatureStepDown
+            # | PathOp2.FeatureHeights
+            | PathOp2.FeatureStartPoint
             | self.areaOpFeatures(obj)
-            | PathOp.FeatureCoolant
+            | PathOp2.FeatureCoolant
         )
 
     def areaOpFeatures(self, obj):
@@ -184,7 +187,16 @@ class ObjectOp(PathOp.ObjectOp):
         Do not overwrite, overwrite areaOpSetDefaultValues(obj, job) instead."""
         PathLog.debug("opSetDefaultValues(%s, %s)" % (obj.Label, job.Label))
 
-        if PathOp.FeatureDepths & self.opFeatures(obj):
+        targetShps = [None]
+        for o in job.Operations.Group:
+            if o.Name.startswith("TargetShape"):
+                targetShps.append(o)
+            elif hasattr(o, "TargetShape") and o.TargetShape is not None:
+                targetShps.append(o.TargetShape)
+        obj.TargetShape = targetShps[-1]
+
+        # if PathOp2.FeatureDepths & self.opFeatures(obj):
+        if PathOp2.FeatureHeightsDepths & self.opFeatures(obj):
             try:
                 shape = self.areaOpShapeForDepths(obj, job)
             except Exception as ee:
@@ -263,7 +275,7 @@ class ObjectOp(PathOp.ObjectOp):
 
         if self.endVector is not None:
             pathParams["start"] = self.endVector
-        elif PathOp.FeatureStartPoint & self.opFeatures(obj) and obj.UseStartPoint:
+        elif PathOp2.FeatureStartPoint & self.opFeatures(obj) and obj.UseStartPoint:
             pathParams["start"] = obj.StartPoint
 
         obj.PathParams = str(
@@ -426,7 +438,7 @@ class ObjectOp(PathOp.ObjectOp):
         return commands, None, pathGeom
 
     def _buildPath(self, obj, solid, start):
-        PathLog.info("_buildProfilePath()")
+        PathLog.info("_buildPath()")
         import Macros.Generator_Profile as Generator_Profile
 
         pathGeom = []
@@ -543,7 +555,7 @@ class ObjectOp(PathOp.ObjectOp):
         )
 
         # Set start point
-        if PathOp.FeatureStartPoint & self.opFeatures(obj) and obj.UseStartPoint:
+        if PathOp2.FeatureStartPoint & self.opFeatures(obj) and obj.UseStartPoint:
             start = obj.StartPoint
         else:
             start = None
@@ -589,7 +601,7 @@ class ObjectOp(PathOp.ObjectOp):
             if sub == "OpenEdge":
                 profileEdgesIsOpen = True
                 if (
-                    PathOp.FeatureStartPoint & self.opFeatures(obj)
+                    PathOp2.FeatureStartPoint & self.opFeatures(obj)
                     and obj.UseStartPoint
                 ):
                     osp = obj.StartPoint
@@ -617,7 +629,7 @@ class ObjectOp(PathOp.ObjectOp):
             except Exception as e:
                 FreeCAD.Console.PrintError(e)
                 FreeCAD.Console.PrintError(
-                    "Something unexpected happened. Check project and tool config."
+                    "Something unexpected happened. Check project and tool config.\n"
                 )
                 raise e
             else:

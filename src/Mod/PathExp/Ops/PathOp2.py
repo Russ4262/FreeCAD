@@ -51,8 +51,7 @@ PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 
 
 # Qt translation handling
-def translate(context, text, disambig=None):
-    return QtCore.QCoreApplication.translate(context, text, disambig)
+translate = FreeCAD.Qt.translate
 
 
 FeatureTool = 0x0001  # ToolController
@@ -123,7 +122,6 @@ class ObjectOp2(object):
             self._assignToJob(obj, parentJob)
             if self.job and hasattr(self.job, "EnableRotation"):
                 self.canDoRotation = self.job.EnableRotation
-            # print("canDoRotation: {}".format(self.canDoRotation))
 
         # initialize database-style operation properties if formatted in this manner
         self.initProperties(obj)
@@ -131,8 +129,6 @@ class ObjectOp2(object):
 
         # Set default property values
         if notOpPrototype:
-            # print("PathOp2.__init__() printing DepthParams 1")
-            # self.printDepthParams(obj)
             self.setDefaultValues(obj)
             if self.job:
                 self.job.SetupSheet.Proxy.setOperationProperties(obj, name)
@@ -178,15 +174,18 @@ class ObjectOp2(object):
         for (propType, propName, group, tooltip) in self.propertyDefinitions():
             if not hasattr(obj, propName):
                 obj.addProperty(propType, propName, group, tooltip)
-                # print("adding {} property".format(propName))
                 addNewProps.append(propName)
 
         if len(addNewProps) > 0:
             # Set enumeration lists for enumeration properties
             propEnums = self.propertyEnumerations()
-            for n in propEnums:
+            # PathLog.info(f"propEnums:\n{propEnums}")
+            # for n in propEnums:
+            for n, enums in propEnums:
                 if n in addNewProps:
-                    setattr(obj, n, propEnums[n])
+                    # PathLog.info(f"Setting {n} enums.")
+                    # setattr(obj, n, propEnums[n])
+                    setattr(obj, n, enums)
             if inform:
                 newPropMsg = translate("PathProfile", "New property added to")
                 newPropMsg += ' "{}": {}'.format(obj.Label, addNewProps) + ". "
@@ -521,17 +520,24 @@ class ObjectOp2(object):
 
         return defaults
 
-    def propertyEnumerations(self):
+    def propertyEnumerations_old(self):
         """propertyEnumerations() ... Returns operation-specific property enumeration lists as a dictionary.
         Each property name is a key and the enumeration list is the value.
         Should be overwritten by subclasses."""
         # Enumeration lists for App::PropertyEnumeration properties
-        propEnums = dict()
+        propEnums = {}
 
         for k, v in self.opPropertyEnumerations().items():
             propEnums[k] = v
 
         return propEnums
+
+    def propertyEnumerations(self):
+        """propertyEnumerations() ... Returns operation-specific property enumeration lists as a dictionary.
+        Each property name is a key and the enumeration list is the value.
+        Should be overwritten by subclasses."""
+        # Enumeration lists for App::PropertyEnumeration properties
+        return self.opPropertyEnumerations()
 
     def _assignToJob(self, obj, parentJob=None):
         """_assignToJob(obj) ... base implementation.
@@ -673,13 +679,13 @@ class ObjectOp2(object):
 
         if self.job and hasattr(self.job, "EnableRotation"):
             self.canDoRotation = self.job.EnableRotation
-            # print("canDoRotation: {}".format(self.canDoRotation))
 
         # add missing standard and feature properties if missing, and get job
         self.initProperties(obj, inform=True)
 
         # add new(missing) properties and set default values for the same
         if self.addNewProps and len(self.addNewProps) > 0:
+            # PathLog.info(f"self.addNewProps:\n{self.addNewProps}")
             self.applyPropertyDefaults(obj, self.job, self.addNewProps)
 
         # Update older `Base' property type to newer global version
@@ -941,7 +947,6 @@ class ObjectOp2(object):
                 if (hasattr(obj, "StepDown") and obj.StepDown.Value > 0.0)
                 else 1.0
             )
-            # print("_setFeatureValues() No obj.StepDown property. Using step_down value of: {}".format(step_down))
             PathLog.debug(
                 "_setFeatureValues() FeatureHeightsDepths setting self.depthparams"
             )
@@ -1068,7 +1073,7 @@ class ObjectOp2(object):
             if hasattr(obj, a):
                 attr = getattr(obj, a)
                 val = getattr(attr, "Value")
-                print("obj.{}: {}".format(a, val))
+                PathLog.debug(f"obj.{a}: {val}")
 
     # Cleanup operation children upon op deletion
     def onDelete(self, obj, arg2=None):
@@ -1265,7 +1270,7 @@ class ObjectOp2(object):
         Each property name is a key and the enumeration list is the value.
         Should be overwritten by subclasses."""
         # Enumeration lists for App::PropertyEnumeration properties
-        return dict()
+        return {}
 
     def opPropertyDefaults(self, obj, job):
         """opPropertyDefaults(obj, job) ... Returns operation-specific default property values as a dictionary.

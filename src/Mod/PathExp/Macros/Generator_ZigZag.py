@@ -569,7 +569,7 @@ def geometryToGcode(
         raise ValueError("Final depth must be a float")
 
     if finalDepth is not None and finalDepth > retractHeight:
-        raise ValueError("Retract height must be greater than or equal to final depth")
+        raise ValueError("Retract height must be greater than or equal to final depth\n")
 
     if not type(keepToolDown) is bool:
         raise ValueError("Keep tool down must be a boolean")

@@ -38,9 +38,11 @@ DraftGeomUtils = LazyLoader("DraftGeomUtils", globals(), "DraftGeomUtils")
 PathGeom = LazyLoader("Path.Geom", globals(), "Path.Geom")
 PathOpTools = LazyLoader(
     # "PathScripts.PathOpTools", globals(), "PathScripts.PathOpTools"
-    "Path.Op.Util", globals(), "Path.Op.Util"
+    "Path.Op.Util",
+    globals(),
+    "Path.Op.Util",
 )
-time = LazyLoader('time', globals(), 'time')
+time = LazyLoader("time", globals(), "time")
 json = LazyLoader("json", globals(), "json")
 math = LazyLoader("math", globals(), "math")
 area = LazyLoader("area", globals(), "area")
@@ -62,8 +64,7 @@ PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 
 
 # Qt translation handling
-def translate(context, text, disambig=None):
-    return QtCore.QCoreApplication.translate(context, text, disambig)
+translate = FreeCAD.Qt.translate
 
 
 class PathGeometryGenerator:
@@ -105,6 +106,8 @@ class PathGeometryGenerator:
         "Line",
         "LineOffset",
         "Offset",
+        "Profile",
+        "MultiProfile",
         "Spiral",
         "Triangle",
         "ZigZag",
@@ -125,25 +128,28 @@ class PathGeometryGenerator:
         cutDirection,
         stepOver,
         materialAllowance,
+        profileOutside,
         minTravel,
         keepToolDown,
         toolController,
         jobTolerance,
     ):
         """__init__(callerClass,
-                 targetFace,
-                 patternCenterAt,
-                 patternCenterCustom,
-                 cutPatternReversed,
-                 cutPatternAngle,
-                 cutPattern,
-                 cutDirection,
-                 stepOver,
-                 materialAllowance,
-                 minTravel,
-                 keepToolDown,
-                 toolController,
-                 jobTolerance)...
+            callerClass,
+            targetFace,
+            patternCenterAt,
+            patternCenterCustom,
+            cutPatternReversed,
+            cutPatternAngle,
+            cutPattern,
+            cutDirection,
+            stepOver,
+            materialAllowance,
+            profileOutside,
+            minTravel,
+            keepToolDown,
+            toolController,
+            jobTolerance,)...
         PathGeometryGenerator class constructor method.
         """
         PathLog.debug("PathGeometryGenerator.__init__()")
@@ -162,11 +168,10 @@ class PathGeometryGenerator:
         self.workingPlane = Part.makeCircle(2.0)  # make circle for workplane
         self.rawPathGeometry = None
         self.linkedPathGeom = None
-        self.pathGeometry = list()
-        self.commandList = list()
+        self.pathGeometry = []
+        self.commandList = []
         self.useStaticCenter = True  # Set True to use static center for all faces created by offsets and step downs.  Set False for dynamic centers based on PatternCenterAt
         self.isCenterSet = False
-        self.offsetDirection = -1.0  # 1.0=outside;  -1.0=inside
         self.endVector = None
         self.pathParams = ""
         self.areaParams = ""
@@ -184,10 +189,14 @@ class PathGeometryGenerator:
         self.cutDirection = cutDirection
         self.stepOver = stepOver
         self.materialAllowance = materialAllowance
+        self.offsetDirection = (
+            1.0 if profileOutside else -1.0
+        )  # 1.0=outside;  -1.0=inside
         self.minTravel = minTravel
         self.keepToolDown = keepToolDown
         self.toolController = toolController
         self.jobTolerance = jobTolerance
+        self.profileOutside = profileOutside
 
         self.toolDiameter = (
             toolController.Tool.Diameter.Value
@@ -195,7 +204,7 @@ class PathGeometryGenerator:
             else float(toolController.Tool.Diameter)
         )
         self.toolRadius = self.toolDiameter / 2.0
-        self.cutOut = self.toolDiameter * (self.stepOver / 100.0)
+        self.cutOut = self.toolDiameter * (self.stepOver / 100.0) * self.offsetDirection
 
         if cutPattern in self.patterns:
             self.cutPattern = cutPattern
@@ -207,21 +216,22 @@ class PathGeometryGenerator:
         self.orientation = 0  # ['Conventional', 'Climb']
 
         ### Adaptive-specific attributes ###
-        # self.adaptiveGeometry = list()
-        self.pathArray = list()
+        self.adaptiveMaterialAllowance = 0.0001
+        self.pathArray = []
         self.operationType = None
         self.cutSide = None
         self.disableHelixEntry = None
         self.forceInsideOut = None
         self.liftDistance = None
-        self.finishingProfile = None
+        self.finishingProfile = False
         self.helixAngle = None
         self.helixConeAngle = None
         self.useHelixArcs = None
         self.helixDiameterLimit = None
         self.keepToolDownRatio = None
         self.tolerance = None
-        self.stockObj = None
+        self.stockType = ""
+        self.stockShape = None
 
     def _debugMsg(self, msg, isError=False):
         """_debugMsg(msg)
@@ -247,7 +257,7 @@ class PathGeometryGenerator:
     # Raw cut pattern geometry generation methods
     def _Line(self):
         """_Line()... Returns raw set of Line wires at Z=0.0."""
-        geomList = list()
+        geomList = []
         centRot = FreeCAD.Vector(
             0.0, 0.0, 0.0
         )  # Bottom left corner of face/selection/model
@@ -256,7 +266,7 @@ class PathGeometryGenerator:
             segLength = 2.0 * self.halfDiag
 
         # Create end points for set of lines to intersect with cross-section face
-        pntTuples = list()
+        pntTuples = []
         for lc in range((-1 * (self.halfPasses - 1)), self.halfPasses + 1):
             x1 = centRot.x - segLength
             x2 = centRot.x + segLength
@@ -290,7 +300,7 @@ class PathGeometryGenerator:
 
     def _Circular(self):
         """_Circular()... Returns raw set of Circular wires at Z=0.0."""
-        geomList = list()
+        geomList = []
         radialPasses = self._getRadialPasses()
         minRad = self.toolDiameter * 0.45
 
@@ -321,7 +331,7 @@ class PathGeometryGenerator:
 
     def _CircularZigZag(self):
         """_CircularZigZag()... Returns raw set of Circular ZigZag wires at Z=0.0."""
-        geomList = list()
+        geomList = []
         radialPasses = self._getRadialPasses()
         minRad = self.toolDiameter * 0.45
         dirForward = FreeCAD.Vector(0, 0, 1)
@@ -365,7 +375,7 @@ class PathGeometryGenerator:
 
     def _ZigZag(self):
         """_ZigZag()... Returns raw set of ZigZag wires at Z=0.0."""
-        geomList = list()
+        geomList = []
         centRot = FreeCAD.Vector(
             0.0, 0.0, 0.0
         )  # Bottom left corner of face/selection/model
@@ -374,7 +384,7 @@ class PathGeometryGenerator:
             segLength = 2.0 * self.halfDiag
 
         # Create end points for set of lines to intersect with cross-section face
-        pntTuples = list()
+        pntTuples = []
         direction = 1
         for lc in range((-1 * (self.halfPasses - 1)), self.halfPasses + 1):
             x1 = centRot.x - segLength
@@ -420,7 +430,7 @@ class PathGeometryGenerator:
         """
         PathLog.debug("_Offset()")
 
-        wires = list()
+        wires = []
         shape = self.face
         offset = 0.0
         direction = 0
@@ -433,7 +443,7 @@ class PathGeometryGenerator:
             return -1
 
         def _reverse_wire(w):
-            rev_list = list()
+            rev_list = []
             for e in w.Edges:
                 rev_list.append(PathUtils.reverseEdge(e))
             rev_list.reverse()
@@ -488,10 +498,188 @@ class PathGeometryGenerator:
 
         return wires
 
+    def _Profile(self):
+        """_Profile... based on _Offset()...
+        Returns raw set of Offset wires at Z=0.0.
+        Direction of cut is taken into account.
+        Additional offset loop ordering is handled in the linking method.
+        """
+        PathLog.debug("_Profile()")
+
+        wires = []
+        shape = self.face
+        offset = 0.0
+        direction = 0
+        doLast = 0
+        loop = 1
+
+        def _get_direction(w):
+            if PathOpTools._isWireClockwise(w):
+                return 1
+            return -1
+
+        def _reverse_wire(w):
+            rev_list = []
+            for e in w.Edges:
+                rev_list.append(PathUtils.reverseEdge(e))
+            rev_list.reverse()
+            return Part.Wire(Part.__sortEdges__(rev_list))
+
+        if self.stepOver > 49.0:
+            doLast += 1
+
+        while True:
+            offsetArea = PathUtils.getOffsetArea(shape, offset, plane=self.workingPlane)
+            if not offsetArea:
+                # Attempt clearing of residual area
+                if doLast:
+                    doLast += 1
+                    offset += self.cutOut / 2.0
+                    offsetArea = PathUtils.getOffsetArea(
+                        shape, offset, plane=self.workingPlane
+                    )
+                    if not offsetArea:
+                        # Area fully consumed
+                        break
+                else:
+                    # Area fully consumed
+                    break
+
+            # set initial cut direction
+            if direction == 0:
+                first_face_wire = offsetArea.Faces[0].Wires[0]
+                direction = _get_direction(first_face_wire)
+                if direction == 1:
+                    direction = -1
+
+            # process each wire within face
+            for f in offsetArea.Faces:
+                for w in f.Wires:
+                    use_direction = direction
+                    if self.cutPatternReversed:
+                        use_direction = -1 * direction
+                    wire_direction = _get_direction(w)
+                    # Process wire
+                    if wire_direction == use_direction:  # direction is correct
+                        wire = w
+                    else:  # incorrect direction, so reverse wire
+                        wire = _reverse_wire(w)
+                    wires.append(wire)
+
+            offset -= self.cutOut
+            loop += 1
+            if doLast > 1:
+                break
+            if loop > 1:
+                # PathLog.info("Breaking offsetting process after first loop.")
+                break  # breaking after one cycle
+        # Ewhile
+
+        return wires
+
+    def _MultiProfile(self):
+        """_MultiProfile... based on _Offset()...
+        Returns raw set of Offset wires at Z=0.0.
+        Direction of cut is taken into account.
+        Additional offset loop ordering is handled in the linking method.
+        """
+        PathLog.debug("_MultiProfile()")
+
+        wires = []
+        shape = self.face
+        direction = 0
+        doLast = 0
+        loop = 1
+        loopStop = 2 if self.profileOutside else 2
+        # wCnt = 0
+
+        if self.profileOutside:
+            offset = 1.0 * (
+                self.toolRadius - (self.jobTolerance / 10.0)
+            )  # self.offsetDirection * (self.toolRadius - (self.jobTolerance / 10.0))
+        else:
+            offset = -1.0 * (
+                self.toolRadius - (self.jobTolerance / 10.0)
+            )  # self.offsetDirection * (self.toolRadius - (self.jobTolerance / 10.0))
+
+        # Part.show(shape, "MPFace")
+
+        def _get_direction(w):
+            if PathOpTools._isWireClockwise(w):
+                return 1
+            return -1
+
+        def _reverse_wire(w):
+            rev_list = []
+            for e in w.Edges:
+                rev_list.append(PathUtils.reverseEdge(e))
+            rev_list.reverse()
+            return Part.Wire(Part.__sortEdges__(rev_list))
+
+        if self.stepOver > 49.0:
+            doLast += 1
+
+        while True:
+            PathLog.info(f"MultiProfile offset start: {offset}")
+            offsetArea = PathUtils.getOffsetArea(shape, offset, plane=self.workingPlane)
+            if not offsetArea:
+                # Attempt clearing of residual area
+                if doLast:
+                    doLast += 1
+                    offset += self.cutOut / 2.0
+                    offsetArea = PathUtils.getOffsetArea(
+                        shape, offset, plane=self.workingPlane
+                    )
+                    if not offsetArea:
+                        # Area fully consumed
+                        break
+                else:
+                    # Area fully consumed
+                    break
+
+            # set initial cut direction
+            if direction == 0:
+                first_face_wire = offsetArea.Faces[0].Wires[0]
+                direction = _get_direction(first_face_wire)
+                if direction == 1:
+                    direction = -1
+
+            # process each wire within face
+            for f in offsetArea.Faces:
+                for w in f.Wires:
+                    use_direction = direction
+                    if self.cutPatternReversed:
+                        use_direction = -1 * direction
+                    wire_direction = _get_direction(w)
+                    # Process wire
+                    if wire_direction == use_direction:  # direction is correct
+                        wire = w.copy()
+                    else:  # incorrect direction, so reverse wire
+                        wire = _reverse_wire(w)
+                    # Part.show(wire, f"MP_Wire{wCnt}_")
+                    # wCnt += 1
+                    wires.append(wire)
+
+            if self.profileOutside:
+                offset += self.cutOut  # for growth of face
+            else:
+                offset += self.cutOut
+            loop += 1
+            if doLast > 1:
+                PathLog.info("multiProfile break for doLast")
+                break
+            if loop > loopStop:
+                PathLog.info(f"Breaking offsetting process after loop {loopStop}.")
+                break
+        # Ewhile
+
+        # PathLog.info(f"wire count: {len(wires)}")
+        return wires
+
     def _Spiral(self):
         """_Spiral()... Returns raw set of Spiral wires at Z=0.0."""
-        geomList = list()
-        allEdges = list()
+        geomList = []
+        allEdges = []
         draw = True
         loopRadians = 0.0  # Used to keep track of complete loops/cycles
         sumRadians = 0.0
@@ -607,14 +795,11 @@ class PathGeometryGenerator:
         path2d = self._convertTo2d(self.pathArray)
 
         stockPaths = []
-        if (
-            hasattr(self.stockObj, "StockType")
-            and self.stockObj.StockType == "CreateCylinder"
-        ):
-            stockPaths.append([self._discretize(self.stockObj.Shape.Edges[0])])
+        if self.stockType == "CreateCylinder":
+            stockPaths.append([self._discretize(self.stockShape.Edges[0])])
 
         else:
-            stockBB = self.stockObj.Shape.BoundBox
+            stockBB = self.stockShape.BoundBox
             v = []
             v.append(FreeCAD.Vector(stockBB.XMin, stockBB.YMin, 0))
             v.append(FreeCAD.Vector(stockBB.XMax, stockBB.YMin, 0))
@@ -642,7 +827,7 @@ class PathGeometryGenerator:
         a2d.toolDiameter = self.toolDiameter
         a2d.helixRampDiameter = self.helixDiameterLimit
         a2d.keepToolDownDistRatio = self.keepToolDownRatio
-        a2d.stockToLeave = 0.0  # self.materialAllowance
+        a2d.stockToLeave = self.adaptiveMaterialAllowance  # self.materialAllowance
         a2d.tolerance = self.tolerance
         a2d.forceInsideOut = self.forceInsideOut
         a2d.finishingProfile = self.finishingProfile
@@ -673,13 +858,13 @@ class PathGeometryGenerator:
 
             # Generate geometry
             # PathLog.debug("Extracting wires from Adaptive data...")
-            wires = list()
+            wires = []
             motionCutting = area.AdaptiveMotionType.Cutting
             for region in adaptiveResults:
                 for pth in region["AdaptivePaths"]:
                     motion = pth[0]  # [0] contains motion type
                     if motion == motionCutting:
-                        edges = list()
+                        edges = []
                         sp = pth[1][0]
                         x = sp[0]
                         y = sp[1]
@@ -693,15 +878,15 @@ class PathGeometryGenerator:
                                 p1 = p2
                         wires.append(Part.Wire(Part.__sortEdges__(edges)))
             # self.adaptiveGeometry = wires
-            PathLog.debug("*** Done. Elapsed time: %f sec" % (time.time()-startTime))
+            PathLog.debug("*** Done. Elapsed time: %f sec" % (time.time() - startTime))
             # return self.adaptiveGeometry
             return wires
 
     # Path linking methods
     def _Link_Line(self):
         """_Link_Line()... Apply necessary linking to resulting wire set after common between target face and raw wire set."""
-        allGroups = list()
-        allWires = list()
+        allGroups = []
+        allWires = []
 
         def isOriented(direction, p0, p1):
             oriented = p1.sub(p0).normalize()
@@ -808,7 +993,7 @@ class PathGeometryGenerator:
 
             i = 1
             limit = len(grp)
-            arcs = list()
+            arcs = []
             saveLast = False
 
             arc = grp[0]
@@ -885,8 +1070,8 @@ class PathGeometryGenerator:
 
             return arcs
 
-        allGroups = list()
-        allEdges = list()
+        allGroups = []
+        allEdges = []
         if self.cutPatternReversed:  # inside to out
             edges = sorted(
                 self.rawPathGeometry.Edges,
@@ -948,6 +1133,32 @@ class PathGeometryGenerator:
 
     def _Link_Offset(self):
         """_Link_Offset()... Apply necessary linking to resulting wire set after common between target face and raw wire set."""
+        if self.cutPatternReversed:
+            return sorted(
+                self.rawPathGeometry.Wires, key=lambda wire: Part.Face(wire).Area
+            )
+        else:
+            return sorted(
+                self.rawPathGeometry.Wires,
+                key=lambda wire: Part.Face(wire).Area,
+                reverse=True,
+            )
+
+    def _Link_Profile(self):
+        """_Link_Profile()... Apply necessary linking to resulting wire set after common between target face and raw wire set."""
+        if self.cutPatternReversed:
+            return sorted(
+                self.rawPathGeometry.Wires, key=lambda wire: Part.Face(wire).Area
+            )
+        else:
+            return sorted(
+                self.rawPathGeometry.Wires,
+                key=lambda wire: Part.Face(wire).Area,
+                reverse=True,
+            )
+
+    def _Link_MultiProfile(self):
+        """_Link_MultiProfile()... Apply necessary linking to resulting wire set after common between target face and raw wire set."""
         if self.cutPatternReversed:
             return sorted(
                 self.rawPathGeometry.Wires, key=lambda wire: Part.Face(wire).Area
@@ -1088,7 +1299,7 @@ class PathGeometryGenerator:
 
     def _getProfileWires(self):
         """_getProfileWires()... Return set of profile wires for target face."""
-        wireList = list()
+        wireList = []
         shape = self.face
         offset = 0.0
         direction = 1  # 'Conventional on outer loop of Pocket clearing
@@ -1101,7 +1312,7 @@ class PathGeometryGenerator:
             return -1
 
         def _reverse_wire(w):
-            rev_list = list()
+            rev_list = []
             for e in w.Edges:
                 rev_list.append(PathUtils.reverseEdge(e))
             # rev_list.reverse()
@@ -1133,11 +1344,13 @@ class PathGeometryGenerator:
 
     def _applyPathLinking(self):
         """_applyPathLinking()... Control method for applying linking to target wire set."""
-        PathLog.debug("_applyPathLinking({})".format(self.cutPattern))
+        PathLog.debug(f"_applyPathLinking({self.cutPattern})")
 
         # patterns = ('Adaptive', 'Circular', 'CircularZigZag', 'Grid', 'Line', 'LineOffset', 'Offset', 'Spiral', 'Triangle', 'ZigZag', 'ZigZagOffset')
-        linkMethod = getattr(self, "_Link_" + self.cutPattern)
-        self.linkedPathGeom = linkMethod()
+        linkMethodName = "_Link_" + self.cutPattern
+        linkMethod = getattr(self, linkMethodName)
+        linked = linkMethod()
+        return linked
 
     def _extractGridAndTriangleWires(self):
         """_buildGridAndTrianglePaths() ... Returns a set of wires representng Grid or Triangle cut paths."""
@@ -1217,13 +1430,15 @@ class PathGeometryGenerator:
 
     def _generatePathGeometry(self):
         """_generatePathGeometry()... Control function that generates path geometry wire sets."""
-        self._debugMsg("_generatePathGeometry()")
+        PathLog.debug("_generatePathGeometry()")
 
         patternMethod = getattr(self, "_" + self.cutPattern)
         self.rawGeoList = patternMethod()
+        # PathLog.info(f"len(self.rawGeoList): {len(self.rawGeoList)}")
 
         # Create compound object to bind all geometry
         geomShape = Part.makeCompound(self.rawGeoList)
+        # Part.show(geomShape, "GeomShape")
 
         self._addDebugShape(geomShape, "rawPathGeomShape")  # Debugging
 
@@ -1243,7 +1458,7 @@ class PathGeometryGenerator:
         # Return current geometry for Offset or Profile patterns
         if self.cutPattern == "Offset":
             self.rawPathGeometry = geomShape
-            self._applyPathLinking()
+            self.linkedPathGeom = self._applyPathLinking()
             return self.linkedPathGeom
 
         # Add profile 'Offset' path after base pattern
@@ -1252,16 +1467,25 @@ class PathGeometryGenerator:
             appendOffsetWires = True
 
         # Identify intersection of cross-section face and lineset
-        rawWireSet = Part.makeCompound(geomShape.Wires)
-        self.rawPathGeometry = self.face.common(rawWireSet)
+        if self.cutPattern == "MultiProfile" and self.profileOutside:
+            self.rawPathGeometry = Part.makeCompound(geomShape.Wires)
+        elif self.cutPattern in ["Profile", "MultiProfile"]:
+            self.rawPathGeometry = Part.makeCompound(geomShape.Wires)
+        else:
+            rawWireSet = Part.makeCompound(geomShape.Wires)
+            self.rawPathGeometry = self.face.common(rawWireSet)
 
         self._addDebugShape(self.rawPathGeometry, "rawPathGeometry")  # Debugging
 
-        self._applyPathLinking()
-        if appendOffsetWires:
-            self.linkedPathGeom.extend(self._getProfileWires())
+        linkedPathGeom = self._applyPathLinking()
+        # PathLog.info(f"len(linkedPathGeom): {len(linkedPathGeom)}")
+        # Part.show(Part.makeCompound(linkedPathGeom), "linkedPathGeom")
 
-        return self.linkedPathGeom
+        if appendOffsetWires:
+            linkedPathGeom.extend(self._getProfileWires())
+
+        self.linkedPathGeom = linkedPathGeom
+        return linkedPathGeom
 
     # Private adaptive support methods
     def _convertTo2d(self, pathArray):
@@ -1288,8 +1512,8 @@ class PathGeometryGenerator:
         Converts raw Adaptive algorithm data into gcode.
         Not currently active.  Will be modified to extract helix data as wires.
         Will be used for Adaptive cut pattern."""
-        self.commandList = list()
-        commandList = list()
+        self.commandList = []
+        commandList = []
         motionCutting = area.AdaptiveMotionType.Cutting
         motionLinkClear = area.AdaptiveMotionType.LinkClear
         motionLinkNotClear = area.AdaptiveMotionType.LinkNotClear
@@ -1848,7 +2072,8 @@ class PathGeometryGenerator:
         helixDiameterLimit,
         keepToolDownRatio,
         tolerance,
-        stockObj,
+        stockType,
+        stockShape,
     ):
         """setAdaptiveAttributes(operationType,
                                  cutSide,
@@ -1903,11 +2128,13 @@ class PathGeometryGenerator:
         self.helixDiameterLimit = helixDiameterLimit
         self.keepToolDownRatio = keepToolDownRatio
         self.tolerance = tolerance
-        self.stockObj = stockObj
+        self.stockType = stockType
+        self.stockShape = stockShape
 
         # if disableHelixEntry:
         #    self.helixDiameterLimit = 0.01
         #    self.helixAngle = 89.0
+        pass
 
     def execute(self):
         """execute()...
@@ -1916,35 +2143,46 @@ class PathGeometryGenerator:
         """
         self._debugMsg("StrategyClearing.execute()")
 
-        self.commandList = list()  # Reset list
-        self.pathGeometry = list()  # Reset list
+        self.commandList = []  # Reset list
+        # self.pathGeometry = []  # Reset list
+        pathGeometry = []  # Reset list
         self.isCenterSet = False
-        success = False
+        # success = False
 
         # Exit if pattern not available
         if self.cutPattern == "None":
-            self._debugMsg("self.cutPattern == 'None'")
+            self._debugMsg("self.cutPattern == 'None'", True)
             return False
 
         if hasattr(self.targetFace, "Area") and PathGeom.isRoughly(
             self.targetFace.Area, 0.0
         ):
-            self._debugMsg("PathGeometryGenerator: No area in working shape.")
+            self._debugMsg("PathGeometryGenerator: No area in working shape.", True)
             return False
 
         if not self.baseShape:
-            self._debugMsg("PathGeometryGenerator: No baseShape.")
+            self._debugMsg("PathGeometryGenerator: No baseShape.", True)
             return False
 
         self.targetFace.translate(
             FreeCAD.Vector(0.0, 0.0, 0.0 - self.targetFace.BoundBox.ZMin)
         )
 
-        #  Apply simple radius shrinking offset for clearing pattern generation.
-        ofstVal = self.offsetDirection * (
-            self.toolRadius - (self.jobTolerance / 10.0)  #  + self.materialAllowance
-        )
-        offsetWF = PathUtils.getOffsetArea(self.targetFace, ofstVal)
+        # Set initial face offset value based on cut pattern
+        if self.cutPattern in ["Adaptive", "MultiProfile"]:
+            ofstVal = 0.0
+            offsetWF = self.targetFace.copy()
+        else:
+            #  Apply simple radius shrinking offset for clearing pattern generation.
+            ofstVal = self.offsetDirection * (
+                self.toolRadius
+                - (self.jobTolerance / 10.0)  #  + self.materialAllowance
+            )
+            PathLog.info(f"PathGeometryGenerator ofstVal: {ofstVal}")
+            offsetWF = PathUtils.getOffsetArea(self.targetFace, ofstVal)
+
+        # Part.show(offsetWF, "OffsetWF")
+
         if not offsetWF:
             self._debugMsg("getOffsetArea() failed")
         elif len(offsetWF.Faces) == 0:
@@ -1961,14 +2199,16 @@ class PathGeometryGenerator:
                         self.face = f
                         self._prepareAttributes()
                         pathGeom = self._generatePathGeometry()
-                        self.pathGeometry.extend(pathGeom)
-                        success = True
+                        pathGeometry.extend(w.copy() for w in pathGeom)
+                        # success = True
                 else:
                     self._debugMsg("No offset faces after cut with base shape.")
 
         # self._debugMsg("Path with params: {}".format(self.pathParams))
 
-        return success
+        # PathLog.info(f"returning len(pathGeometry): {len(pathGeometry)}")
+        self.pathGeometry = pathGeometry
+        return pathGeometry
 
 
 # Eclass

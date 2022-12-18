@@ -372,7 +372,7 @@ class ObjectProfile(PathAreaOp.ObjectOp):
                 "OpFinalDepth", "{} mm".format(obj.TargetShape.FinalDepth.Value)
             )
 
-    def areaOpShapes(self, obj):
+    def areaOpShapes_orig(self, obj):
         """areaOpShapes(obj) ... returns envelope for all base shapes or wires"""
 
         shapes = []
@@ -397,6 +397,27 @@ class ObjectProfile(PathAreaOp.ObjectOp):
 
         return shapes
 
+    def areaOpShapes(self, obj):
+        """areaOpShapes(obj) ... returns envelope for all base shapes or wires"""
+        PathLog.info("Profile.areaOpShapes()")
+
+        tups = []
+        if obj.UseComp:
+            self.commandlist.append(
+                Path.Command(
+                    "(Compensated Tool Path. Diameter: " + str(self.radius * 2) + ")"
+                )
+            )
+        else:
+            self.commandlist.append(Path.Command("(Uncompensated Tool Path)"))
+
+        shapes = getWorkingShapes(obj.TargetShape, obj.Side)
+        for shp, isHole, tsObj in shapes:
+            tup = shp, isHole, "Profile"
+            tups.append(tup)
+
+        return tups
+
     # Method to add temporary debug object
     def _addDebugObject(self, objName, objShape):
         if self.isDebug:
@@ -406,6 +427,32 @@ class ObjectProfile(PathAreaOp.ObjectOp):
             newDocObj.Shape = objShape
             newDocObj.purgeTouched()
             self.tmpGrp.addObject(newDocObj)
+
+
+def getWorkingShapes(targetShapeObj, cutSide):
+    # shapes = self.getTargetShape(obj)
+    shapes = []
+    if targetShapeObj:
+        # print(f"SD: {obj.StartDepth.Value};  FD: {obj.FinalDepth.Value}")
+        for s in targetShapeObj.Shape.Solids:
+            isHole = True if cutSide == "Inside" else False
+            # print(f"isHole: {isHole}")
+            shp = s.copy()
+            tup = shp, isHole, targetShapeObj
+            shapes.append(tup)
+
+    # Sort operations
+    if len(shapes) > 1:
+        jobs = []
+        for s in shapes:
+            shp = s[0]
+            jobs.append({"x": shp.BoundBox.XMax, "y": shp.BoundBox.YMax, "shape": s})
+
+        jobs = PathUtils.sort_locations(jobs, ["x", "y"])
+
+        shapes = [j["shape"] for j in jobs]
+
+    return shapes
 
 
 def SetupProperties():

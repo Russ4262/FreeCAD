@@ -119,7 +119,13 @@ def _sliceSolid(solid, depths, region=None):
 def _slicesToCrossSections(slices):
     faces = []
     for s in slices:
-        faces.extend([f.copy() for f in _getBottomFaces(s)])
+        faces.extend(
+            [
+                f.copy()
+                for f in _getBottomFaces(s)
+                if PathGeom.isRoughly(f.BoundBox.ZLength, 0.0)
+            ]
+        )
     return faces
 
 

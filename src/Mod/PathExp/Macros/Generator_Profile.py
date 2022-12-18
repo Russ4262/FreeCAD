@@ -124,6 +124,9 @@ def _profile():
         return Part.Wire(Part.__sortEdges__(rev_list))
 
     offsetArea = PathUtils.getOffsetArea(shape, offset, plane=_workingPlane)
+    if offsetArea is False:
+        _debugMsg("_profile() offsetArea is False")
+        return wires
 
     # set initial cut direction
     if direction == 0:
@@ -356,28 +359,31 @@ def generatePathGeometry(
         raise ValueError("Invalid value for 'patternCenterAt' argument")
 
     if not type(patternCenterCustom) is FreeCAD.Vector:
-        raise ValueError("Pattern center custom must be a FreeCAD vector")
+        raise ValueError("Pattern center custom must be a FreeCAD vector.\n")
 
     if not type(cutPatternAngle) is float:
-        raise ValueError("Cut pattern angle must be a float")
+        raise ValueError("Cut pattern angle must be a float.\n")
 
     if not type(cutPatternReversed) is bool:
-        raise ValueError("Cut pattern reversed must be a boolean")
+        raise ValueError("Cut pattern reversed must be a boolean.\n")
 
     if not type(minTravel) is bool:
-        raise ValueError("Min travel must be a boolean")
+        raise ValueError("Min travel must be a boolean.\n")
 
     if cutDirection not in ("Clockwise", "CounterClockwise"):
-        raise ValueError("Invalid value for 'cutDirection' argument")
+        raise ValueError("Invalid value for 'cutDirection' argument.\n")
 
     if not type(keepToolDown) is bool:
-        raise ValueError("Keep tool down must be a boolean")
+        raise ValueError("Keep tool down must be a boolean.\n")
 
     if hasattr(targetFace, "Area") and PathGeom.isRoughly(targetFace.Area, 0.0):
-        raise ValueError("Target face has no area.")
+        raise ValueError("Target face has no area.\n")
 
     if not PathGeom.isRoughly(targetFace.BoundBox.ZLength, 0.0):
-        raise ValueError("Target face is not horizontal plane.")
+        # Part.show(targetFace, "TargetFace_Error")
+        raise ValueError(
+            "generatePathGeometry() Target face is not horizontal plane.\n"
+        )
 
     region = targetFace.copy()
     region.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - region.BoundBox.ZMin))
@@ -424,7 +430,9 @@ def geometryToGcode(pathGeometry, toolController, retractHeight, finalDepth=None
         raise ValueError("Final depth must be a float")
 
     if finalDepth is not None and finalDepth > retractHeight:
-        raise ValueError("Retract height must be greater than or equal to final depth")
+        raise ValueError(
+            f"Generator_Profile.geometryToGcode():\n     Retract height {retractHeight} must be greater than or equal to final depth {finalDepth}\n"
+        )
 
     _retractHeight = retractHeight
     _finalDepth = finalDepth

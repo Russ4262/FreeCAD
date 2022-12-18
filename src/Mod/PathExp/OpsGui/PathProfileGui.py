@@ -111,6 +111,7 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
         """setFields(obj) ... transfers obj's property values to UI"""
         self._populateTargetShapes(obj)
         self.selectInComboBox(obj.TargetShape.Name, self.form.targetShape)
+
         self.setupToolController(obj, self.form.toolController)
         self.setupCoolant(obj, self.form.coolantController)
 

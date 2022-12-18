@@ -968,7 +968,7 @@ def generatePathGeometry(
     #    raise ValueError("Final depth must be a float")
 
     # if finalDepth > retractHeight:
-    #    raise ValueError("Retract height must be greater than or equal to final depth")
+    #    raise ValueError("Retract height must be greater than or equal to final depth\n")
 
     if not type(stepOver) is float:
         raise ValueError("Step over must be a float")
@@ -1074,7 +1074,7 @@ def geometryToGcode(pathGeometry, toolController, retractHeight, finalDepth=None
         raise ValueError("Final depth must be a float")
 
     if finalDepth is not None and finalDepth > retractHeight:
-        raise ValueError("Retract height must be greater than or equal to final depth")
+        raise ValueError("Retract height must be greater than or equal to final depth\n")
 
     _toolController = toolController
     _retractHeight = retractHeight

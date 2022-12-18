@@ -161,7 +161,7 @@ class TaskPanelExtensionPage(PathTaskPanelPage.TaskPanelPage):
 
     def getFields(self, obj):
         PathLog.track(obj.Label, self.model.rowCount(), self.model.columnCount())
-        PathLog.info("getFields()")
+        # PathLog.info("getFields()")
         self.blockUpdateData = True
 
         if obj.ExtensionCorners != self.form.extendCorners.isChecked():

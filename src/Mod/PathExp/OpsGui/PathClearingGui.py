@@ -35,8 +35,7 @@ __url__ = "https://www.freecadweb.org"
 __doc__ = "Clearing operation page controller and command implementation."
 
 
-def translate(context, text, disambig=None):
-    return QtCore.QCoreApplication.translate(context, text, disambig)
+translate = FreeCAD.Qt.translate
 
 
 class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
@@ -47,6 +46,8 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
         used to customize UI for specific model.
         Note that this function is invoked after all page controllers have been created."""
         self.setTitle("Clearing - " + obj.Label)
+        self._populateComboBoxes()
+
         self.materialAllowance = PathGui.QuantitySpinBox(
             self.form.materialAllowance, obj, "MaterialAllowance"
         )
@@ -77,9 +78,9 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
             + "Mod\\PathExp\\GuiSupport\\PageOpClearingEdit.ui"
         )
         form = FreeCADGui.PySideUic.loadUi(uiFilePath)
-        #comboToPropertyMap = [("Side", "Side"), ("OperationType", "OperationType")]
-        #enumTups = PathAdaptive.PathAdaptive.propertyEnumerations(dataType="raw")
-        #self.populateCombobox(form, enumTups, comboToPropertyMap)
+        # comboToPropertyMap = [("Side", "Side"), ("OperationType", "OperationType")]
+        # enumTups = PathAdaptive.PathAdaptive.propertyEnumerations(dataType="raw")
+        # self.populateCombobox(form, enumTups, comboToPropertyMap)
         return form
 
     def getFields(self, obj):
@@ -104,13 +105,13 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
         if obj.UseComp != self.form.useCompensation.isChecked():
             obj.UseComp = self.form.useCompensation.isChecked()
 
-        if obj.CutDirection != str(self.form.cutDirection.currentText()):
-            obj.CutDirection = str(self.form.cutDirection.currentText())
+        if obj.CutDirection != str(self.form.cutDirection.currentData()):
+            obj.CutDirection = str(self.form.cutDirection.currentData())
 
         self.stepOverPercent.updateProperty()
 
-        if obj.CutPattern != str(self.form.cutPattern.currentText()):
-            obj.CutPattern = str(self.form.cutPattern.currentText())
+        if obj.CutPattern != str(self.form.cutPattern.currentData()):
+            obj.CutPattern = str(self.form.cutPattern.currentData())
 
         self.cutPatternAngle.updateProperty()
 
@@ -118,6 +119,9 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
 
         if obj.CutPatternReversed != self.form.cutPatternReversed.isChecked():
             obj.CutPatternReversed = self.form.cutPatternReversed.isChecked()
+
+        if obj.ProfileOutside != self.form.profileOutside.isChecked():
+            obj.ProfileOutside = self.form.profileOutside.isChecked()
 
         if obj.UseStartPoint != self.form.useStartPoint.isChecked():
             obj.UseStartPoint = self.form.useStartPoint.isChecked()
@@ -161,8 +165,8 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
             self.form.stopButton.setChecked(False)  # reset the button
             obj.StopProcessing = True
 
-        if obj.CutMode != str(self.form.cutMode.currentText()):
-            obj.CutMode = str(self.form.cutMode.currentText())
+        if obj.CutMode != str(self.form.cutMode.currentData()):
+            obj.CutMode = str(self.form.cutMode.currentData())
 
         self.sampleInterval.updateProperty()
         self.linearDeflection.updateProperty()
@@ -192,6 +196,7 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
         self.selectInComboBox(obj.CutDirection, self.form.cutDirection)
         self.selectInComboBox(obj.CutPattern, self.form.cutPattern)
         self.form.cutPatternReversed.setChecked(obj.CutPatternReversed)
+        self.form.profileOutside.setChecked(obj.ProfileOutside)
         self.form.cut3DPocket.setChecked(obj.Cut3DPocket)
         self.form.useOCL.setChecked(obj.UseOCL)
         self.form.keepToolDown.setChecked(obj.KeepToolDown)
@@ -239,6 +244,7 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
         signals.append(self.form.minTravel.stateChanged)
         signals.append(self.form.cut3DPocket.stateChanged)
         signals.append(self.form.useOCL.stateChanged)
+        signals.append(self.form.profileOutside.stateChanged)
 
         # Copied from PathAdaptiveGui
         signals.append(self.form.cutSide.currentIndexChanged)
@@ -291,7 +297,7 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
             self.form.useOCL.setChecked(False)
 
     def _manageClearingOptions(self):
-        pattern = self.form.cutPattern.currentText()
+        pattern = str(self.form.cutPattern.currentData())
         if pattern == "Adaptive":
             self.form.adaptiveOptions.setEnabled(True)
             self.form.adaptiveOptions.show()
@@ -299,7 +305,7 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
             self.form.adaptiveOptions.setEnabled(False)
             self.form.adaptiveOptions.hide()
 
-        if pattern in ["Offset", "Spiral", "Adaptive"]:
+        if pattern in ["Offset", "Spiral", "Adaptive", "Profile", "MultiProfile"]:
             self.form.cutPatternAngle.setEnabled(False)
             self.form.cutPatternAngle.hide()
             self.form.cutPatternAngle_label.hide()
@@ -308,8 +314,25 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
             self.form.cutPatternAngle.show()
             self.form.cutPatternAngle_label.show()
 
-        self.form.useCompensation.setEnabled(False)
-        self.form.useCompensation.hide()
+        if pattern in ["Profile", "MultiProfile"]:
+            self.form.profileOutside.setEnabled(True)
+            self.form.profileOutside.show()
+            self.form.useCompensation.setEnabled(True)
+            self.form.useCompensation.show()
+        else:
+            self.form.profileOutside.setEnabled(False)
+            self.form.profileOutside.hide()
+            self.form.useCompensation.setEnabled(False)
+            self.form.useCompensation.hide()
+
+        if pattern in "Profile":
+            self.form.stepOverPercent.setEnabled(False)
+            self.form.stepOverPercent.hide()
+            self.form.stepOverPercent_label.hide()
+        else:
+            self.form.stepOverPercent.setEnabled(True)
+            self.form.stepOverPercent.show()
+            self.form.stepOverPercent_label.show()
 
     def _helixOptionsVisibility(self):
         if self.form.disableHelixEntry.isChecked():
@@ -320,6 +343,31 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
             self.form.helixRampAngle.setEnabled(True)
             self.form.helixConeAngle.setEnabled(True)
             self.form.helixDiameterLimit.setEnabled(True)
+
+    def _populateComboBoxes(self):
+        cbox = self.form.cutPattern
+        cbox.blockSignals(True)
+        cbox.clear()
+        enums = PathClearing.ObjectClearing.propEnumerations(dataType="raw")
+        for lbl, data in enums["CutPattern"]:
+            cbox.addItem(lbl, data)
+        cbox.blockSignals(False)
+
+        cbox = self.form.cutDirection
+        cbox.blockSignals(True)
+        cbox.clear()
+        enums = PathClearing.ObjectClearing.propEnumerations(dataType="raw")
+        for lbl, data in enums["CutDirection"]:
+            cbox.addItem(lbl, data)
+        cbox.blockSignals(False)
+
+        cbox = self.form.cutMode
+        cbox.blockSignals(True)
+        cbox.clear()
+        enums = PathClearing.ObjectClearing.propEnumerations(dataType="raw")
+        for lbl, data in enums["CutMode"]:
+            cbox.addItem(lbl, data)
+        cbox.blockSignals(False)
 
     # TargetShape helper methods
     '''
