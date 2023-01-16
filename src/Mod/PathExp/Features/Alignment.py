@@ -25,13 +25,15 @@ import FreeCAD
 import Part
 import Ops.PathOp2 as PathOp2
 import Path.Log as PathLog
-import Features.PathFeatureExtensions as FeatureExtensions
 import Macros.Macro_CombineRegions as CombineRegions
+import Macros.Macro_AlignToFeature as AlignToFeature
 import PathScripts.PathUtils as PathUtils
 import Path.Base.Drillable as drillableLib
 import DraftGeomUtils
 import Path.Geom as PathGeom
 import Generators.PathTargetBuildUtils as TargetBuildUtils
+import math
+import TechDraw
 
 
 __doc__ = "Class and implementation of a Target Shape."
@@ -47,6 +49,122 @@ else:
 translate = FreeCAD.Qt.translate
 
 
+def propertyDefaults(obj, job):
+    """propertyDefaults(obj, job) ... returns a dictionary of default values
+    for the operation's properties."""
+    modelName = "None"
+    if job:
+        if len(job.Model.Group) > 0:
+            modelName = job.Model.Group[0].Name
+    defaults = {
+        "Model": modelName,
+        "Face": "None",
+        "Edge": "None",
+        "RotationsValues": FreeCAD.Vector(0.0, 0.0, 0.0),
+        "RotationsOrder": "",
+        "CenterOfRotation": FreeCAD.Vector(0.0, 0.0, 0.0),
+    }
+
+    return defaults
+
+def propertyDefinitions():
+    """propertyDefinitions(obj) ... Store operation specific properties"""
+
+    return [
+        (
+            "App::PropertyString",
+            "Model",
+            "Rotation",
+            translate("Path", "Base model name."),
+        ),
+        (
+            "App::PropertyLink",
+            "RotationReference",
+            "Rotation",
+            translate("Path", "Feature reference for rotation to be applied."),
+        ),
+        (
+            "App::PropertyLinkSubListGlobal",
+            "RotationReferenceLink",
+            "Rotation",
+            translate("Path", "Feature reference for rotation to be applied."),
+        ),
+        (
+            "App::PropertyString",
+            "Face",
+            "Rotation",
+            translate("Path", "Base model face name."),
+        ),
+        (
+            "App::PropertyString",
+            "Edge",
+            "Rotation",
+            translate("Path", "Base model edge name."),
+        ),
+        (
+            "App::PropertyVector",
+            "RotationsValues",
+            "Rotation",
+            translate(
+                "Path",
+                "Rotations applied to the model to access this target shape. Values",
+            ),
+        ),
+        (
+            "App::PropertyString",
+            "RotationsOrder",
+            "Rotation",
+            translate(
+                "Path",
+                "Rotations applied to the model to access this target shape. Order",
+            ),
+        ),
+        (
+            "App::PropertyVector",
+            "CenterOfRotation",
+            "Rotation",
+            translate(
+                "Path",
+                "Center of rotation for rotations applied.",
+            ),
+        ),
+        (
+            "App::PropertyBool",
+            "InvertDirection",
+            "Rotation",
+            translate("Path", "Invert direction of reference."),
+        ),
+    ]
+
+def propertyEnumerations(dataType="data"):
+    """propertyEnumerations(dataType="data")... return property enumeration lists of specified dataType.
+    Args:
+        dataType = 'data', 'raw', 'translated'
+    Notes:
+    'data' is list of internal string literals used in code
+    'raw' is list of (translated_text, data_string) tuples
+    'translated' is list of translated string literals
+    """
+
+    # Enumeration lists for App::PropertyEnumeration properties
+    enums = {}
+
+    if dataType == "raw":
+        return enums
+
+    data = []
+    idx = 0 if dataType == "translated" else 1
+
+    PathLog.debug(enums)
+
+    for k, v in enumerate(enums):
+        data.append((v, [tup[idx] for tup in enums[v]]))
+    PathLog.debug(data)
+
+    return data
+
+
+
 class TargetShape(PathOp2.ObjectOp2):
     def opFeatures(self, obj):
         """opFeatures(obj) ... returns the OR'ed list of features used and supported by the operation.
@@ -57,257 +175,79 @@ class TargetShape(PathOp2.ObjectOp2):
             | PathOp2.FeatureHoleGeometry
             # | PathOp2.FeatureBaseEdges
             | PathOp2.FeatureHeightsDepths
-            | PathOp2.FeatureExtensions
             | PathOp2.FeatureLocations
         )
-
-    def initOperation(self, obj):
-        """initOperation(obj) ... implement to create additional properties.
-        Should be overwritten by subclasses."""
-        # obj.addProperty("Part::PropertyPartShape", "Shape", "Path")
-        obj.setEditorMode("Shape", 1)  # read-only
-
-        for n in self.propertyEnumerations():
-            setattr(obj, n[0], n[1])
-
-        FeatureExtensions.initialize_properties(obj)
-
-    def opPropertyDefinitions(self):
-        """opPropertyDefinitions(obj) ... Store operation specific properties"""
-
-        return [
-            (
-                "App::PropertyStringList",
-                "Disabled",
-                "Base",
-                translate("Path", "List of disabled features"),
-            ),
-            (
-                "App::PropertyVectorList",
-                "PointLocations",
-                "Base",
-                translate(
-                    "Path", "List of locations for vertical, point-milling operations."
-                ),
-            ),
-            (
-                "App::PropertyDistance",
-                "DepthAllowance",
-                "Shape",
-                translate(
-                    "Path",
-                    "Set the material depth allowance for the target shape.",
-                ),
-            ),
-            (
-                "App::PropertyBool",
-                "RespectFeatureHoles",
-                "Shape",
-                translate("Path", "Set True to respect feature holes."),
-            ),
-            (
-                "App::PropertyBool",
-                "RespectMergedHoles",
-                "Shape",
-                translate(
-                    "Path",
-                    "Set True to respect holes formed by merger of faces or regions.",
-                ),
-            ),
-            (
-                "App::PropertyEnumeration",
-                "FeatureBoundary",
-                "Shape",
-                translate("Path", "Boundary for base geometry features."),
-            ),
-            (
-                "App::PropertyBool",
-                "InvertDirection",
-                "Rotation",
-                translate("Path", "Invert direction of reference."),
-            ),
-            (
-                "App::PropertyString",
-                "Model",
-                "Rotation",
-                translate("Path", "Base model name."),
-            ),
-            (
-                "App::PropertyLink",
-                "RotationReference",
-                "Rotation",
-                translate("Path", "Feature reference for rotation to be applied."),
-            ),
-            (
-                "App::PropertyLinkSubListGlobal",
-                "RotationReferenceLink",
-                "Rotation",
-                translate("Path", "Feature reference for rotation to be applied."),
-            ),
-            (
-                "App::PropertyString",
-                "Face",
-                "Rotation",
-                translate("Path", "Base model face name."),
-            ),
-            (
-                "App::PropertyString",
-                "Edge",
-                "Rotation",
-                translate("Path", "Base model edge name."),
-            ),
-            (
-                "App::PropertyVector",
-                "RotationsValues",
-                "Rotation",
-                translate(
-                    "Path",
-                    "Rotations applied to the model to access this target shape. Values",
-                ),
-            ),
-            (
-                "App::PropertyString",
-                "RotationsOrder",
-                "Rotation",
-                translate(
-                    "Path",
-                    "Rotations applied to the model to access this target shape. Order",
-                ),
-            ),
-            (
-                "App::PropertyVector",
-                "CenterOfRotation",
-                "Rotation",
-                translate(
-                    "Path",
-                    "Center of rotation for rotations applied.",
-                ),
-            ),
-            (
-                "App::PropertyDistance",
-                "OpToolDiameter",
-                "Op Values",
-                translate("PathOp", "Holds the diameter of the tool"),
-            ),
-            (
-                "App::PropertyBool",
-                "ShowRotatedStock",
-                "Debug",
-                translate("Path", "Set True to show rotated stock shape."),
-            ),
-            (
-                "App::PropertyBool",
-                "ShowRotatedBase",
-                "Debug",
-                translate("Path", "Set True to show rotated base shape."),
-            ),
-        ]
-
-    def opPropertyDefaults(self, obj, job):
-        """opPropertyDefaults(obj, job) ... returns a dictionary of default values
-        for the operation's properties."""
-        defaults = {
-            "RespectFeatureHoles": True,
-            "RespectMergedHoles": True,
-            "FeatureBoundary": "Feature",
-            "Model": job.Model.Group[0].Name,
-            "Face": "None",
-            "Edge": "None",
-            "OpToolDiameter": "5 mm",
-            "ExtensionLengthDefault": "2.5 mm",
-            "RotationsValues": FreeCAD.Vector(0.0, 0.0, 0.0),
-            "RotationsOrder": "",
-            "CenterOfRotation": FreeCAD.Vector(0.0, 0.0, 0.0),
-            "ShowRotatedStock": False,
-            "ShowRotatedBase": False,
-        }
-
-        return defaults
-
-    @classmethod
-    def propertyEnumerations(cls, dataType="data"):
-        """helixOpPropertyEnumerations(dataType="data")... return property enumeration lists of specified dataType.
-        Args:
-            dataType = 'data', 'raw', 'translated'
-        Notes:
-        'data' is list of internal string literals used in code
-        'raw' is list of (translated_text, data_string) tuples
-        'translated' is list of translated string literals
-        """
-
-        # Enumeration lists for App::PropertyEnumeration properties
-        enums = {
-            "FeatureBoundary": [
-                (translate("Path", "Feature"), "Feature"),
-                (translate("Path", "Feature Extended"), "FeatureExt"),
-                (translate("Path", "BoundBox"), "Boundbox"),
-                (translate("Path", "Stock"), "Stock"),
-                (translate("Path", "Stock Extended"), "StockExt"),
-                (translate("Path", "Waterline"), "Waterline"),
-                (translate("Path", "Waterline Extended"), "WaterlineExt"),
-            ]
-        }
-
-        if dataType == "raw":
-            return enums
-
-        data = []
-        idx = 0 if dataType == "translated" else 1
-
-        PathLog.debug(enums)
-
-        for k, v in enumerate(enums):
-            data.append((v, [tup[idx] for tup in enums[v]]))
-        PathLog.debug(data)
-
-        return data
-
-    def opSetDefaultValues(self, obj, job):
-        FeatureExtensions.set_default_property_values(obj, job)
-
-    def opOnDocumentRestored(self, obj):
-        FeatureExtensions.initialize_properties(obj)
 
     def opUpdateDepths(self, obj):
         """opUpdateDepths(obj) ... Implement special depths calculation."""
         # Set Final Depth to bottom of model if whole model is used
         # self._printCurrentDepths(obj, "Pre-opUpdateDepths")
-
-        if obj.RotationsOrder != "":
-            # Make changes required for active rotations
+        AlignToFeature.CENTER_OF_ROTATION = obj.CenterOfRotation
+        rotations, __ = AlignToFeature.getRotationsForObject(obj)
+        if len(rotations) > 0:
+            print(f"opUpdateDepths() rotations: {rotations}")
             mins = []
             if not obj.Base or len(obj.Base) == 0:
                 for m in self.job.Model.Group:
-                    rotatedBase = self.getRotatedShape(obj, m.Shape)
+                    rotatedBase = AlignToFeature.rotateShapeWithList(m.Shape, rotations)
+                    rotatedBase.translate(obj.CenterOfRotation.negative())
                     mins.append(rotatedBase.BoundBox.ZMin)
+                    # m.purgeTouched()
+                finDep = min(mins)
             else:
                 for base, subs in obj.Base:
-                    rotatedBase = self.getRotatedShape(obj, base.Shape)
+                    rotatedBase = AlignToFeature.rotateShapeWithList(
+                        base.Shape, rotations
+                    )
+                    rotatedBase.translate(obj.CenterOfRotation.negative())
+                    base.purgeTouched()
                     for s in subs:
                         mins.append(rotatedBase.getElement(s).BoundBox.ZMin)
-            finDep = min(mins)
+                finDep = min(mins)
 
             # Rotate stock and adjust start height
-            rotatedStock = self.getRotatedShape(obj, self.job.Stock.Shape)
+            rotatedStock = AlignToFeature.rotateShapeWithList(
+                self.job.Stock.Shape, rotations
+            )
+            rotatedStock.translate(obj.CenterOfRotation.negative())
+            # self.job.Stock.purgeTouched()
             strDep = rotatedStock.BoundBox.ZMax
 
             # print(f"opUpdateDepths() strDep: {strDep};  finDep: {finDep}")
-            """obj.setExpression("OpStockZMax", "{} mm".format(strDep))
+            obj.setExpression("OpStockZMax", "{} mm".format(strDep))
             obj.setExpression("OpStartDepth", "{} mm".format(strDep))
-            obj.setExpression("OpFinalDepth", "{} mm".format(finDep))"""
-
+            obj.setExpression("OpFinalDepth", "{} mm".format(finDep))
             # self.applyExpression(obj, "OpStartDepth", "{} mm".format(strDep))
             # self.applyExpression(obj, "OpFinalDepth", "{} mm".format(finDep))
-            """self.applyExpression(obj, "StartDepth", "OpStartDepth")
-            self.applyExpression(obj, "FinalDepth", "OpFinalDepth")"""
-
+            self.applyExpression(obj, "StartDepth", "OpStartDepth")
+            self.applyExpression(obj, "FinalDepth", "OpFinalDepth")
             obj.OpStartDepth = "{} mm".format(strDep)
             obj.OpFinalDepth = "{} mm".format(finDep)
+
+        # self._printCurrentDepths(obj, "Post-opUpdateDepths")
+        pass
 
     def showShape(self, obj):
         shpObj = Part.show(obj.Shape, "TargetShape")
         shpObj.Label = f"Target Shape - {obj.Name}"
         shpObj.purgeTouched()
+
+    def _getRotationsList(self, obj, mapped=False):
+        axisMap = {"x": "A", "y": "B", "z": "C"}
+        rotations = []
+        for i in range(len(obj.RotationsOrder)):
+            axis = obj.RotationsOrder[i]
+            useAxis = axis.upper()
+            if mapped:
+                useAxis = axisMap[axis]
+
+            rotations.append(
+                (
+                    useAxis,
+                    getattr(obj.RotationsValues, axis),
+                )
+            )
+        return rotations
 
     # Hole-related methods
     def holeDiameter(self, base, sub):
@@ -448,9 +388,27 @@ class TargetShape(PathOp2.ObjectOp2):
         matchvector = FreeCAD.Vector(0, 0, 1)
         tooldiameter = 0.2
 
+        if obj.Face == "None" and obj.Edge == "None":
+            rotations = []
+        else:
+            rotations, isPlanar = AlignToFeature.getRotationsForObject(obj)
+            if not isPlanar:
+                FreeCAD.Console.PrintError(
+                    f"ObjectOp.findAllHoles() Feature not planar: {obj.Face}/{obj.Edge}\n"
+                )
+                return
+
         features = []
         for base in job.Model.Group:
-            rotatedBaseShp = self.getRotatedShape(obj, base.Shape)
+            if rotations:
+                rotatedBaseShp = AlignToFeature.rotateShapeWithList(
+                    base.Shape, rotations
+                )
+                rotatedBaseShp.translate(obj.CenterOfRotation.negative())
+                # Part.show(rotatedBaseShp, "RotBase")
+            else:
+                rotatedBaseShp = base.Shape
+
             targetFaces = drillableLib.getDrillableTargets(
                 rotatedBaseShp, ToolDiameter=tooldiameter, vector=matchvector
             )
@@ -461,24 +419,6 @@ class TargetShape(PathOp2.ObjectOp2):
         obj.Hole = features
         obj.Disabled = []
 
-    def getHoleLimits(self, rotatedBaseShp, pos, holeDiam):
-        bottom = rotatedBaseShp.BoundBox.ZMax
-        top = rotatedBaseShp.BoundBox.ZMax
-        dep = rotatedBaseShp.BoundBox.ZLength + 2.0
-        cyl_in = Part.makeCylinder(holeDiam * 0.5, dep)
-        cyl_in.translate(
-            FreeCAD.Vector(pos.x, pos.y, rotatedBaseShp.BoundBox.ZMin - 1.0)
-        )
-        inside = cyl_in.cut(rotatedBaseShp)
-        for s in inside.Solids:
-            if PathGeom.isRoughly(s.BoundBox.ZMax, top + 1.0):
-                bottom = s.BoundBox.ZMin
-
-        # cyl_out = Part.makeCylinder(holeDiam * 1.05, dep)
-        # cyl_out.translate(FreeCAD.Vector(pos.x, pos.y, rotatedBaseShp.BoundBox.ZMin - 1.0))
-
-        return (top, bottom)
-
     def _processHoles(self, obj):
         """_processHoles(obj) ... processes all Base features and Locations and collects
         them in a list of positions and radii which is then passed to circularHoleExecute(obj, holes).
@@ -487,74 +427,40 @@ class TargetShape(PathOp2.ObjectOp2):
         calculated and assigned."""
         PathLog.track()
 
+        if obj.Face == "None" and obj.Edge == "None":
+            rotations = []
+        else:
+            rotations, isPlanar = AlignToFeature.getRotationsForObject(obj)
+            if not isPlanar:
+                FreeCAD.Console.PrintError(
+                    f"ObjectOp.findAllHoles() Feature not planar: {obj.Face}/{obj.Edge}\n"
+                )
+                return
+
         holes = []
         for base, subs in obj.Hole:
-            rotatedBaseShp = self.getRotatedShape(obj, base.Shape)
-            if obj.ShowRotatedBase:
-                shpObj = Part.show(rotatedBaseShp, "RotatedBase")
-                # shpObj.Label = f"Target Shape - {obj.Name}"
-                shpObj.purgeTouched()
+            if rotations:
+                rotatedBaseShp = AlignToFeature.rotateShapeWithList(
+                    base.Shape, rotations
+                )
+                rotatedBaseShp.translate(obj.CenterOfRotation.negative())
+                # Part.show(rotatedBaseShp, "RotBase")
+            else:
+                rotatedBaseShp = base.Shape
 
             for sub in subs:
                 PathLog.debug("processing {} in {}".format(sub, base.Name))
                 if self.isHoleEnabled(obj, base, sub):
                     pos = self.holePosition(rotatedBaseShp, sub)
                     if pos:
-                        holeDiam = self.holeDiameter(base, sub)
-                        (top, bottom) = self.getHoleLimits(
-                            rotatedBaseShp, pos, holeDiam
+                        holes.append(
+                            FreeCAD.Vector(pos.x, pos.y, self.holeDiameter(base, sub))
                         )
-                        tup = (
-                            self.holeDiameter(base, sub),
-                            pos.x,
-                            pos.y,
-                            top,
-                            bottom,
-                        )
-                        holes.append(tup)
 
         for loc in obj.Locations:
             holes.append(FreeCAD.Vector(loc.x, loc.y, 0.0))
 
         return holes
-
-    def _processEdges(self, obj, baseShape, rawEdges):
-        faceWires = []
-        otherWires = []
-        openEdges = []
-        wires0 = DraftGeomUtils.findWires(rawEdges)
-        for w in wires0:
-            if w.isClosed():
-                fc = applyFeatureBoundary(
-                    obj.FeatureBoundary,
-                    Part.Face(w),
-                    baseShape,
-                    self.stock.Shape,
-                    obj.RespectFeatureHoles,
-                    obj.ExtensionLengthDefault.Value,
-                )
-                faceWires.append(fc)
-            else:
-                # PathLog.error("Wire not closed.")
-                # Part.show(w, "OpenWireError 1")
-                openEdges.extend(flattenOpenWire(w).Edges)
-        wires1 = DraftGeomUtils.findWires(openEdges)
-        for w in wires1:
-            if w.isClosed():
-                fc = applyFeatureBoundary(
-                    obj.FeatureBoundary,
-                    Part.Face(w),
-                    baseShape,
-                    self.stock.Shape,
-                    obj.RespectFeatureHoles,
-                    obj.ExtensionLengthDefault.Value,
-                )
-                faceWires.append(fc)
-            else:
-                PathLog.error("Wire not closed.")
-                Part.show(w, "OpenWireError 2")
-                otherWires.append(w)
-        return faceWires, otherWires
 
     # Main executable method
     def opExecute(self, obj):
@@ -566,43 +472,50 @@ class TargetShape(PathOp2.ObjectOp2):
         sourceGeometry = []
         targetRegions = []
         targetShapes = []
+        AlignToFeature.CENTER_OF_ROTATION = obj.CenterOfRotation
 
-        rotatedStockShp = self.getRotatedShape(obj, self.job.Stock.Shape)
-        if obj.ShowRotatedStock:
-            shpObj = Part.show(rotatedStockShp, "RotatedStock")
-            # shpObj.Label = f"Target Shape - {obj.Name}"
-            shpObj.purgeTouched()
+        if obj.Face == "None" and obj.Edge == "None":
+            rotations = []
+        else:
+            rotations, isPlanar = AlignToFeature.getRotationsForObject(obj)
+            if not isPlanar:
+                FreeCAD.Console.PrintError(
+                    f"TargetShape.opExecute() Feature not planar: {obj.Face}/{obj.Edge}\n"
+                )
+                return
 
-        # Store rotation data
-        # atfRotations is set with above call to self.getRotatedShape()
-        rOrder, rVals = PathOp2.AlignToFeature._rotationsToOrderAndValues(
-            self.atfRotations
-        )
+        # Store for reference by other objects
+        rOrder, rVals = AlignToFeature._rotationsToOrderAndValues(rotations)
         obj.RotationsOrder = rOrder
         obj.RotationsValues = rVals
         # print(
         #    f"TargetShape.opExecute()\nobj.RotationsValues: {obj.RotationsValues};  \nobj.RotationsOrder: {obj.RotationsOrder};  \nobj.InvertDirection: {obj.InvertDirection}\nSD: {obj.StartDepth.Value};  FD: {obj.FinalDepth.Value}"
         # )
-        # print(f"restore rotations as: {PathOp2.AlignToFeature.buildRotationsList(obj)}")
+        # print(f"restore rotations as: {self._getRotationsList(obj)}")
         # print(f"actual rotations: {rotations}")
 
-        # Get extensions and identify faces to avoid
-        extensions = FeatureExtensions.getExtensions(obj)
-        for e in extensions:
-            if e.extType == "Avoid":
-                avoidFeatures.append(e.feature)
+        if rotations:
+            rotatedStockShp = AlignToFeature.rotateShapeWithList(
+                self.job.Stock.Shape, rotations
+            )
+            rotatedStockShp.translate(obj.CenterOfRotation.negative())
+            # Part.show(rotatedStockShp, "RotStock")
+        else:
+            rotatedStockShp = self.job.Stock.Shape
 
         if obj.Base:
             # PathLog.info("Processing base items ...")
             for (base, subList) in obj.Base:
                 rawFaces = []
                 rawEdges = []
-
-                rotatedBaseShp = self.getRotatedShape(obj, base.Shape)
-                if obj.ShowRotatedBase:
-                    shpObj = Part.show(rotatedBaseShp, "RotatedBase")
-                    # shpObj.Label = f"Target Shape - {obj.Name}"
-                    shpObj.purgeTouched()
+                if rotations:
+                    rotatedBaseShp = AlignToFeature.rotateShapeWithList(
+                        base.Shape, rotations
+                    )
+                    rotatedBaseShp.translate(obj.CenterOfRotation.negative())
+                    # Part.show(rotatedBaseShp, "RotBase")
+                else:
+                    rotatedBaseShp = base.Shape
 
                 for sub in subList:
                     if sub.startswith("Face"):
@@ -616,36 +529,8 @@ class TargetShape(PathOp2.ObjectOp2):
                             obj.ExtensionLengthDefault.Value,
                         )  # featureBoundary, face, baseShape, stockShape
                         rawFaces.append(fc)
-                        # Add applicable extension
-                        for ext in extensions:
-                            if ext.feature == sub:
-                                # Set indexed base shape for extension
-                                ext.rotatedBaseShp = rotatedBaseShp
-                                wire = ext.getWire()
-                                if wire:
-                                    faces = ext.getExtensionFaces(wire)
-                                    for f in faces:
-                                        rawFaces.append(f)
-                                        # Part.show(f, "ExtFace")
-                                        # self.exts.append(f)
-                            else:
-                                PathLog.debug(f"No extension found for {ext.feature}")
                     elif sub.startswith("Edge"):
                         rawEdges.append(rotatedBaseShp.getElement(sub).copy())
-                        # Add applicable extension
-                        for ext in extensions:
-                            if ext.feature == sub:
-                                # Set indexed base shape for extension
-                                ext.rotatedBaseShp = rotatedBaseShp
-                                wire = ext.getWire()
-                                if wire:
-                                    faces = ext.getExtensionFaces(wire)
-                                    for f in faces:
-                                        rawFaces.append(f)
-                                        # Part.show(f, "ExtFace")
-                                        # self.exts.append(f)
-                            else:
-                                PathLog.debug(f"No extension found for {ext.feature}")
                     else:
                         PathLog.error(
                             f"Build Shape does not support {base.Label}.{sub}"
@@ -653,8 +538,38 @@ class TargetShape(PathOp2.ObjectOp2):
                 # Efor
 
                 # Process all edges
-                (faceWires, otherWires) = self._processEdges(obj, base.Shape, rawEdges)
-                rawFaces.extend(faceWires)
+                openEdges0 = []
+                wires0 = DraftGeomUtils.findWires(rawEdges)
+                for w in wires0:
+                    if w.isClosed():
+                        fc = applyFeatureBoundary(
+                            obj.FeatureBoundary,
+                            Part.Face(w),
+                            base.Shape,
+                            self.stock.Shape,
+                            obj.RespectFeatureHoles,
+                            obj.ExtensionLengthDefault.Value,
+                        )  # featureBoundary, face, baseShape, stockShape
+                        rawFaces.append(fc)
+                    else:
+                        # PathLog.error("Wire not closed.")
+                        # Part.show(w, "OpenWireError 1")
+                        openEdges0.extend(flattenOpenWire(w).Edges)
+                wires1 = DraftGeomUtils.findWires(openEdges0)
+                for w in wires1:
+                    if w.isClosed():
+                        fc = applyFeatureBoundary(
+                            obj.FeatureBoundary,
+                            Part.Face(w),
+                            base.Shape,
+                            self.stock.Shape,
+                            obj.RespectFeatureHoles,
+                            obj.ExtensionLengthDefault.Value,
+                        )  # featureBoundary, face, baseShape, stockShape
+                        rawFaces.append(fc)
+                    else:
+                        PathLog.error("Wire not closed.")
+                        Part.show(w, "OpenWireError 2")
 
                 region, fusedFaces = CombineRegions._executeAsMacro3(
                     rawFaces, obj.RespectFeatureHoles, obj.RespectMergedHoles
@@ -702,24 +617,22 @@ class TargetShape(PathOp2.ObjectOp2):
         holes = self._processHoles(obj)
         if holes:
             hasGeometry = True
-            obj.PointLocations = [FreeCAD.Vector(x, y, d) for d, x, y, __, __ in holes]
-            # PathLog.info(f"holes: {holes}")
-            for d, x, y, t, b in holes:  # diameter, x, y, top, bottom
-                rad = d * 0.5
+            obj.PointLocations = holes
+            print(f"holes: {holes}")
+            dep = obj.StartDepth.Value - obj.FinalDepth.Value
+            for v in holes:
+                rad = v.z * 0.5
                 if rad <= 0.001:
                     print(f"Setting a small hole radius ({rad}) to 0.5 mm.")
                     rad = 0.5
-                cyl = Part.makeCylinder(rad, t - b)
-                cyl.translate(FreeCAD.Vector(x, y, b))
+                cyl = Part.makeCylinder(rad, dep)
+                cyl.translate(FreeCAD.Vector(v.x, v.y, obj.FinalDepth.Value))
                 targetShapes.append(cyl)
 
         if not hasGeometry:
             for m in self.job.Model.Group:
-                rotatedBaseShp = self.getRotatedShape(obj, m.Shape)
-                if obj.ShowRotatedBase:
-                    shpObj = Part.show(rotatedBaseShp, "RotatedBase")
-                    shpObj.purgeTouched()
-
+                rotatedBaseShp = AlignToFeature.rotateShapeWithList(m.Shape, rotations)
+                rotatedBaseShp.translate(obj.CenterOfRotation.negative())
                 modelEnv = PathUtils.getEnvelope(
                     rotatedBaseShp, subshape=None, depthparams=self.depthparams
                 )
@@ -744,16 +657,11 @@ class TargetShape(PathOp2.ObjectOp2):
                 )
                 targetShapes.append(ftExt)
 
-        obj.ShowRotatedStock = False
-        obj.ShowRotatedBase = False
         obj.Shape = Part.makeCompound(targetShapes)
 
     # Proxy method for Extensions feature
-    # def rotateShapeWithList(self, shape, rotations):
-    #    return AlignToFeature.rotateShapeWithList(shape, rotations)
-    def _getRotationsList(self, obj, mapped=False):
-        # Proxy method for Extensions feature
-        return PathOp2.AlignToFeature.buildRotationsList(obj, mapped)
+    def rotateShapeWithList(self, shape, rotations):
+        return AlignToFeature.rotateShapeWithList(shape, rotations)
 
 
 # Eclass
@@ -915,9 +823,6 @@ drillableLib.getDrillableTargets = getDrillableTargets
 
 def SetupProperties():
     setup = ["RespectFeatureHoles", "RespectMergedHoles", "DepthAllowance"]
-    # Add properties from Extensions Feature
-    setup.extend(FeatureExtensions.SetupProperties())
-
     return setup
 
 

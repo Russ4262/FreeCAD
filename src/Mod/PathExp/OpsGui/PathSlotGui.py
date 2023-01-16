@@ -26,7 +26,8 @@ import FreeCADGui
 # import PathGui as PGui  # ensure Path/Gui/Resources are loaded
 import Ops.PathSlot as PathSlot
 import Path.Base.Gui.Util as PathGui
-import OpsGui.PathOpGui as PathOpGui
+import OpsGui.PathOpGui2 as PathOpGui
+import Taskpanels.PathTaskPanelPage as PathTaskPanelPage
 
 from PySide import QtCore
 
@@ -46,7 +47,7 @@ def debugMsg(msg):
         FreeCAD.Console.PrintMessage("PathSlotGui:: " + msg + "\n")
 
 
-class TaskPanelOpPage(PathOpGui.TaskPanelPage):
+class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
     """Page controller class for the Slot operation."""
 
     def getForm(self):

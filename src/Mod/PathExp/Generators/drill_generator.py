@@ -21,7 +21,7 @@
 # ***************************************************************************
 
 
-import PathScripts.PathLog as PathLog
+import Path.Log as PathLog
 import Path
 import numpy
 

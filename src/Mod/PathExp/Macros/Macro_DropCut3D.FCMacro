@@ -107,7 +107,10 @@ def _getValueAtArgument(typeId):
     return None
 
 
-def dropShapeToFace(toolShape, face, tolerance):
+def dropShapeToFace_orig(toolShape, face, tolerance):
+    """dropShapeToFace(toolShape, face, tolerance)...
+    Drops(moves) a toolShape to the face until distance thereto is less than or equal to tolerance specified.
+    Loop limited to hard-coded 20 drops, with no science behind the number 20."""
     drops = 0
     dist = toolShape.distToShape(face)[0]
     # print(f"start distance to face: {dist}")
@@ -117,6 +120,24 @@ def dropShapeToFace(toolShape, face, tolerance):
         toolShape.translate(trans)
         dist = toolShape.distToShape(face)[0]
         if drops > 20:
+            break
+    # print(f"end distance to face: {dist}")
+    return drops
+
+
+def dropShapeToFace(toolShape, face, tolerance):
+    drops = 0
+    distToShape = toolShape.distToShape(face)
+    dist = distToShape[0]
+    print(f"start distance to face: {dist}")
+    while dist > tolerance:
+        drops += 1
+        trans = FreeCAD.Vector(0.0, 0.0, dist / -1.5)
+        toolShape.translate(trans)
+        distToShape = toolShape.distToShape(face)
+        dist = distToShape[0]
+        print(f"distToShape: {distToShape}")
+        if drops > 2:
             break
     # print(f"end distance to face: {dist}")
     return drops

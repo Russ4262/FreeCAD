@@ -32,10 +32,6 @@ import PathScripts.PathUtils as PathUtils
 import Ops.PathOp2 as PathOp2
 import Generators.PathStrategySlicing as PathStrategySlicing
 import Generators.PathStrategyClearing as PathStrategyClearing
-import Macros.Macro_AlignToFeature as AlignToFeature
-
-# import PathScripts.strategies.PathStrategyRestTools as PathStrategyRestTools
-
 
 from PySide import QtCore
 
@@ -395,10 +391,6 @@ class ObjectClearing(PathOp2.ObjectOp2):
             | PathOp2.FeatureFinishDepth
             | PathOp2.FeatureStartPoint
             | PathOp2.FeatureCoolant
-            # | PathOp2.FeatureBaseEdges
-            # | PathOp2.FeatureBaseFaces
-            # | PathOp2.FeatureExtensions
-            # | PathOp2.FeatureIndexedRotation
         )
 
     def initOperation(self, obj):
@@ -493,16 +485,20 @@ class ObjectClearing(PathOp2.ObjectOp2):
             if obj.TargetShape is not None:
                 obj.OpFinalDepth.Value = obj.TargetShape.FinalDepth.Value
 
-        if obj.TargetShape:
-            obj.setExpression(
-                "OpStockZMax", "{} mm".format(obj.TargetShape.StartDepth.Value)
-            )
-            obj.setExpression(
-                "OpStartDepth", "{} mm".format(obj.TargetShape.StartDepth.Value)
-            )
-            obj.setExpression(
-                "OpFinalDepth", "{} mm".format(obj.TargetShape.FinalDepth.Value)
-            )
+        if obj.TargetShape is not None:
+            # obj.setExpression(
+            #    "OpStockZMax", "{} mm".format(obj.TargetShape.StartDepth.Value)
+            # )
+            # obj.setExpression(
+            #    "OpStartDepth", "{} mm".format(obj.TargetShape.StartDepth.Value)
+            # )
+            # obj.setExpression(
+            #    "OpFinalDepth", "{} mm".format(obj.TargetShape.FinalDepth.Value)
+            # )
+            # obj.OpStartDepth = "{} mm".format(obj.TargetShape.StartDepth.Value)
+            # obj.OpFinalDepth = "{} mm".format(obj.TargetShape.FinalDepth.Value)
+            obj.OpStartDepth = obj.TargetShape.StartDepth
+            obj.OpFinalDepth = obj.TargetShape.FinalDepth
 
         """if obj.UseOCL:
             zMins = []
@@ -529,6 +525,158 @@ class ObjectClearing(PathOp2.ObjectOp2):
         self.isDebug = True if PathLog.getLevel(PathLog.thisModule()) == 4 else False
         if not hasattr(self, "targetShapes"):
             self.targetShapes = []
+
+    def buildRestShape(self, removalShape, useShape, obj):
+        PathLog.info("buildRestShape()")
+        cont = True
+        # Make and save REST shape
+        if len(removalShape.SubShapes) == 1:
+            adjustedShape = getHeightAdjustedShape(useShape, obj.StartDepth.Value)
+            rawRestShape = adjustedShape.cut(removalShape.SubShapes)
+        elif len(removalShape.SubShapes) > 1:
+            adjustedShape = getHeightAdjustedShape(useShape, obj.StartDepth.Value)
+            rawRestShape = adjustedShape.cut(removalShape.SubShapes[0])
+            for ss in removalShape.SubShapes[1:]:
+                cut = rawRestShape.cut(ss)
+                rawRestShape = cut
+        elif obj.UseOCL:
+            rawRestShape = useShape.cut(removalShape)
+        else:
+            cont = False
+            PathLog.error("restShapeEnabled error.  Showing removalShape.")
+            # Part.show(removalShape, "RemovalShape")
+        # Part.show(rawRestShape, "RawRestShape")
+
+        if cont:
+            return cleanVolume(rawRestShape)
+
+        return None
+
+    def getClearingPaths(self, obj, baseObj, shape, startPoint):
+        PathLog.debug("getClearingPaths()")
+
+        # Part.show(shape, "Shape")
+        rotatedStockShape = self.getRotatedShape(obj.TargetShape, self.job.Stock.Shape)
+        slices = sliceShape(shape, [d for d in self.depthparams])
+        noAdaptivePreview = True
+
+        PathLog.debug(f"slices present: {True if slices else False}")
+
+        strategy = PathStrategyClearing.StrategyClearVolume(
+            self,
+            baseObj,
+            shape,
+            obj.DepthOffset.Value,
+            obj.PatternCenterAt,
+            obj.PatternCenterCustom,
+            obj.CutPatternReversed,
+            obj.CutPatternAngle,
+            obj.CutPattern,
+            obj.CutDirection,
+            obj.StepOver.Value if hasattr(obj.StepOver, "Value") else obj.StepOver,
+            obj.MaterialAllowance.Value,
+            obj.ProfileOutside,
+            obj.MinTravel,
+            obj.KeepToolDown,
+            obj.ToolController,
+            startPoint,
+            self.depthparams,
+            self.job.GeometryTolerance.Value,
+        )
+
+        if not baseObj:
+            PathLog.info("no baseObj in PathClearing")
+        strategy.baseShape = baseObj.Shape
+        strategy.rotatedShape = self.getRotatedShape(obj.TargetShape, baseObj.Shape)
+        strategy.rotatedStock = self.getRotatedShape(
+            obj.TargetShape, self.job.Stock.Shape
+        )
+        strategy.rotations = self.atfRotations
+
+        if obj.CutPattern == "Adaptive":
+            PathLog.debug("Passing Adaptive-specific values to clearing strategy.")
+            stockType = (
+                "CreateCylinder"
+                if hasattr(self.stock, "StockType")
+                and self.stock.StockType == "CreateCylinder"
+                else ""
+            )
+            # set adaptive-dependent attributes
+            strategy.setAdaptiveAttributes(
+                obj.OperationType,
+                obj.CutSide,
+                obj.DisableHelixEntry,
+                obj.ForceInsideOut,
+                obj.LiftDistance.Value,
+                obj.FinishingProfile,
+                obj.HelixAngle.Value,
+                obj.HelixConeAngle.Value,
+                obj.UseHelixArcs,
+                obj.HelixDiameterLimit.Value,
+                obj.KeepToolDownRatio.Value,
+                obj.Stopped,
+                obj.StopProcessing,
+                obj.Tolerance,
+                stockType,
+                rotatedStockShape,
+                self.job,
+                obj.AdaptiveOutputState,
+                obj.AdaptiveInputState,
+                None if noAdaptivePreview else getattr(obj, "ViewObject", None),
+            )
+
+        # OCL dependencies
+        strategy.useOCL = obj.UseOCL
+        strategy.job = self.job
+
+        # Transfer debug status
+        strategy.isDebug = self.isDebug
+
+        if obj.UseOCL and obj.KeepToolDown:
+            # strategy.safeBaseShape = obj.Base[0][
+            #    0
+            # ].Shape  # Set safe base shape used to check
+            PathLog.warning(
+                "MIGHT need to set strategy.safeBaseShape in PathClearing module if OCL requires it."
+            )
+
+        if obj.UseOCL:
+            success = strategy.executeOCL(baseObj, obj)
+        else:
+            success = strategy.execute()
+
+        if success:
+            # Transfer some values from strategy class back to operation
+            if obj.PatternCenterAt != "Custom" and strategy.centerOfPattern is not None:
+                obj.PatternCenterCustom = strategy.centerOfPattern
+            self.endVector = strategy.endVector
+            obj.AreaParams = strategy.areaParams  # save area parameters
+            obj.PathParams = strategy.pathParams  # save path parameters
+            # if getsim:
+            #    sims.append(strategy.simObj)
+            return (strategy.commandList, strategy.pathGeometry)
+        else:
+            PathLog.error("strategy.execute() FAILED")
+            return None
+
+    def getTargetShape(self, obj, isPreview=False):
+        """getTargetShape(obj) ... returns envelope for all base shapes or wires for Arch.Panels."""
+        PathLog.info("PathClearing.getTargetShape()")
+        PathLog.track()
+        baseShapes = []
+        shape_types = ["2D Extrusion", "3D Volume"]
+        if obj.UseOCL:
+            shape_types = ["2D Area"]
+        # Identify working shapes for Profile operation
+        if obj.TargetShape is not None:
+            PathLog.info("... Using TargetShape provided! ...")
+            baseShapes = obj.TargetShape.Proxy.getTargetGeometry(
+                obj.TargetShape, shapeTypes=shape_types
+            )
+        else:
+            PathLog.error("Set TargetShape for operation.")
+
+        return baseShapes
 
     def opExecute(self, obj, getsim=False):  # pylint: disable=arguments-differ
         """opExecute(obj, getsim=False) ... implementation of Path.Area ops.
@@ -634,7 +782,8 @@ class ObjectClearing(PathOp2.ObjectOp2):
                     # Part.show(useShape, "TargetShape")
 
             if restShapeEnabled and removalShape:
-                restShape = self.buildRestShape(removalShape, useShape, obj)
+                # restShape = self.buildRestShape(removalShape, useShape, obj)
+                restShape = None
                 if restShape is not None:
                     restShapes.append(restShape)
                     self.targetShapes.append((restShape, baseObj, "pathClearing"))
@@ -663,7 +812,6 @@ class ObjectClearing(PathOp2.ObjectOp2):
             obj.RemovalShape = Part.makeCompound(removalShapes)
             if obj.ShowRemovalShape:
                 PathLog.info("Showing removal shape...")
-                obj.ShowRemovalShape = False
                 name = "{}_Removal_Shape".format(obj.Name)
                 if FreeCAD.ActiveDocument.getObject(name):
                     FreeCAD.ActiveDocument.removeObject(name)
@@ -672,8 +820,8 @@ class ObjectClearing(PathOp2.ObjectOp2):
                 ors.purgeTouched()
             # self.removalShapes = removalShapes
         else:
-            if obj.ShowRemovalShape:
-                obj.ShowRemovalShape = False
+            PathLog.info("No removal shapes in PathClearing.")
+        obj.ShowRemovalShape = False
 
         if pathGeometry:
             obj.CutPatternShape = Part.makeCompound(pathGeometry)
@@ -691,165 +839,6 @@ class ObjectClearing(PathOp2.ObjectOp2):
             showPattern(obj)
 
         printElapsedTime(startTime)
-
-    def buildRestShape(self, removalShape, useShape, obj):
-        PathLog.info("buildRestShape()")
-        cont = True
-        # Make and save REST shape
-        if len(removalShape.SubShapes) == 1:
-            adjustedShape = getHeightAdjustedShape(useShape, obj.StartDepth.Value)
-            rawRestShape = adjustedShape.cut(removalShape.SubShapes)
-        elif len(removalShape.SubShapes) > 1:
-            adjustedShape = getHeightAdjustedShape(useShape, obj.StartDepth.Value)
-            rawRestShape = adjustedShape.cut(removalShape.SubShapes[0])
-            for ss in removalShape.SubShapes[1:]:
-                cut = rawRestShape.cut(ss)
-                rawRestShape = cut
-        elif obj.UseOCL:
-            rawRestShape = useShape.cut(removalShape)
-        else:
-            cont = False
-            PathLog.error("restShapeEnabled error.  Showing removalShape.")
-            # Part.show(removalShape, "RemovalShape")
-        # Part.show(rawRestShape, "RawRestShape")
-
-        if cont:
-            return cleanVolume(rawRestShape)
-
-        return None
-
-    def getClearingPaths(self, obj, baseObj, shape, startPoint):
-        PathLog.debug("getClearingPaths()")
-
-        # Part.show(shape, "Shape")
-        rotatedStockShape = self.getRotatedStock(obj)
-        # workingShape = rotatedStockShape.common(shape)
-        # Part.show(workingShape, "WorkingShape")
-        slices = sliceShape(shape, [d for d in self.depthparams])
-        noAdaptivePreview = True
-
-        PathLog.debug(f"slices present: {True if slices else False}")
-
-        strategy = PathStrategyClearing.StrategyClearVolume(
-            self,
-            baseObj,
-            shape,
-            obj.DepthOffset.Value,
-            obj.PatternCenterAt,
-            obj.PatternCenterCustom,
-            obj.CutPatternReversed,
-            obj.CutPatternAngle,
-            obj.CutPattern,
-            obj.CutDirection,
-            obj.StepOver.Value if hasattr(obj.StepOver, "Value") else obj.StepOver,
-            obj.MaterialAllowance.Value,
-            obj.ProfileOutside,
-            obj.MinTravel,
-            obj.KeepToolDown,
-            obj.ToolController,
-            startPoint,
-            self.depthparams,
-            self.job.GeometryTolerance.Value,
-        )
-
-        if not baseObj:
-            PathLog.info("no baseObj in PathClearing")
-        strategy.baseShape = baseObj.Shape
-
-        if obj.CutPattern == "Adaptive":
-            PathLog.debug("Passing Adaptive-specific values to clearing strategy.")
-            stockType = (
-                "CreateCylinder"
-                if hasattr(self.stock, "StockType")
-                and self.stock.StockType == "CreateCylinder"
-                else ""
-            )
-            # set adaptive-dependent attributes
-            strategy.setAdaptiveAttributes(
-                obj.OperationType,
-                obj.CutSide,
-                obj.DisableHelixEntry,
-                obj.ForceInsideOut,
-                obj.LiftDistance.Value,
-                obj.FinishingProfile,
-                obj.HelixAngle.Value,
-                obj.HelixConeAngle.Value,
-                obj.UseHelixArcs,
-                obj.HelixDiameterLimit.Value,
-                obj.KeepToolDownRatio.Value,
-                obj.Stopped,
-                obj.StopProcessing,
-                obj.Tolerance,
-                stockType,
-                rotatedStockShape,
-                self.job,
-                obj.AdaptiveOutputState,
-                obj.AdaptiveInputState,
-                None if noAdaptivePreview else getattr(obj, "ViewObject", None),
-            )
-
-        # OCL dependencies
-        strategy.useOCL = obj.UseOCL
-        strategy.job = self.job
-
-        # Transfer debug status
-        strategy.isDebug = self.isDebug
-
-        if obj.UseOCL and obj.KeepToolDown:
-            # strategy.safeBaseShape = obj.Base[0][
-            #    0
-            # ].Shape  # Set safe base shape used to check
-            PathLog.warning(
-                "MIGHT need to set strategy.safeBaseShape in PathClearing module if OCL requires it."
-            )
-
-        if obj.UseOCL:
-            success = strategy.executeOCL(baseObj, obj)
-        else:
-            success = strategy.execute()
-
-        if success:
-            # Transfer some values from strategy class back to operation
-            if obj.PatternCenterAt != "Custom" and strategy.centerOfPattern is not None:
-                obj.PatternCenterCustom = strategy.centerOfPattern
-            self.endVector = strategy.endVector
-            obj.AreaParams = strategy.areaParams  # save area parameters
-            obj.PathParams = strategy.pathParams  # save path parameters
-            # if getsim:
-            #    sims.append(strategy.simObj)
-            return (strategy.commandList, strategy.pathGeometry)
-        else:
-            PathLog.error("strategy.execute() FAILED")
-            return None
-
-    def getTargetShape(self, obj, isPreview=False):
-        """getTargetShape(obj) ... returns envelope for all base shapes or wires for Arch.Panels."""
-        PathLog.info("PathClearing.getTargetShape()")
-        PathLog.track()
-        baseShapes = []
-        shape_types = ["2D Extrusion", "3D Volume"]
-        if obj.UseOCL:
-            shape_types = ["2D Area"]
-        # Identify working shapes for Profile operation
-        if obj.TargetShape is not None:
-            PathLog.info("... Using TargetShape provided! ...")
-            baseShapes = obj.TargetShape.Proxy.getTargetGeometry(
-                obj.TargetShape, shapeTypes=shape_types
-            )
-        else:
-            PathLog.error("Set TargetShape for operation.")
-
-        return baseShapes
-
-    def getRotatedStock(self, obj):
-        """getRotatedStock(obj) ... get rotated stock shape."""
-        AlignToFeature.CENTER_OF_ROTATION = obj.TargetShape.CenterOfRotation
-        rotations, __ = AlignToFeature.getRotationsForObject(obj.TargetShape)
-        rotatedStock = AlignToFeature.rotateShapeWithList(
-            self.job.Stock.Shape, rotations
-        )
-        rotatedStock.translate(obj.TargetShape.CenterOfRotation.negative())
-        return rotatedStock
 
     # Public methods
     def getTargetGeometry(self, obj, shapeTypes=["3D Volume"]):

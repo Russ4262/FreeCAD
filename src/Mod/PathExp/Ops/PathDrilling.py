@@ -272,7 +272,7 @@ class ObjectDrilling(PathCircularHoleBase.ObjectOp):
     def circularHoleExecute(self, obj):
         """circularHoleExecute(obj, holes) ... generate drill operation for each hole in holes."""
         PathLog.track()
-        print("PathDrilling circularHoleExecute()")
+        # print("PathDrilling circularHoleExecute()")
 
         machine = PathMachineState.MachineState()
 
@@ -359,7 +359,15 @@ class ObjectDrilling(PathCircularHoleBase.ObjectOp):
         self.commandlist.append(command)
         machine.addCommand(command)
 
-        self.commandlist.extend(self._getRotationCommands(obj, reverse=True))
+        # Rotation reset commands
+        rotResetCmds = self._getRotationCommands(obj, reverse=True)
+        if len(rotResetCmds) > 0:
+            command = Path.Command("G0", {"Z": obj.ClearanceHeight.Value})
+            machine.addCommand(command)
+            self.commandlist.append(command)
+        self.commandlist.extend(rotResetCmds)
+        for c in rotResetCmds:
+            machine.addCommand(c)
 
         # Apply feedrates to commands
         PathFeedRate.setFeedRate(self.commandlist, obj.ToolController)

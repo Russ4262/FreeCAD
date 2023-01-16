@@ -3,7 +3,7 @@ import Part
 import math
 import Path.Geom as PathGeom
 
-# import Macros.Generator_Utilities as GenUtils
+translate = FreeCAD.Qt.translate
 
 IS_MACRO = False  # Set to True to use as macro
 IS_DEBUG = False
@@ -19,7 +19,7 @@ AXES_OF_ROTATION = {
 # Support functions
 def _getFirstAxisAvailable():
     for a in AVAILABLE_AXES.keys():
-        if AVAILABLE_AXES[a]:
+        if AVAILABLE_AXES[a] is True:
             return a
 
 
@@ -218,7 +218,8 @@ def _getTwoSolutions(face, norm):
 
 def _calculateRotationsToFace(face):
     """_calculateRotationsToFace(face)
-    Return necessary degree rotations to align given face with Z=1, in vector form x, y, and z."""
+    Return necessary degree rotations to align given face with Z=1, in vector form x, y, and z.
+    Return value is an ordered list of tuples, each an (axis, value) pair."""
     # print("Macro_AlignToFeature._calculateRotationsToFace()")
 
     rotations = []  # Preferred because rotation order is important
@@ -324,6 +325,8 @@ def _calculateRotationsToFace(face):
 
         malAligned = False
         if cycles > 5:
+            # Fail-safe against infinite loop situation.
+            print("Error: 5+ cycles used and unable to identify rotations needed.")
             break
 
     # norm = f.normalAt(0, 0)
@@ -335,6 +338,11 @@ def _calculateRotationsToFace(face):
 
 
 def _rotationsToOrderAndValues(rotations):
+    """_rotationsToOrderAndValues(rotations)...
+    From an ordered list of (axis, value) tuples,
+    a single tuple is returned containing axis order as a lowercase string with no spaces,
+    and a vector object containing respective float values.
+    """
     axisOrder = ""
     degreeValues = FreeCAD.Vector(0.0, 0.0, 0.0)
     for axis, degree in rotations:
@@ -345,6 +353,13 @@ def _rotationsToOrderAndValues(rotations):
 
 
 def buildRotationsList(obj, mapped=False):
+    """buildRotationsList(obj, mapped=False)...
+    Given an obj parameter, will return an ordered list of tuples,
+    each containing an (axis, value) pair.
+    Details:
+        obj.RotationsOrder is a lowercase string of axes, no spaces
+        obj.RotationsValues is a vector object containing float values
+    """
     axisMap = {"x": "A", "y": "B", "z": "C"}
     rotations = []
     for i in range(len(obj.RotationsOrder)):
@@ -364,12 +379,129 @@ def buildRotationsList(obj, mapped=False):
 
 
 def reverseRotationsList(rotations):
+    """reverseRotationsList(rotations)...
+    Returns reversed version of rotations to apply to return to start point.
+    DO NOT USE THIS FUNCTION if rotation angles are absolute, and not relative."""
     reversed = [(axis, -1.0 * val) for axis, val in rotations]
     reversed.reverse()
     return reversed
 
 
 # Regular functions
+def propertyDefaults(obj, job):
+    """propertyDefaults(obj, job) ... returns a dictionary of default values
+    for the dependent properties."""
+    modelName = "None"
+    if job:
+        if len(job.Model.Group) > 0:
+            modelName = job.Model.Group[0].Name
+    defaults = {
+        "Model": modelName,
+        "Face": "None",
+        "Edge": "None",
+        "RotationsValues": FreeCAD.Vector(0.0, 0.0, 0.0),
+        "RotationsOrder": "",
+        "CenterOfRotation": FreeCAD.Vector(0.0, 0.0, 0.0),
+    }
+
+    return defaults
+
+
+def propertyDefinitions():
+    """propertyDefinitions(obj) ... Store operation specific properties"""
+
+    return [
+        (
+            "App::PropertyString",
+            "Model",
+            "Rotation",
+            translate("Path", "Base model name."),
+        ),
+        (
+            "App::PropertyLink",
+            "RotationReference",
+            "Rotation",
+            translate("Path", "Feature reference for rotation to be applied."),
+        ),
+        (
+            "App::PropertyLinkSubListGlobal",
+            "RotationReferenceLink",
+            "Rotation",
+            translate("Path", "Feature reference for rotation to be applied."),
+        ),
+        (
+            "App::PropertyString",
+            "Face",
+            "Rotation",
+            translate("Path", "Base model face name."),
+        ),
+        (
+            "App::PropertyString",
+            "Edge",
+            "Rotation",
+            translate("Path", "Base model edge name."),
+        ),
+        (
+            "App::PropertyVector",
+            "RotationsValues",
+            "Rotation",
+            translate(
+                "Path",
+                "Rotations applied to the model to access this target shape. Values",
+            ),
+        ),
+        (
+            "App::PropertyString",
+            "RotationsOrder",
+            "Rotation",
+            translate(
+                "Path",
+                "Rotations applied to the model to access this target shape. Order",
+            ),
+        ),
+        (
+            "App::PropertyVector",
+            "CenterOfRotation",
+            "Rotation",
+            translate(
+                "Path",
+                "Center of rotation for rotations applied.",
+            ),
+        ),
+        (
+            "App::PropertyBool",
+            "InvertDirection",
+            "Rotation",
+            translate("Path", "Invert direction of reference."),
+        ),
+    ]
+
+
+def propertyEnumerations(dataType="data"):
+    """propertyEnumerations(dataType="data")... return property enumeration lists of specified dataType.
+    Args:
+        dataType = 'data', 'raw', 'translated'
+    Notes:
+    'data' is list of internal string literals used in code
+    'raw' is list of (translated_text, data_string) tuples
+    'translated' is list of translated string literals
+    """
+
+    # Enumeration lists for App::PropertyEnumeration properties
+    enums = {}
+
+    if dataType == "raw":
+        return enums
+
+    data = []
+    idx = 0 if dataType == "translated" else 1
+
+    for k, v in enumerate(enums):
+        data.append((v, [tup[idx] for tup in enums[v]]))
+
+    return data
+
+
 def getRotationToFace(base, faceName):
     """getRotationToFace(base, face, label)
     Return necessary degree rotations to align given face with Z=1, in vector form x, y, and z."""

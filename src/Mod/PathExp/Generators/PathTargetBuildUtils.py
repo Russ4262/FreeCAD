@@ -28,6 +28,7 @@ import Path.Geom as PathGeom
 import Path.Log as PathLog
 import math
 from PySide import QtCore
+import MeshPart
 
 # lazily loaded modules
 from lazy_loader.lazy_loader import LazyLoader
@@ -379,11 +380,13 @@ def get3DEnvelope(baseShape, faceList, envTargetHeight):
     return targetShape
 
 
-def flattenFace(shape):
+def flattenFace(shape, force=False):
     """flattenFace(shape)...
     This method attempts to return a horizontal cross-section of a single face - a vertical projection of the face.
     """
-    if not isinstance(shape, Part.Face):
+    if not isinstance(shape, Part.Face) and not force:
+        PathLog.error(f"PTBU.flattenFace() face is not 'Part.Face': {type(shape)}")
+        # Part.show(shape, "PTBU_Error_Shp")
         return None
 
     fBB = shape.BoundBox
@@ -602,7 +605,7 @@ def splitClosedWireAtTwoVertexes(closedWire, vertA, vertB, tolerance):
 
 def getCrossSectionFace(shape, sliceZ=None):
     """getCrossSectionFace(shape)... Return a cross-sectional
-    face of the 3D shape provided."""
+    face of the shape provided."""
 
     stockEnv = getEnvelope(shape)
     if sliceZ is None:
@@ -611,6 +614,23 @@ def getCrossSectionFace(shape, sliceZ=None):
     sectFace = Part.Face(sectionWires[0])
     sectFace.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - sectFace.BoundBox.ZMin))
     return sectFace
+
+
+def get3dCrossSectionFace(shape, sliceZ=None):
+    """get3dCrossSectionFace(shape)... Return a cross-sectional
+    face of the 3D shape provided, at sliceZ height or mid-point."""
+
+    if sliceZ is None:
+        sliceZ = (shape.BoundBox.ZMax + shape.BoundBox.ZMin) / 2.0
+    PathLog.info(f"sliceZ: {sliceZ}")
+    sectionWires = shape.slice(FreeCAD.Vector(0, 0, 1), sliceZ)
+    if len(sectionWires) > 0:
+        if sectionWires[0].isClosed():
+            sectFace = Part.Face(sectionWires[0])
+            sectFace.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - sectFace.BoundBox.ZMin))
+            return sectFace
+        Part.show(sectionWires[0], "OpenSectionWire")
+    return None
 
 
 def getEnvelope(shape):
@@ -889,3 +909,300 @@ def getCrossSectionOfSolid(baseShape, height):
 
     cuttingFace = makeBoundBoxFace(bsBB, offset=2.0, zHeight=height)
     return baseShape.common(cuttingFace)
+
+
+def getCrossSectionOfSolid_2(baseShape, height):
+    """getCrossSectionOfSolid_2(baseShape, height)..."""
+    bsBB = baseShape.BoundBox
+
+    if height < bsBB.ZMin:
+        return None
+
+    if height > bsBB.ZMax:
+        return None
+
+    cuttingFace = makeBoundBoxFace(bsBB, offset=4.0, zHeight=height)
+    cuttingFace2 = makeBoundBoxFace(bsBB, offset=2.0, zHeight=height)
+    negative = cuttingFace.cut(baseShape)
+    cs = cuttingFace2.cut(negative)
+    cs.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - cs.BoundBox.ZMin))
+    return cs
+
+
+# Solid correction using mesh
+def sanitizeShape(
+    shape,
+    linearDeflection=0.05,
+    angularDeflection=0.0174533,
+    relative=False,
+    sewShape=False,
+    sewingTolerance=0.1,
+):
+    # __part__=__doc__.getObject("TargetShape001_Shape")
+    # __shape__=Part.getShape(__part__,"")
+    # __mesh__.Mesh=MeshPart.meshFromShape(Shape=shape, LinearDeflection=linearDeflection, AngularDeflection=angularDeflection, Relative=relative)
+    mesh = MeshPart.meshFromShape(
+        Shape=shape,
+        LinearDeflection=linearDeflection,
+        AngularDeflection=angularDeflection,
+        Relative=relative,
+    )
+    # __shape__ = Part.Shape()
+    # __shape__.makeShapeFromMesh(FreeCAD.getDocument('Dropcut_3D_Test_1').getObject('Mesh').Mesh.Topology, 0.100000, False)
+    newShape = Part.Shape()
+    newShape.makeShapeFromMesh(mesh.Topology, sewingTolerance, sewShape)
+
+    # __s__=App.ActiveDocument.debug_SanitizedShape.Shape.Faces
+    # __s__=Part.Solid(Part.Shell(__s__))
+
+    solid = Part.Solid(Part.Shell(newShape.Faces))
+    return solid
+
+
+def meshShape(
+    shape,
+    linearDeflection=0.03,
+    angularDeflection=0.015,
+    relative=False,
+):
+    return MeshPart.meshFromShape(
+        Shape=shape,
+        LinearDeflection=linearDeflection,
+        AngularDeflection=angularDeflection,
+        Relative=relative,
+    )
+
+
+def cutShapeAsMesh(
+    shape,
+    height,
+    linearDeflection=0.05,
+    angularDeflection=0.0174533,
+    relative=False,
+    sewShape=False,
+    sewingTolerance=0.1,
+):
+    mesh = MeshPart.meshFromShape(
+        Shape=shape,
+        LinearDeflection=linearDeflection,
+        AngularDeflection=angularDeflection,
+        Relative=relative,
+    )
+    base = FreeCAD.Vector(0.0, 0.0, height)
+    norm = FreeCAD.Vector(0.0, 0.0, 1.0)
+    mesh.trimByPlane(base, norm)
+    newShape = Part.Shape()
+    newShape.makeShapeFromMesh(mesh.Topology, sewingTolerance, sewShape)
+    # solid = Part.Solid(Part.Shell(newShape.Faces))
+    topFaces = [
+        f.copy() for f in newShape.Faces if PathGeom.isRoughly(f.BoundBox.ZMin, height)
+    ]
+    return fuseShapes(topFaces).removeSplitter()
+
+
+def getRimEdge(facet, val):
+    lp = None
+    for i in range(0, 3):
+        p = facet.Points[i]
+        if PathGeom.isRoughly(p[2], val):
+            if lp:
+                p1 = FreeCAD.Vector(lp[0], lp[1], lp[2])
+                p2 = FreeCAD.Vector(p[0], p[1], p[2])
+                return Part.makeLine(p1, p2)
+            else:
+                lp = p
+    return None
+
+
+def getRimWiresOfMesh(mesh, top=True):
+    """Assumption is that mesh has flat top or bottom"""
+    if top:
+        val = mesh.BoundBox.ZMax
+    else:
+        val = mesh.BoundBox.ZMin
+
+    edges = []
+    for f in mesh.Facets:
+        e = getRimEdge(f, val)
+        if e:
+            edges.append(e)
+
+    wires = []
+    if len(edges) > 0:
+        for lst in Part.sortEdges(edges):
+            wires.append(Part.Wire(lst))
+    return wires
+
+
+def trimMeshAtHeight(mesh, height, crossSection=False):
+    # Mesh has to be copied
+    m = mesh.copy()
+    base = FreeCAD.Vector(0.0, 0.0, height)
+    norm = FreeCAD.Vector(0.0, 0.0, 1.0)
+    m.trimByPlane(base, norm)
+    mObj = FreeCAD.ActiveDocument.addObject("Mesh::Feature", "MeshSect")
+    mObj.Mesh = m
+    if crossSection:
+        faces = []
+        rimWires = getRimWiresOfMesh(m)
+        for w in rimWires:
+            if w.isClosed():
+                faces.append(Part.Face(w))
+            else:
+                Part.show(w, "OpenWire")
+        return fuseShapes(faces)
+    return m
+
+
+# Cross-section mesh at height
+def printFacetPoints(f):
+    p0 = f.Points[0]
+    p1 = f.Points[1]
+    p2 = f.Points[2]
+    print(f"p0.z, p1.z, p2.z: {p0[2]},  {p1[2]},  {p2[2]}")
+
+
+def showFacet(f, height):
+    p0 = f.Points[0]
+    p1 = f.Points[1]
+    p2 = f.Points[2]
+    v0 = FreeCAD.Vector(p0[0], p0[1], p0[2])
+    v1 = FreeCAD.Vector(p1[0], p1[1], p1[2])
+    v2 = FreeCAD.Vector(p2[0], p2[1], p2[2])
+    w = Part.makePolygon([v0, v1, v2, v0])
+    triFace = Part.Face(w)
+    bbf = makeBoundBoxFace(triFace.BoundBox, offset=2.0, zHeight=height)
+    Part.show(triFace, "__triFace")
+    Part.show(bbf, "__bbf")
+    return None
+
+
+def findLine(f, height):
+    p0 = f.Points[0]
+    p1 = f.Points[1]
+    p2 = f.Points[2]
+    v0 = FreeCAD.Vector(p0[0], p0[1], p0[2])
+    v1 = FreeCAD.Vector(p1[0], p1[1], p1[2])
+    v2 = FreeCAD.Vector(p2[0], p2[1], p2[2])
+    w = Part.makePolygon([v0, v1, v2, v0])
+    triFace = Part.Face(w)
+    bbf = makeBoundBoxFace(triFace.BoundBox, offset=2.0, zHeight=height)
+    splitFace = triFace.cut(bbf)
+    for e in splitFace.Faces[0].Edges:
+        p1 = e.Vertexes[0].Point
+        p2 = e.Vertexes[1].Point
+        if PathGeom.isRoughly(p1.z, height) and PathGeom.isRoughly(p2.z, height):
+            return e.copy()
+    # Part.show(triFace, "triFace")
+    # Part.show(bbf, "bbf")
+    print("findLine() failed")
+    return None
+
+
+def lineFromFacetPoints(p1, p2):
+    v1 = FreeCAD.Vector(p1[0], p1[1], p1[2])
+    v2 = FreeCAD.Vector(p2[0], p2[1], p2[2])
+    return Part.makeLine(v1, v2)
+
+
+def crossSectionMesh(mesh, height):
+    edges = []
+    for f in mesh.Facets:
+        p0 = f.Points[0]
+        p1 = f.Points[1]
+        p2 = f.Points[2]
+        z0 = p0[2]
+        z1 = p1[2]
+        z2 = p2[2]
+        hz0 = PathGeom.isRoughly(z0, height)
+        hz1 = PathGeom.isRoughly(z1, height)
+        hz2 = PathGeom.isRoughly(z2, height)
+        if z0 > height and z1 > height and z2 > height:
+            # ignore all above
+            pass
+        elif z0 < height and z1 < height and z2 < height:
+            # ignore all below
+            pass
+        elif hz0:
+            # check for horiz line
+            if hz1:
+                edges.append(lineFromFacetPoints(p0, p1))
+            elif hz2:
+                edges.append(lineFromFacetPoints(p0, p2))
+            elif z1 > height and z2 > height:
+                pass  # triangle rising from height
+            elif z1 < height and z2 < height:
+                pass  # triangle falling from height
+            else:
+                print("no Z0 horiz line")
+                e = findLine(f, height)
+                if e:
+                    edges.append(e)
+                else:
+                    # showFacet(f, height)
+                    pass
+        elif hz1:
+            # check for horiz line
+            if hz2:
+                edges.append(lineFromFacetPoints(p1, p2))
+            elif z0 > height and z2 > height:
+                pass  # triangle rising from height
+            elif z0 < height and z2 < height:
+                pass  # triangle falling from height
+            else:
+                print("no Z1 horiz line")
+                e = findLine(f, height)
+                if e:
+                    edges.append(e)
+                else:
+                    # showFacet(f, height)
+                    pass
+
+        elif hz1 and z0 > height and z2 > height:
+            pass  # triangle falling from height
+        elif hz2 and z0 < height and z1 < height:
+            pass  # triangle falling from height
+
+        # elif z0 < height and z1 > height and z2 > height:
+        #    pass  # triangle falling from height
+
+        else:
+            e = findLine(f, height)
+            if e:
+                edges.append(e)
+            else:
+                print(f"height: {height}")
+                printFacetPoints(f)
+
+    faces = []
+    if len(edges) > 0:
+        edgeLists = Part.sortEdges(edges)
+        for lst in edgeLists:
+            w = Part.Wire(lst)
+            if w.isClosed():
+                faces.append(Part.Face(w))
+            else:
+                ep0 = w.Vertexes[0].Point
+                ep1 = w.Vertexes[-1].Point
+                seg = Part.makeLine(ep1, ep0)
+                lst.append(seg)
+                w1 = Part.Wire(lst)
+                if w1.isClosed():
+                    faces.append(Part.Face(w1))
+                else:
+                    """ep0 = w1.Vertexes[0].Point
+                    ln0 = Part.makeLine(ep0, FreeCAD.Vector(ep0.x, ep0.y, ep0.z + 3.0))
+                    ep1 = w1.Vertexes[-1].Point
+                    ln1 = Part.makeLine(ep1, FreeCAD.Vector(ep1.x, ep1.y, ep1.z + 5.0))
+                    Part.show(w1, "OpenWire1")
+                    Part.show(ln0, "OpenStart1")
+                    Part.show(ln1, "OpenEnd1")"""
+                    pass
+
+    if len(faces) > 0:
+        for fc in faces:
+            fc.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - fc.BoundBox.ZMin))
+        fused = fuseShapes(faces)
+        # Part.show(fused, "CSMesh")
+        return fused
+    return None

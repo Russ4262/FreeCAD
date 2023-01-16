@@ -120,10 +120,10 @@ def sliceShape(fullShape, depthParams, region=None, findCommon=True):
         shape = fullShape.common(regExt)
     else:
         shape = fullShape
-    
+
     # shapeZMin = shape.BoundBox.ZMin
     # shapeZMax = shape.BoundBox.ZMax
-    
+
     # Part.show(shape, "SlicingSourceShape")
 
     thickness = depths[0] - depths[1]
@@ -236,7 +236,7 @@ def getPerp(start, end, dist):
     return perp
 
 
-def makeLineFace(edge, toolRadius):
+def makeLineFace_orig(edge, toolRadius):
     """makeLineFace(edge, toolRadius) ..."""
 
     start = edge.Vertexes[0].Point
@@ -273,7 +273,45 @@ def makeLineFace(edge, toolRadius):
     return pathTravel
 
 
-def makeArcFace(edge, toolRadius):
+def makeLineFace(edge, toolRadius):
+    """makeLineFace(edge, toolRadius) ..."""
+
+    start = edge.Vertexes[0].Point
+    end = edge.Vertexes[1].Point
+
+    # Make first cylinder
+    ce1 = Part.Wire(Part.makeCircle(toolRadius, start).Edges)
+    cylinder1 = Part.Face(ce1)
+    cylinder1.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - cylinder1.BoundBox.ZMin))
+
+    # Make second cylinder
+    ce2 = Part.Wire(Part.makeCircle(toolRadius, end).Edges)
+    cylinder2 = Part.Face(ce2)
+    cylinder2.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - cylinder2.BoundBox.ZMin))
+
+    # Make extruded rectangle to connect cylinders
+    perp = getPerp(start, end, toolRadius)
+    v1 = start.add(perp)
+    v2 = start.sub(perp)
+    v3 = end.sub(perp)
+    v4 = end.add(perp)
+    e1 = Part.makeLine(v1, v2)
+    e2 = Part.makeLine(v2, v3)
+    e3 = Part.makeLine(v3, v4)
+    e4 = Part.makeLine(v4, v1)
+    edges = Part.__sortEdges__([e1, e2, e3, e4])
+    rectFace = Part.Face(Part.Wire(edges))
+    rectFace.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - rectFace.BoundBox.ZMin))
+
+    bbf = PathGeom.makeBoundBoxFace(rectFace.BoundBox, offset=toolRadius + 1.0)
+    a = bbf.cut(cylinder1)
+    b = a.cut(cylinder2)
+    c = b.cut(rectFace)
+
+    return Part.Face(c.Wires[1])
+
+
+def makeArcFace_orig(edge, toolRadius):
     """makeLineFace(start, end, toolRadius) ..."""
 
     if len(edge.Vertexes) == 1:
@@ -342,6 +380,75 @@ def makeArcFace(edge, toolRadius):
     return pathTravel
 
 
+def makeArcFace(edge, toolRadius):
+    """makeLineFace(start, end, toolRadius) ..."""
+
+    if len(edge.Vertexes) == 1:
+        newRad = edge.Curve.Radius + toolRadius
+        e1 = Part.makeCircle(
+            newRad,
+            edge.Curve.Center,
+            FreeCAD.Vector(0.0, 0.0, 1.0),
+        )
+        outWire = Part.Wire([e1])
+        outWire.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - outWire.BoundBox.ZMin))
+
+        newRad = edge.Curve.Radius - toolRadius
+        if newRad > toolRadius:
+            e2 = Part.makeCircle(
+                newRad,
+                edge.Curve.Center,
+                FreeCAD.Vector(0.0, 0.0, 1.0),
+            )
+            inWire = Part.Wire([e2])
+            inWire.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - inWire.BoundBox.ZMin))
+            inFace = Part.Face(inWire)
+            outFace = Part.Face(outWire)
+            arcFace = outFace.cut(inFace)
+        else:
+            arcFace = Part.Face(outWire)
+
+        return arcFace
+
+    start = edge.Vertexes[0].Point
+    end = edge.Vertexes[1].Point
+
+    # Make first cylinder
+    ce1 = Part.Wire(Part.makeCircle(toolRadius, start).Edges)
+    cylinder1 = Part.Face(ce1)
+    cylinder1.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - cylinder1.BoundBox.ZMin))
+
+    # Make second cylinder
+    ce2 = Part.Wire(Part.makeCircle(toolRadius, end).Edges)
+    cylinder2 = Part.Face(ce2)
+    cylinder2.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - cylinder2.BoundBox.ZMin))
+
+    edgeRad = edge.Curve.Radius
+    arcOuter = scaleArc(edge, toolRadius)
+
+    if edgeRad - toolRadius < 0.0:
+        # only three segments
+        seg1 = Part.makeLine(edge.Curve.Center, arcOuter.Vertexes[0].Point)
+        seg3 = Part.makeLine(arcOuter.Vertexes[1].Point, edge.Curve.Center)
+        wire = Part.Wire([seg1, arcOuter, seg3])
+        arcFace = Part.Face(wire)
+    else:
+        arcInner = scaleArc(edge, -1.0 * toolRadius)
+        seg1 = Part.makeLine(arcInner.Vertexes[1].Point, arcOuter.Vertexes[1].Point)
+        seg3 = Part.makeLine(arcOuter.Vertexes[0].Point, arcInner.Vertexes[0].Point)
+        wire = Part.Wire([seg1, arcOuter, seg3, arcInner])
+        arcFace = Part.Face(wire)
+    arcFace.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - arcFace.BoundBox.ZMin))
+    # Part.show(arcFace)
+
+    bbf = PathGeom.makeBoundBoxFace(arcFace.BoundBox, offset=toolRadius + 1.0)
+    a = bbf.cut(cylinder1)
+    b = a.cut(cylinder2)
+    c = b.cut(arcFace)
+
+    return Part.Face(c.Wires[1])
+
+
 def scaleArc(edge, radDiff):
     curve = edge.Curve
     startVect = edge.Vertexes[0].Point.sub(curve.Center)
@@ -399,6 +506,7 @@ def wiresToPathFace_orig(wires, toolDiameter):
 
     return cleanFace(seed)
 
+
 def wiresToPathFace(wires, toolDiameter):
     td = round(toolDiameter * 0.9995, 6)
     toolRadius = td / 2.0
@@ -428,7 +536,7 @@ def wiresToPathFace(wires, toolDiameter):
     for f in allFaces:
         cut = enclosureFace.cut(f)
         enclosureFace = cut.copy()
-        
+
     enclosureFace2 = PathGeom.makeBoundBoxFace(comp.BoundBox, 4.0)
 
     return enclosureFace2.cut(enclosureFace)

@@ -59,7 +59,7 @@ __doc__ = "Path strategies available for path generation."
 __contributors__ = ""
 
 
-PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
+PathLog.setLevel(PathLog.Level.DEBUG, PathLog.thisModule())
 # PathLog.trackModule(PathLog.thisModule())
 
 
@@ -189,9 +189,12 @@ class PathGeometryGenerator:
         self.cutDirection = cutDirection
         self.stepOver = stepOver
         self.materialAllowance = materialAllowance
-        self.offsetDirection = (
-            1.0 if profileOutside else -1.0
-        )  # 1.0=outside;  -1.0=inside
+        if cutPattern in ["Profile", "MultiProfile"]:
+            self.offsetDirection = (
+                1.0 if profileOutside else -1.0
+            )  # 1.0=outside;  -1.0=inside
+        else:
+            self.offsetDirection = -1.0
         self.minTravel = minTravel
         self.keepToolDown = keepToolDown
         self.toolController = toolController
@@ -204,7 +207,9 @@ class PathGeometryGenerator:
             else float(toolController.Tool.Diameter)
         )
         self.toolRadius = self.toolDiameter / 2.0
-        self.cutOut = self.toolDiameter * (self.stepOver / 100.0) * self.offsetDirection
+        self.cutOut = self.toolDiameter * (
+            self.stepOver / 100.0
+        )  # * self.offsetDirection
 
         if cutPattern in self.patterns:
             self.cutPattern = cutPattern
@@ -257,6 +262,8 @@ class PathGeometryGenerator:
     # Raw cut pattern geometry generation methods
     def _Line(self):
         """_Line()... Returns raw set of Line wires at Z=0.0."""
+        self._debugMsg("_Line()")
+
         geomList = []
         centRot = FreeCAD.Vector(
             0.0, 0.0, 0.0
@@ -264,10 +271,14 @@ class PathGeometryGenerator:
         segLength = self.halfDiag
         if self.patternCenterAt in ["XminYmin", "Custom"]:
             segLength = 2.0 * self.halfDiag
+        self._debugMsg(f"_Line segLength: {segLength}")
 
         # Create end points for set of lines to intersect with cross-section face
         pntTuples = []
-        for lc in range((-1 * (self.halfPasses - 1)), self.halfPasses + 1):
+        start = -1 * (self.halfPasses - 1)
+        end = self.halfPasses + 1
+        self._debugMsg(f"_Line pnt tuple loop start, end: {start}, {end}")
+        for lc in range(start, end):
             x1 = centRot.x - segLength
             x2 = centRot.x + segLength
             y1 = centRot.y + (lc * self.cutOut)
@@ -275,6 +286,8 @@ class PathGeometryGenerator:
             p1 = FreeCAD.Vector(x1, y1, 0.0)
             p2 = FreeCAD.Vector(x2, y1, 0.0)
             pntTuples.append((p1, p2))
+
+        self._debugMsg(f"_Line pnt tuple count: {len(pntTuples)}")
 
         # Convert end points to lines
 
@@ -296,6 +309,7 @@ class PathGeometryGenerator:
 
     def _LineOffset(self):
         """_LineOffset()... Returns raw set of Line wires at Z=0.0, with the Offset portion added later in the `_generatePathGeometry()` method."""
+        self._debugMsg("_LineOffset()")
         return self._Line()
 
     def _Circular(self):
@@ -885,6 +899,8 @@ class PathGeometryGenerator:
     # Path linking methods
     def _Link_Line(self):
         """_Link_Line()... Apply necessary linking to resulting wire set after common between target face and raw wire set."""
+        self._debugMsg("_Link_Line()")
+
         allGroups = []
         allWires = []
 
@@ -1430,11 +1446,11 @@ class PathGeometryGenerator:
 
     def _generatePathGeometry(self):
         """_generatePathGeometry()... Control function that generates path geometry wire sets."""
-        PathLog.debug("_generatePathGeometry()")
+        self._debugMsg("_generatePathGeometry()")
 
         patternMethod = getattr(self, "_" + self.cutPattern)
         self.rawGeoList = patternMethod()
-        # PathLog.info(f"len(self.rawGeoList): {len(self.rawGeoList)}")
+        self._debugMsg(f"len(self.rawGeoList): {len(self.rawGeoList)}")
 
         # Create compound object to bind all geometry
         geomShape = Part.makeCompound(self.rawGeoList)
@@ -2183,13 +2199,14 @@ class PathGeometryGenerator:
 
         # Part.show(offsetWF, "OffsetWF")
 
-        if not offsetWF:
+        if offsetWF is False:
             self._debugMsg("getOffsetArea() failed")
+            Part.show(self.targetFace, "PGG_TargetFace")
         elif len(offsetWF.Faces) == 0:
             self._debugMsg("No offset faces to process for path geometry.")
         else:
             for fc in offsetWF.Faces:
-                fc.translate(FreeCAD.Vector(0.0, 0.0, self.targetFaceHeight))
+                # fc.translate(FreeCAD.Vector(0.0, 0.0, self.targetFaceHeight))
 
                 # useFaces = fc.cut(self.baseShape)
                 useFaces = fc

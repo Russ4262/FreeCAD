@@ -27,6 +27,7 @@ import Path.Base.Gui.Util as PathGui
 import Path.Log as PathLog
 import Ops.PathOp2 as PathOp2
 import Taskpanels.PathTaskPanelPage as PathTaskPanelPage
+import Macros.Macro_AlignToFeature as AlignToFeature
 
 from PySide import QtGui
 
@@ -207,7 +208,7 @@ class TaskPanelHeightsDepthsPage(PathTaskPanelPage.TaskPanelPage):
             self.setFields(obj)
 
     def depthSet(self, obj, spinbox, prop):
-        z = self.selectionZLevel(FreeCADGui.Selection.getSelectionEx())
+        z = self.selectionZLevel(obj, FreeCADGui.Selection.getSelectionEx())
         if z is not None:
             PathLog.debug("depthSet(%s, %s, %.2f)" % (obj.Label, prop, z))
             if spinbox.expression():
@@ -219,9 +220,29 @@ class TaskPanelHeightsDepthsPage(PathTaskPanelPage.TaskPanelPage):
         else:
             PathLog.info("depthSet(-)")
 
-    def selectionZLevel(self, sel):
+    def selectionZLevel(self, obj, sel):
         if len(sel) == 1 and len(sel[0].SubObjects) == 1:
-            sub = sel[0].SubObjects[0]
+            tsObj = None
+            if obj.Name.startswith("TargetShape"):
+                tsObj = obj
+            elif hasattr(obj, "TargetShape"):
+                tsObj = obj.TargetShape
+
+            if tsObj:
+                subName = sel[0].SubElementNames[0]
+                AlignToFeature.CENTER_OF_ROTATION = tsObj.CenterOfRotation
+                rotations, __ = AlignToFeature.getRotationsForObject(tsObj)
+                if rotations:
+                    rotatedBase = AlignToFeature.rotateShapeWithList(
+                        sel[0].Object.Shape, rotations
+                    )
+                    rotatedBase.translate(tsObj.CenterOfRotation.negative())
+                    sub = rotatedBase.getElement(subName)
+                else:
+                    sub = sel[0].SubObjects[0]
+            else:
+                sub = sel[0].SubObjects[0]
+
             if "Vertex" == sub.ShapeType:
                 return sub.Z
             if PathGeom.isHorizontal(sub):
@@ -232,7 +253,7 @@ class TaskPanelHeightsDepthsPage(PathTaskPanelPage.TaskPanelPage):
         return None
 
     def updateSelection(self, obj, sel):
-        if self.selectionZLevel(sel) is not None:
+        if self.selectionZLevel(obj, sel) is not None:
             self.form.startDepthSet.setEnabled(True)
             self.form.finalDepthSet.setEnabled(True)
         else:

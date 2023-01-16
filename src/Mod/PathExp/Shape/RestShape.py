@@ -77,6 +77,15 @@ class RestShape(PathOp2.ObjectOp2):
                     "Base object for rest shape operation.",
                 ),
             ),
+            (
+                "App::PropertyBool",
+                "RemoveSplitters",
+                "Operation",
+                translate(
+                    "Path",
+                    "Set True to remove splitters from faces. May introduce bugs in shape.",
+                ),
+            ),
         ]
 
     def opPropertyDefaults(self, obj, job):
@@ -94,9 +103,7 @@ class RestShape(PathOp2.ObjectOp2):
         # defaults = {
         #    "Model": model,
         # }
-        defaults = {
-            "Model": "None",
-        }
+        defaults = {"Model": "None", "RemoveSplitters": False}
 
         return defaults
 
@@ -174,6 +181,88 @@ class RestShape(PathOp2.ObjectOp2):
 
         # Make and save removal shape
         removalShapes = [
+            makeRemovalShape(c.Wires, toolcontroller, depths, useMethod=2)
+            for c in op.CutPatternShape.Compounds
+        ]
+
+        # if first op, prevRestShape will be job stock
+        prevRestObj = getPreviousRestObj(self.job, obj.Name)
+        # obj.TargetShape = prevRestObj
+        prevRestShape = prevRestObj.Shape
+
+        # removalShape = Part.makeCompound(removalShapes)  # This method functions correctly with workflow
+        if len(removalShapes) == 0:
+            PathLog.error("No removal shapes created.")
+            obj.ShowShape = False
+            return
+
+        if len(removalShapes) == 1:
+            restShape = prevRestShape.cut(removalShapes[0])
+        else:
+            # orient removal to natural model position
+            removalShape = putRotatedShape(removalShapes[0], op)
+            restShape = prevRestShape.cut(removalShape)
+            for rs in removalShapes[1:]:
+                rotated = putRotatedShape(rs, op)
+                cut = restShape.cut(rotated)
+                restShape = cut
+
+        if obj.RemoveSplitters:
+            # smooth = restShape.removeSplitter()
+            # shell = Part.Solid(Part.Shell([f.copy() for f in smooth.Faces]))
+            # obj.Shape = shell
+            obj.Shape = restShape.removeSplitter()
+        else:
+            obj.Shape = restShape
+
+        rstObj = FreeCAD.ActiveDocument.addObject("Part::Feature", "RestShape")
+        rstObj.Shape = obj.Shape
+        rstObj.Label = f"RestShape_{op.Label}"
+        rstObj.purgeTouched()
+
+        if obj.ShowShape:
+            rstShp = FreeCAD.ActiveDocument.addObject(
+                "Part::Feature", f"Shape_{op.Label}"
+            )
+            rstShp.Shape = restShape
+            rstShp.purgeTouched()
+        obj.ShowShape = False
+
+    def opExecute_2_best(self, obj):
+        """opExecute(obj) ..."""
+        # PathLog.debug("RestShape.opExecute()")
+        PathLog.info("RestShape.opExecute()")
+        PathLog.info(f"Base object name: {obj.Model}")
+
+        if obj.Model == "None":
+            PathLog.info("No source operation provided.")
+            return
+
+        removalShapes = []
+        restShapes = []
+
+        op = FreeCAD.ActiveDocument.getObject(obj.Model)
+        obj.BaseObj = op
+
+        toolcontroller = op.ToolController
+
+        # Initiate depthparams and calculate operation heights for operation
+        finish_step = op.FinishDepth.Value if hasattr(op, "FinishDepth") else 0.0
+        self.depthparams = PathUtils.depth_params(
+            clearance_height=op.ClearanceHeight.Value,
+            safe_height=op.SafeHeight.Value,
+            start_depth=op.StartDepth.Value,
+            step_down=op.StepDown.Value,
+            z_finish_step=finish_step,
+            final_depth=op.FinalDepth.Value,
+            user_depths=None,
+        )
+        depths = [d for d in self.depthparams]
+        depths.insert(0, self.depthparams.start_depth)
+        # Part.show(op.CutPatternShape, "Op_CutPatternShape")
+
+        # Make and save removal shape
+        removalShapes = [
             makeRemovalShape(c.Wires, toolcontroller, depths)
             for c in op.CutPatternShape.Compounds
         ]
@@ -191,10 +280,15 @@ class RestShape(PathOp2.ObjectOp2):
             )  # if first op, prevRestObj will be job stock
             restShape = prevRestObj.Shape.cut(removalShape)
 
-            obj.Shape = restShape
+            if obj.RemoveSplitters:
+                smooth = restShape.removeSplitter()
+                shell = Part.Solid(Part.Shell([f.copy() for f in smooth.Faces]))
+                obj.Shape = shell
+            else:
+                obj.Shape = restShape
 
             rstObj = FreeCAD.ActiveDocument.addObject("Part::Feature", "RestShape")
-            rstObj.Shape = restShape
+            rstObj.Shape = obj.Shape
             rstObj.Label = f"RestShape_{op.Label}"
             rstObj.purgeTouched()
 
@@ -204,9 +298,9 @@ class RestShape(PathOp2.ObjectOp2):
             )
             rstShp.Shape = restShape
             rstShp.purgeTouched()
-            obj.ShowShape = False
+        obj.ShowShape = False
 
-    def opExecute_orig(self, obj):
+    def opExecute_1(self, obj):
         """opExecute(obj) ... called whenever the receiver needs to be recalculated.
         See documentation of execute() for a list of base functionality provided."""
         # PathLog.debug("TargetShape.opExecute()")
@@ -367,7 +461,7 @@ def getHeightAdjustedShape(shape, startDepth):
     return shape.cut(faceExt).copy()
 
 
-def makeRemovalShape(pathGeomList, ToolController, depths):
+def makeRemovalShape(pathGeomList, ToolController, depths, useMethod=3):
     removalShapes = []
     toolDiameter = (
         ToolController.Tool.Diameter.Value
@@ -399,7 +493,7 @@ def makeRemovalShape(pathGeomList, ToolController, depths):
                 pathArea.extrude(FreeCAD.Vector(0.0, 0.0, top - btm + 0.00002))
             )
 
-    return fuseShapes(removalShapes, method=2)
+    return fuseShapes(removalShapes, method=useMethod)
 
 
 def fuseShapes(shapeList, method=1):

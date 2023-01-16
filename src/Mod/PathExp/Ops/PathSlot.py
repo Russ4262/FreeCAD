@@ -34,7 +34,7 @@ from PySide import QtCore
 import Path
 import Path.Log as PathLog
 import PathScripts.PathUtils as PathUtils
-import Ops.PathOp as PathOp
+import Ops.PathOp2 as PathOp
 import math
 
 # lazily loaded modules
@@ -57,15 +57,14 @@ else:
     PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 
 
-class ObjectSlot(PathOp.ObjectOp):
+class ObjectSlot(PathOp.ObjectOp2):
     """Proxy object for Slot operation."""
 
     def opFeatures(self, obj):
         """opFeatures(obj) ... return all standard features"""
         return (
             PathOp.FeatureTool
-            | PathOp.FeatureDepths
-            | PathOp.FeatureHeights
+            | PathOp.FeatureHeightsDepths
             | PathOp.FeatureStepDown
             | PathOp.FeatureCoolant
             | PathOp.FeatureBaseVertexes

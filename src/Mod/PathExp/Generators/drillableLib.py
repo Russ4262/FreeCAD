@@ -1,4 +1,4 @@
-import PathScripts.PathLog as PathLog
+import Path.Log as PathLog
 import FreeCAD as App
 import Part
 import numpy

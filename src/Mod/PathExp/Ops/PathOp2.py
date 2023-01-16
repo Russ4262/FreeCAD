@@ -31,6 +31,7 @@ import Path.Geom as PathGeom
 import Path.Log as PathLog
 import Path.Base.Util as PathUtil
 import PathScripts.PathUtils as PathUtils
+import Macros.Macro_AlignToFeature as AlignToFeature
 
 # lazily loaded modules
 from lazy_loader.lazy_loader import LazyLoader
@@ -45,6 +46,7 @@ __title__ = "Base class for all operations."
 __author__ = "sliptonic (Brad Collette)"
 __url__ = "https://www.freecadweb.org"
 __doc__ = "Base class and properties implementation for all Path operations."
+__contributors__ = "russ4262 (Russell Johnson)"
 
 PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 # PathLog.trackModule()
@@ -109,6 +111,8 @@ class ObjectOp2(object):
         PathLog.debug("ObjectOp2.__init__()")
 
         self.obj = obj
+        self.atfRotations = []
+        self.atfIsPlanar = False
         notOpPrototype = (
             True
             if not hasattr(obj, "DoNotSetDefaultValues")
@@ -520,18 +524,6 @@ class ObjectOp2(object):
 
         return defaults
 
-    def propertyEnumerations_old(self):
-        """propertyEnumerations() ... Returns operation-specific property enumeration lists as a dictionary.
-        Each property name is a key and the enumeration list is the value.
-        Should be overwritten by subclasses."""
-        # Enumeration lists for App::PropertyEnumeration properties
-        propEnums = {}
-
-        for k, v in self.opPropertyEnumerations().items():
-            propEnums[k] = v
-
-        return propEnums
-
     def propertyEnumerations(self):
         """propertyEnumerations() ... Returns operation-specific property enumeration lists as a dictionary.
         Each property name is a key and the enumeration list is the value.
@@ -637,8 +629,6 @@ class ObjectOp2(object):
 
         # call operation-specific method to apply additional default values
         self.opSetDefaultValues(obj, self.job)
-
-        # self.propertiesReady = True
 
     def setEditorModes(self, obj):
         """Editor modes are not preserved during document store/restore, set editor modes for all properties"""
@@ -1075,6 +1065,19 @@ class ObjectOp2(object):
                 val = getattr(attr, "Value")
                 PathLog.debug(f"obj.{a}: {val}")
 
+    def getRotatedShape(self, obj, shape):
+        """getRotatedShape(obj, shape)...
+        Return rotated shape per rotations found in related obj properties."""
+        AlignToFeature.CENTER_OF_ROTATION = obj.CenterOfRotation
+        rotations, isPlanar = AlignToFeature.getRotationsForObject(obj)
+        self.atfRotations = rotations
+        self.atfIsPlanar = isPlanar
+        if len(rotations) > 0:
+            rotatedShape = AlignToFeature.rotateShapeWithList(shape, rotations)
+            rotatedShape.translate(obj.CenterOfRotation.negative())
+            return rotatedShape
+        return shape
+
     # Cleanup operation children upon op deletion
     def onDelete(self, obj, arg2=None):
         doc = obj.Document
@@ -1150,12 +1153,8 @@ class ObjectOp2(object):
         if obj.TargetShape is None:
             return cmds
 
-        rotations = obj.TargetShape.Proxy._getRotationsList(
-            obj.TargetShape, mapped=True
-        )
+        rotations = AlignToFeature.buildRotationsList(obj.TargetShape, mapped=True)
         if reverse:
-            # useRotations = [(a, -1.0 * d) for a, d in rotations]
-            # useRotations.reverse()
             useRotations = [(a, 0.0) for a, d in rotations]
         else:
             useRotations = rotations
@@ -1166,7 +1165,7 @@ class ObjectOp2(object):
             )
 
         for axis, deg in useRotations:
-            if not PathGeom.isRoughly(deg, 0.0):
+            if not PathGeom.isRoughly(deg, 0.0) or reverse:
                 cmds.append(Path.Command("G1", {axis: deg, "F": self.vertFeed}))
         return cmds
 

@@ -227,22 +227,24 @@ class StrategyClearVolume:
         self.commandList = []
         self.useStaticCenter = True
         self.isCenterSet = False
-        self.offsetDirection = (
-            1.0 if profileOutside else -1.0
-        )  # 1.0=outside;  -1.0=inside
         self.endVector = None
         self.pathParams = ""
         self.areaParams = ""
         self.simObj = None
         self.transitionClearance = 2.0  # millimeters
-        self.baseShape = None
         self.layerDepth = 0.0
         self.startCommands = []
         self.useOCL = False
+        self.baseShape = None
+        self.rotatedShape = None
+        self.rotatedStock = None
+        self.rotations = []
 
         # Save argument values to class instance
         self.baseObject = baseObject
-        self.volumeShape = volumeShape
+        self.volumeShape = volumeShape.copy()
+        # Slightly raise to avoid introduction of eliminated holes
+        # self.volumeShape.translate(FreeCAD.Vector(0.0, 0.0, 0.0000001))
         self.depthOffset = depthOffset
         self.patternCenterAt = patternCenterAt
         self.patternCenterCustom = patternCenterCustom
@@ -259,6 +261,10 @@ class StrategyClearVolume:
         self.startPoint = startPoint
         self.depthParams = depthParams
         self.profileOutside = profileOutside
+        if cutPattern in ["Profile", "MultiProfile"] and self.profileOutside:
+            self.offsetDirection = 1.0
+        else:
+            self.offsetDirection = -1.0
 
         self.clearanceHeight = depthParams.clearance_height
         self.safeHeight = depthParams.safe_height
@@ -317,12 +323,12 @@ class StrategyClearVolume:
         else:
             PathLog.debug(msg)
 
-    def _addDebugObject(self, objShape, objName="shape"):
+    def _addDebugObject(self, objShape, objName="shape", force=False):
         """_addDebugObject(objShape, objName='shape')
         If `self.isDebug` and `self.showDebugShapes` flags are True, the provided
         debug shape will be added to the active document with the provided name.
         """
-        if self.isDebug and self.showDebugShapes:
+        if (self.isDebug and self.showDebugShapes) or force:
             O = FreeCAD.ActiveDocument.addObject("Part::Feature", "debug_" + objName)
             O.Shape = objShape
             O.purgeTouched()
@@ -1562,50 +1568,86 @@ class StrategyClearVolume:
         #    return self._getAdaptivePaths()
 
         # Make box to serve as cut tool, and move into position above shape
-        volShpBB = self.volumeShape.BoundBox
+        self._addDebugObject(self.volumeShape, f"VolumeShape")
+        resetVolShp = _applyShapeRotation(self.volumeShape, self.rotations)
+        self._addDebugObject(resetVolShp, f"ResetVolumeShape")
+
+        # sanitizedShape = TargetBuildUtils.sanitizeShape(self.volumeShape)
+        # self._addDebugObject(sanitizedShape, "SanitizedShape", force=True)
+        meshedShape = TargetBuildUtils.meshShape(self.volumeShape)
 
         success = False
         for passDepth in depthParams:
-            self.layerDepth = passDepth
-            cutFace = PathGeom.makeBoundBoxFace(volShpBB, offset=5.0, zHeight=passDepth)
-            workingFaces = self.volumeShape.common(cutFace)
+            adjPassDepth = passDepth + 0.0000001
+            self.layerDepth = adjPassDepth
 
-            # Part.show(workingFaces)
+            # workingFaces = makeWorkingFaces(sanitizedShape, adjPassDepth)
+            # workingFaces = getWorkingFaces(meshedShape, passDepth)
+            workingFaces = TargetBuildUtils.crossSectionMesh(meshedShape, passDepth)
 
-            self._debugMsg(
-                "{} faces at passDepth: {}".format(len(workingFaces.Faces), passDepth)
-            )
-            if workingFaces and len(workingFaces.Faces) > 0:
+            if (
+                workingFaces
+                and workingFaces is not None
+                and len(workingFaces.Faces) > 0
+            ):
+                self._addDebugObject(workingFaces, f"WorkFaces")
+                self._debugMsg(
+                    "{} faces at adjPassDepth: {}".format(
+                        len(workingFaces.Faces), adjPassDepth
+                    )
+                )
+
                 for wf in workingFaces.Faces:
                     offsetVal = (
                         0.0
                         if self.cutPattern in ["Adaptive", "Profile", "MultiProfile"]
-                        else self.toolDiameter
+                        else 0.0  # self.toolRadius  # self.toolDiameter
                     )
                     offsetVal += self.materialAllowance
 
+                    # flatWireFace = Part.Face(
+                    #    TargetBuildUtils.flattenWireSingleLoop(wf.Wires[0])
+                    # )
+
                     if offsetVal != 0.0:
-                        offsetVal = -1.0 * offsetVal * self.offsetDirection
+                        offsetVal = offsetVal * self.offsetDirection
                         PathLog.info(f"PathStrategyClearing offset: {offsetVal}")
                         if self.cutPattern in ["Profile", "MultiProfile"]:
-                            useFace = PathUtils.getOffsetArea(wf, offsetVal)
+                            useFace1 = PathUtils.getOffsetArea(wf, offsetVal)
                         else:
                             offsetFace = PathUtils.getOffsetArea(wf, offsetVal)
                             if offsetFace is False:
-                                useFace = None
+                                useFace1 = None
                             else:
-                                useFace = offsetFace.cut(self.baseObject.Shape)
+                                # useFace = offsetFace.cut(self.baseObject.Shape)
+                                # useFace2 = offsetFace.cut(self.rotatedShape) # Introduces offset errors for unknown reason
+                                # self._addDebugObject(
+                                #    useFace2, f"UseFace2_at_{round(adjPassDepth,2)}"
+                                # )
+                                useFace1 = offsetFace
                     else:
-                        useFace = wf
+                        useFace1 = wf
 
-                    if useFace is not None:
+                    if useFace1 is not None:
+                        useFace1.translate(
+                            FreeCAD.Vector(
+                                0.0, 0.0, adjPassDepth - useFace1.BoundBox.ZMin
+                            )
+                        )
+                        # clean = TargetBuildUtils.flattenFace(useFace1, force=True)
+                        # clean = _cleanHorizontalFace(useFace1)
+                        clean = Part.Face(
+                            TargetBuildUtils.flattenWireSingleLoop(useFace1.Wires[0])
+                        )
+                        useFace = clean.cut(self.rotatedShape)
                         useFace.translate(
                             FreeCAD.Vector(0.0, 0.0, 0.0 - useFace.BoundBox.ZMin)
                         )
 
-                    # Part.show(useFace, "UseFace")
+                    self._addDebugObject(
+                        useFace, f"UseFace_at_{round(adjPassDepth,2)}", force=False
+                    )
 
-                    # self._addDebugObject(useFace, 'workingFace_' + str(round(passDepth, 2)))
                     pathGeom = self._getPathGeometry(useFace)
                     if pathGeom:
                         self.pathGeometry.extend(pathGeom)
@@ -1657,7 +1699,7 @@ class StrategyClearVolume:
         """
         # self._debugMsg("StrategyClearing.execute()")
         PathLog.info("StrategyClearing.execute()")
-        import PathScripts.strategies.PathStrategyOCL as PathStrategyOCL
+        import Generators.PathStrategyOCL as PathStrategyOCL
 
         # Uncomment as needed for localized class debugging
         # self.isDebug = True
@@ -1788,3 +1830,115 @@ class StrategyClearVolume:
 
 
 # Eclass
+
+
+def makeWorkingFaces(shape, sliceHeight):
+    volShpBB = shape.BoundBox
+
+    # Original method to make workingFaces
+    # cutFace = PathGeom.makeBoundBoxFace(
+    #    volShpBB, offset=5.0, zHeight=sliceHeight
+    # )
+    # workingFaces = self.volumeShape.common(cutFace)
+
+    # New method to make workingFaces, using simple cross-sectioning
+    # workingFaces = TargetBuildUtils.get3dCrossSectionFace(
+    #    shape, sliceZ=sliceHeight
+    # )
+
+    # Third method for cross-section
+    # workingFaces = TargetBuildUtils.getCrossSectionOfSolid_2(
+    #    shape, sliceHeight
+    # )
+
+    # Fourth method for cross-section
+    """
+        workingLayer = TargetBuildUtils.getThickCrossSection(
+            self.volumeShape, sliceHeight - 1.0, sliceHeight, isDebug=False
+        )
+        workingFaces = None
+        if hasattr(workingLayer, "Faces"):
+            topFaces = [
+                f.copy()
+                for f in workingLayer.Faces
+                if PathGeom.isRoughly(f.BoundBox.ZMin, sliceHeight)
+            ]
+            workingFaces = Part.makeCompound(topFaces)
+        """
+
+    # New method to make workingFaces, using simple cross-sectioning
+    """
+    bbf = PathGeom.makeBoundBoxFace(volShpBB, offset=5.0, zHeight=sliceHeight)
+    bbfExt = bbf.extrude(FreeCAD.Vector(0.0, 0.0, round(volShpBB.ZLength + 2.0, 0)))
+    bottomShape = shape.cut(bbfExt)
+    bottom = TargetBuildUtils.sanitizeShape(bottomShape)
+
+    workingFaces = None
+    if hasattr(bottom, "Faces"):
+        topFaces = [
+            f.copy()
+            for f in bottom.Faces
+            if PathGeom.isRoughly(f.BoundBox.ZMin, sliceHeight)
+        ]
+        # workingFaces = Part.makeCompound(topFaces)
+        workingFaces = TargetBuildUtils.fuseShapes(topFaces)
+    return workingFaces.removeSplitter()
+    """
+
+    return TargetBuildUtils.cutShapeAsMesh(shape, sliceHeight)
+
+
+def getWorkingFaces(
+    mesh,
+    height,
+    sewShape=True,
+    sewingTolerance=0.001,
+):
+    return TargetBuildUtils.trimMeshAtHeight(mesh, height, crossSection=True)
+
+
+def getWorkingFaces_old(
+    mesh,
+    height,
+    sewShape=True,
+    sewingTolerance=0.001,
+):
+    return TargetBuildUtils.trimMeshAtHeight(mesh, height, crossSection=True)
+    newShape = Part.Shape()
+    newShape.makeShapeFromMesh(cutMesh.Topology, sewingTolerance, sewShape)
+    Part.show(newShape, "NewShape")
+    cutFace = PathGeom.makeBoundBoxFace(mesh.BoundBox, offset=5.0, zHeight=height)
+    cmn = newShape.common(cutFace)
+    Part.show(cmn, "CMN")
+
+    return None
+    topFaces = [
+        f for f in newShape.Faces if PathGeom.isRoughly(f.BoundBox.ZMin, height)
+    ]
+    if len(topFaces) == 0:
+        PathLog.error("No top faces in getWorkingFaces()")
+        return None
+
+    fused = TargetBuildUtils.fuseShapes(topFaces)
+    return fused.removeSplitter()
+
+
+def _cleanHorizontalFace(face):
+    fBB = face.BoundBox
+    cutFace1 = PathGeom.makeBoundBoxFace(fBB, offset=5.0, zHeight=fBB.ZMin)
+    negative = cutFace1.cut(face)
+    cutFace2 = PathGeom.makeBoundBoxFace(fBB, offset=2.0, zHeight=fBB.ZMin)
+    return cutFace2.cut(negative)
+
+
+def _applyShapeRotation(shape, rotations):
+    rot_vects = {
+        "X": FreeCAD.Vector(-1.0, 0.0, 0.0),
+        "Y": FreeCAD.Vector(0.0, -1.0, 0.0),
+        "Z": FreeCAD.Vector(0.0, 0.0, -1.0),
+    }
+
+    rotated = shape.copy()
+    for rot_vect, angle in rotations:
+        rotated.rotate(FreeCAD.Vector(0.0, 0.0, 0.0), rot_vects[rot_vect], angle)
+    return rotated

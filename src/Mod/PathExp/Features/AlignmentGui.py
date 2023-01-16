@@ -23,7 +23,7 @@
 
 import FreeCAD
 import FreeCADGui
-import OpsGui.PathOpGui2 as PathOpGui2
+import OpsGui.PathOpGui2 as PathShapeGui
 import GuiSupport.PreviewShape as PreviewShape
 import Taskpanels.PathTaskPanelPage as PathTaskPanelPage
 import Shape.TargetShape as TargetShape
@@ -170,7 +170,7 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
             negRotations = [(a, -1.0 * d) for a, d in self.rotations]
             negRotations.reverse()
 
-            shp = TargetShape.PathOp2.AlignToFeature.rotateShapeWithList(
+            shp = TargetShape.AlignToFeature.rotateShapeWithList(
                 self.obj.Shape, negRotations
             )
             ds = PreviewShape.PreviewShape(shp, color=(1.0, 0.5, 0.0), transparency=0.4)
@@ -224,7 +224,7 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
 
     def _setRotationsAttr_orig(self, modelName, featName):
         # print("_setRotationsAttr()")
-        rotVect, isPlanar = TargetShape.PathOp2.AlignToFeature.getRotationsByName(
+        rotVect, isPlanar = TargetShape.AlignToFeature.getRotationsByName(
             modelName, featName, self.form.invertDirection.isChecked()
         )
         if not isPlanar:
@@ -243,18 +243,14 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
         for m in self.jobModels:
             self.rotatedShapes[
                 m.Name
-            ] = TargetShape.PathOp2.AlignToFeature.rotateShapeWithVector(
-                m.Shape, rotVect
-            )
-        self.rotatedShapes[
-            "Stock"
-        ] = TargetShape.PathOp2.AlignToFeature.rotateShapeWithVector(
+            ] = TargetShape.AlignToFeature.rotateShapeWithVector(m.Shape, rotVect)
+        self.rotatedShapes["Stock"] = TargetShape.AlignToFeature.rotateShapeWithVector(
             self.jobStock.Shape, rotVect
         )
 
     def _setRotationsAttr(self, modelName, featName):
         # print("_setRotationsAttr()")
-        rotations, isPlanar = TargetShape.PathOp2.AlignToFeature.getRotationsByName(
+        rotations, isPlanar = TargetShape.AlignToFeature.getRotationsByName(
             modelName, featName, self.form.invertDirection.isChecked()
         )
         if not isPlanar:
@@ -273,14 +269,10 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
             return
 
         for m in self.jobModels:
-            self.rotatedShapes[
-                m.Name
-            ] = TargetShape.PathOp2.AlignToFeature.rotateShapeWithList(
+            self.rotatedShapes[m.Name] = TargetShape.AlignToFeature.rotateShapeWithList(
                 m.Shape, rotations
             )
-        self.rotatedShapes[
-            "Stock"
-        ] = TargetShape.PathOp2.AlignToFeature.rotateShapeWithList(
+        self.rotatedShapes["Stock"] = TargetShape.AlignToFeature.rotateShapeWithList(
             self.jobStock.Shape, rotations
         )
 
@@ -390,7 +382,7 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
         cbox.blockSignals(False)
 
 
-Command = PathOpGui2.SetupOperation(
+Command = PathShapeGui.SetupOperation(
     "TargetShape",
     TargetShape.Create,
     TaskPanelOpPage,
