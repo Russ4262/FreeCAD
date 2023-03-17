@@ -58,6 +58,7 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
     def setFields(self, obj):
         """setFields(obj) ... Transfers obj's property values to UI."""
         self.selectInComboBox(obj.Model, self.form.model)
+        self.form.removeSplitters.setChecked(obj.RemoveSplitters)
 
     def getFields(self, obj):
         """getFields(obj) ... Transfer values from UI to obj's properties.
@@ -65,6 +66,9 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
         # print("getFields()")
         if str(self.form.model.currentData()) != obj.Model:
             obj.Model = str(self.form.model.currentData())
+
+        if self.form.removeSplitters.isChecked() != obj.RemoveSplitters:
+            obj.RemoveSplitters = self.form.removeSplitters.isChecked()
 
     def updateQuantitySpinBoxes(self, index=None):
         # self.depthAllowance.updateSpinBox()
@@ -81,6 +85,7 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
         """getSignalsForUpdate(obj) ... return list of signals for updating obj"""
         signals = []
         signals.append(self.form.model.currentIndexChanged)
+        signals.append(self.form.removeSplitters.stateChanged)
         return signals
 
     # Helper methods

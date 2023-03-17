@@ -297,7 +297,7 @@ class ObjectOp2(object):
 
         # Add operation feature property definitions
         if FeatureBaseGeometry & features:
-            definitions.append(self._getBasePropertyDefenition())
+            definitions.extend(self._getBasePropertyDefenition())
 
         if FeatureHoleGeometry & features:
             definitions.append(self._getHolePropertyDefenition())
@@ -501,12 +501,25 @@ class ObjectOp2(object):
         )
 
     def _getBasePropertyDefenition(self):
-        return (
-            "App::PropertyLinkSubListGlobal",
-            "Base",
-            "Operation",
-            QtCore.QT_TRANSLATE_NOOP("PathOp", "The base geometry for this operation"),
-        )
+        return [
+            (
+                "App::PropertyLinkSubListGlobal",
+                "Base",
+                "Operation",
+                QtCore.QT_TRANSLATE_NOOP(
+                    "PathOp", "The base geometry for this operation"
+                ),
+            ),
+            (
+                "App::PropertyBool",
+                "ModelOnly",
+                "Operation",
+                QtCore.QT_TRANSLATE_NOOP(
+                    "PathOp",
+                    "If set True, only the base model will be used, no features.",
+                ),
+            ),
+        ]
 
     def _getHolePropertyDefenition(self):
         return (

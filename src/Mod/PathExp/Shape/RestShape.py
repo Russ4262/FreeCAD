@@ -157,7 +157,6 @@ class RestShape(PathOp2.ObjectOp2):
             return
 
         removalShapes = []
-        restShapes = []
 
         op = FreeCAD.ActiveDocument.getObject(obj.Model)
         obj.BaseObj = op
@@ -239,7 +238,6 @@ class RestShape(PathOp2.ObjectOp2):
             return
 
         removalShapes = []
-        restShapes = []
 
         op = FreeCAD.ActiveDocument.getObject(obj.Model)
         obj.BaseObj = op
@@ -310,9 +308,6 @@ class RestShape(PathOp2.ObjectOp2):
         if obj.Model == "None":
             PathLog.info("No obj.Model provided.")
             return
-
-        removalShapes = []
-        restShapes = []
 
         op = FreeCAD.ActiveDocument.getObject(obj.Model)
 

@@ -239,6 +239,7 @@ class StrategyClearVolume:
         self.rotatedShape = None
         self.rotatedStock = None
         self.rotations = []
+        self.useMesh = False
 
         # Save argument values to class instance
         self.baseObject = baseObject
@@ -394,6 +395,14 @@ class StrategyClearVolume:
                 self.stockType,
                 self.stockShape,
             )
+        if self.cutPattern in ["Grid", "Triangle"]:
+            pGG.setGridTriangleAttributes(
+                self.horizFeed,
+                self.vertFeed,
+                self.safeHeight,
+                self.clearanceHeight,
+                self.startPoint,
+            )
 
         pGG.useStaticCenter = self.useStaticCenter
         pGG.isDebug = self.isDebug  # Pass isDebug flag
@@ -401,7 +410,7 @@ class StrategyClearVolume:
         pathGeomList = pGG.execute()
         if len(pathGeomList) > 0:
             self.centerOfPattern = pGG.centerOfPattern  # Retreive center of cut pattern
-            PathLog.info(f"received len(pathGeometry): {len(pathGeomList)}")
+            PathLog.debug(f"_getPathGeometry() received {len(pathGeomList)} wires")
             return pathGeomList
 
         self._debugMsg("_getPathGeometry() pGG.execute() returned negative.")
@@ -543,11 +552,8 @@ class StrategyClearVolume:
         # areaParams["PocketExtraOffset"] = self.materialAllowance
         areaParams["ToolRadius"] = self.toolRadius
         # Path.Area() pattern list is ['None', 'ZigZag', 'Offset', 'Spiral', 'ZigZagOffset', 'Line', 'Grid', 'Triangle']
-        areaParams[
-            "PocketMode"
-        ] = (
-            self.pocketMode
-        )  # should be a 6 or 7 to indicate the index for 'Grid' or 'Triangle'
+        # should be a 6 or 7 to indicate the index for 'Grid' or 'Triangle'
+        areaParams["PocketMode"] = self.pocketMode
 
         pathArea = Path.Area()
         pathArea.setPlane(PathUtils.makeWorkplane(Part.makeCircle(5.0)))
@@ -1518,8 +1524,8 @@ class StrategyClearVolume:
         The public method for the StrategyClearing class.
         Returns a tuple containing a list of path commands and a list of shapes(wires and edges) as the path geometry.
         """
-        # self._debugMsg("StrategyClearing.execute()")
-        # PathLog.info("StrategyClearing.execute()")
+        # self._debugMsg("StrategyClearVolume.execute()")
+        # PathLog.info("StrategyClearVolume.execute()")
 
         # Uncomment as needed for localized class debugging
         # self.isDebug = True
@@ -1532,6 +1538,7 @@ class StrategyClearVolume:
         self.isCenterSet = False
         depthParams = [i for i in self.depthParams]
         self.prevDepth = self.safeHeight
+        zBuffer = 0.0001
 
         # Exit if pattern not available
         if self.cutPattern == "None":
@@ -1559,37 +1566,46 @@ class StrategyClearVolume:
             return False
 
         # Use Path.Area() for Grid and Triangle cut patterns
-        if self.cutPattern in ["Grid", "Triangle"]:
-            self._buildGridAndTrianglePaths()
-            return True
+        # if self.cutPattern in ["Grid", "Triangle"]:
+        #    self._buildGridAndTrianglePaths()
+        #    return True
 
         # Use refactored Adaptive op for Adaptive cut pattern
         # if self.cutPattern == "Adaptive":
         #    return self._getAdaptivePaths()
 
-        # Make box to serve as cut tool, and move into position above shape
         self._addDebugObject(self.volumeShape, f"VolumeShape")
+
         resetVolShp = _applyShapeRotation(self.volumeShape, self.rotations)
+
         self._addDebugObject(resetVolShp, f"ResetVolumeShape")
 
         # sanitizedShape = TargetBuildUtils.sanitizeShape(self.volumeShape)
         # self._addDebugObject(sanitizedShape, "SanitizedShape", force=True)
-        meshedShape = TargetBuildUtils.meshShape(self.volumeShape)
+        if self.useMesh:
+            baseShape = TargetBuildUtils.meshShape(self.volumeShape)
+        else:
+            # baseShape = TargetBuildUtils.sanitizeShape(self.volumeShape.copy())
+            baseShape = self.volumeShape.copy()
 
         success = False
         for passDepth in depthParams:
-            adjPassDepth = passDepth + 0.0000001
-            self.layerDepth = adjPassDepth
+            adjPassDepth = round(passDepth + zBuffer, 6)
+            self.layerDepth = passDepth
 
-            # workingFaces = makeWorkingFaces(sanitizedShape, adjPassDepth)
-            # workingFaces = getWorkingFaces(meshedShape, passDepth)
-            workingFaces = TargetBuildUtils.crossSectionMesh(meshedShape, passDepth)
+            # workingFaces = getWorkingFaces(baseShape, passDepth)
+            if self.useMesh:
+                workingFaces = TargetBuildUtils.crossSectionMesh(baseShape, passDepth)
+            else:
+                workingFaces = makeWorkingFaces(baseShape, adjPassDepth)
 
-            if (
-                workingFaces
-                and workingFaces is not None
-                and len(workingFaces.Faces) > 0
-            ):
+            if workingFaces is not None:
+                # Part.show(workingFaces, f"WF{round(adjPassDepth,2)}")
+                pass
+            else:
+                PathLog.info(f"workingFaces is None at {round(adjPassDepth,2)}")
+
+            if workingFaces is not None and len(workingFaces.Faces) > 0:
                 self._addDebugObject(workingFaces, f"WorkFaces")
                 self._debugMsg(
                     "{} faces at adjPassDepth: {}".format(
@@ -1630,9 +1646,7 @@ class StrategyClearVolume:
 
                     if useFace1 is not None:
                         useFace1.translate(
-                            FreeCAD.Vector(
-                                0.0, 0.0, adjPassDepth - useFace1.BoundBox.ZMin
-                            )
+                            FreeCAD.Vector(0.0, 0.0, passDepth - useFace1.BoundBox.ZMin)
                         )
                         # clean = TargetBuildUtils.flattenFace(useFace1, force=True)
                         # clean = _cleanHorizontalFace(useFace1)
@@ -1645,7 +1659,7 @@ class StrategyClearVolume:
                         )
 
                     self._addDebugObject(
-                        useFace, f"UseFace_at_{round(adjPassDepth,2)}", force=False
+                        useFace, f"UseFace_at_{round(passDepth,2)}", force=False
                     )
 
                     pathGeom = self._getPathGeometry(useFace)
@@ -1885,7 +1899,16 @@ def makeWorkingFaces(shape, sliceHeight):
     return workingFaces.removeSplitter()
     """
 
-    return TargetBuildUtils.cutShapeAsMesh(shape, sliceHeight)
+    # return TargetBuildUtils.cutShapeAsMesh(shape, sliceHeight)
+
+    # cutFace = PathGeom.makeBoundBoxFace(volShpBB, offset=5.0, zHeight=sliceHeight)
+    # workingFaces = shape.common(cutFace)
+
+    workingFaces = TargetBuildUtils.get3dCrossSectionFace_2(shape, sliceHeight)
+    # if workingFaces is not None:
+    #    for f in workingFaces.Faces:
+    #        Part.show(f, "WF")
+    return workingFaces
 
 
 def getWorkingFaces(

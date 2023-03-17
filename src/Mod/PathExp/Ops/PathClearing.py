@@ -64,6 +64,14 @@ class ObjectClearing(PathOp2.ObjectOp2):
             # Operation properties
             (
                 "App::PropertyBool",
+                "UseMesh",
+                "Operation",
+                QtCore.QT_TRANSLATE_NOOP(
+                    "App::Property", "Set to True to use meshed shapes."
+                ),
+            ),
+            (
+                "App::PropertyBool",
                 "Cut3DPocket",
                 "Operation",
                 QtCore.QT_TRANSLATE_NOOP(
@@ -352,7 +360,7 @@ class ObjectClearing(PathOp2.ObjectOp2):
             "CutMode": "Single-pass",
             "CutDirection": "Conventional",
             "MaterialAllowance": 0.0,
-            "StepOver": 50.0,
+            "StepOver": 95.0,
             "CutPatternAngle": 0.0,
             "CutPattern": "Line",
             "UseComp": True,
@@ -374,6 +382,7 @@ class ObjectClearing(PathOp2.ObjectOp2):
             "ShowDebugShapes": False,
             "ShowCutPattern": False,
             "ShowRemovalShape": False,
+            "UseMesh": False,
         }
         for (k, v,) in PathStrategyAdaptive.StrategyAdaptive.adaptivePropertyDefaults(
             obj, job
@@ -592,6 +601,7 @@ class ObjectClearing(PathOp2.ObjectOp2):
             obj.TargetShape, self.job.Stock.Shape
         )
         strategy.rotations = self.atfRotations
+        strategy.useMesh = obj.UseMesh
 
         if obj.CutPattern == "Adaptive":
             PathLog.debug("Passing Adaptive-specific values to clearing strategy.")

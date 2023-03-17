@@ -36,6 +36,13 @@
         </property>
        </widget>
       </item>
+      <item row="1" column="1">
+       <widget class="QCheckBox" name="removeSplitters">
+        <property name="text">
+         <string>Remove splitters from faces</string>
+        </property>
+       </widget>
+      </item>
      </layout>
     </widget>
    </item>

@@ -42,16 +42,15 @@ PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 # PathLog.trackModule(PathLog.thisModule())
 
 
-class TaskPanelBaseGeometryPage(PathTaskPanelPage.TaskPanelPage):
-    """Page controller for the base geometry."""
+class TaskPanelIndexRotationPage(PathTaskPanelPage.TaskPanelPage):
+    """Page controller for the index rotation."""
 
     DataObject = QtCore.Qt.ItemDataRole.UserRole
     DataObjectSub = QtCore.Qt.ItemDataRole.UserRole + 1
 
     def __init__(self, obj, features):
-        super(TaskPanelBaseGeometryPage, self).__init__(obj, features)
+        super(TaskPanelIndexRotationPage, self).__init__(obj, features)
 
-        # self.title = "Base Geometry"
         self.OpIcon = ":/icons/Path_BaseGeometry.svg"
         self.setIcon(self.OpIcon)
 
@@ -59,8 +58,9 @@ class TaskPanelBaseGeometryPage(PathTaskPanelPage.TaskPanelPage):
         # panel = FreeCADGui.PySideUic.loadUi(":/panels/PageBaseGeometryEdit.ui")
         panel = FreeCADGui.PySideUic.loadUi(
             FreeCAD.getUserAppDataDir()
-            + "Mod\\PathExp\\GuiSupport\\PageBaseGeometryEdit.ui"
+            + "Mod\\PathExp\\GuiSupport\\PageIndexRotationGeometryEdit.ui"
         )
+        self.form.deleteBase.hide()
 
         self.modifyPanel(panel)
         return panel
@@ -91,10 +91,10 @@ class TaskPanelBaseGeometryPage(PathTaskPanelPage.TaskPanelPage):
             panel.geometryImportButton.hide()
 
     def initPage(self, obj):
-        self.title = "Base Geometry"
+        self.title = "Index Rotation Geometry"
 
     def getTitle(self, obj):
-        return translate("PathOp2", "Base Geometry")
+        return translate("PathOp2", "Index Rotation Geometry")
 
     def getFields(self, obj):
         if self.form.modelOnly.isChecked() != obj.ModelOnly:
@@ -104,14 +104,13 @@ class TaskPanelBaseGeometryPage(PathTaskPanelPage.TaskPanelPage):
         self.form.modelOnly.setChecked(obj.ModelOnly)
         self.form.baseList.blockSignals(True)
         self.form.baseList.clear()
-        for base in self.obj.Base:
+        for base in self.obj.Index:
             for sub in base[1]:
                 item = QtGui.QListWidgetItem("%s.%s" % (base[0].Label, sub))
                 item.setData(self.DataObject, base[0])
                 item.setData(self.DataObjectSub, sub)
                 self.form.baseList.addItem(item)
         self.form.baseList.blockSignals(False)
-        # self.resizeBaseList()
 
     def getSignalsForUpdate(self, obj):
         """getSignalsForUpdate(obj) ... return list of signals for updating obj"""
@@ -128,19 +127,14 @@ class TaskPanelBaseGeometryPage(PathTaskPanelPage.TaskPanelPage):
                 FreeCADGui.Selection.addSelection(obj, sub)
             else:
                 FreeCADGui.Selection.addSelection(obj)
-        # FreeCADGui.updateGui()
-
-    def supportsVertexes(self):
-        return self.features & PathOp2.FeatureBaseVertexes
 
     def supportsEdges(self):
-        return self.features & PathOp2.FeatureBaseEdges
+        # return self.features & PathOp2.FeatureBaseEdges
+        return True
 
     def supportsFaces(self):
-        return self.features & PathOp2.FeatureBaseFaces
-
-    def supportsPanels(self):
-        return self.features & PathOp2.FeatureBasePanels
+        # return self.features & PathOp2.FeatureBaseFaces
+        return True
 
     def featureName(self):
         if self.supportsEdges() and self.supportsFaces():
@@ -163,10 +157,7 @@ class TaskPanelBaseGeometryPage(PathTaskPanelPage.TaskPanelPage):
             return False
         sel = selection[0]
         if sel.HasSubObjects:
-            if (
-                not self.supportsVertexes()
-                and selection[0].SubObjects[0].ShapeType == "Vertex"
-            ):
+            if selection[0].SubObjects[0].ShapeType == "Vertex":
                 if not ignoreErrors:
                     PathLog.error(
                         translate("PathProject", "Vertexes are not supported")
@@ -187,76 +178,35 @@ class TaskPanelBaseGeometryPage(PathTaskPanelPage.TaskPanelPage):
                     PathLog.error(translate("PathProject", "Faces are not supported"))
                 return False
         else:
-            if not self.supportsPanels() or "Panel" not in sel.Object.Name:
-                if not ignoreErrors:
-                    PathLog.error(
-                        translate(
-                            "PathProject",
-                            "Please select %s of a solid" % self.featureName(),
-                        )
+            if not ignoreErrors:
+                PathLog.error(
+                    translate(
+                        "PathProject",
+                        "Please select %s of a solid" % self.featureName(),
                     )
-                return False
+                )
+            return False
         return True
 
-    def selectionSupportedAsTargetGeometry(self, selection, ignoreErrors):
-        if len(selection) != 1:
-            if not ignoreErrors:
-                msg = translate(
-                    "PathProject",
-                    "Please select %s from a single solid" % self.featureName(),
-                )
-                FreeCAD.Console.PrintError(msg + "\n")
-                PathLog.debug(msg)
-            return False
-
-        if selection[0].ObjectName.startswith("TargetGeometry"):
-            return True
-
-        if not ignoreErrors:
-            PathLog.error(
-                translate(
-                    "PathProject",
-                    "Please select TargetGeometry. %s is not TargetGeometry object."
-                    % selection[0].ObjectName,
-                )
-            )
-        return False
-
-    def addBaseGeometry(self, selection):
+    def setIndexGeometry(self, selection):
         PathLog.track(selection)
         if self.selectionSupportedAsBaseGeometry(selection, False):
             sel = selection[0]
-            for sub in sel.SubElementNames:
-                self.obj.Proxy.addBase(self.obj, sel.Object, sub)
+            # Only use first sub feature in list
+            sub = sel.SubElementNames[0]
+            self.obj.Index = []  # Clear Base
+            self.obj.Proxy.addBase(self.obj, sel.Object, sub)
             return True
-        elif self.selectionSupportedAsTargetGeometry(selection, False):
-            sel = selection[0].Object
-            self.obj.TargetShape = sel
-            PathLog.info(
-                translate(
-                    "PathTaskPanelBaseGeometryPage",
-                    "Target shape set to {}".format(sel.Name),
-                )
-            )
+
         return False
 
-    def addBase(self):
+    def setBase(self):
         PathLog.track()
-        if self.addBaseGeometry(FreeCADGui.Selection.getSelectionEx()):
+        if self.setIndexGeometry(FreeCADGui.Selection.getSelectionEx()):
             # self.obj.Proxy.execute(self.obj)
             self.setFields(self.obj)
             self.setDirty()
             self.updatePanelVisibility("Operation", self.obj)
-
-    def deleteBase(self):
-        PathLog.track()
-        selected = self.form.baseList.selectedItems()
-        for item in selected:
-            self.form.baseList.takeItem(self.form.baseList.row(item))
-            self.setDirty()
-        self.updateBase()
-        self.updatePanelVisibility("Operation", self.obj)
-        # self.resizeBaseList()
 
     def updateBase(self):
         newlist = []
@@ -267,18 +217,13 @@ class TaskPanelBaseGeometryPage(PathTaskPanelPage.TaskPanelPage):
             if sub:
                 base = (obj, str(sub))
                 newlist.append(base)
-        PathLog.debug("Setting new base: %s -> %s" % (self.obj.Base, newlist))
-        self.obj.Base = newlist
-
-        # self.obj.Proxy.execute(self.obj)
-        # FreeCAD.ActiveDocument.recompute()
-        pass
+        PathLog.debug("Setting new base: %s -> %s" % (self.obj.Index, newlist))
+        self.obj.Index = newlist
 
     def clearBase(self):
-        self.obj.Base = []
+        self.obj.Index = []
         self.setDirty()
         self.updatePanelVisibility("Operation", self.obj)
-        # self.resizeBaseList()
 
     def importBaseGeometry(self):
         opLabel = str(self.form.geometryImportList.currentText())
@@ -290,12 +235,11 @@ class TaskPanelBaseGeometryPage(PathTaskPanelPage.TaskPanelPage):
         (base, subList) = ops[0].Base[0]
         FreeCADGui.Selection.clearSelection()
         FreeCADGui.Selection.addSelection(base, subList)
-        self.addBase()
+        self.setBase()
 
     def registerSignalHandlers(self, obj):
         self.form.baseList.itemSelectionChanged.connect(self.itemActivated)
-        self.form.addBase.clicked.connect(self.addBase)
-        self.form.deleteBase.clicked.connect(self.deleteBase)
+        self.form.addBase.clicked.connect(self.setBase)
         self.form.clearBase.clicked.connect(self.clearBase)
         self.form.geometryImportButton.clicked.connect(self.importBaseGeometry)
 
@@ -308,27 +252,6 @@ class TaskPanelBaseGeometryPage(PathTaskPanelPage.TaskPanelPage):
             self.form.addBase.setEnabled(True)
         else:
             self.form.addBase.setEnabled(False)
-
-    def resizeBaseList(self):
-        # Set base geometry list window to resize based on contents
-        # Code reference:
-        # https://stackoverflow.com/questions/6337589/qlistwidget-adjust-size-to-content
-        # ml: disabling this logic because I can't get it to work on HPD monitor.
-        #     On my systems the values returned by the list object are also incorrect on
-        #     creation, leading to a list object of size 15. count() always returns 0 until
-        #     the list is actually displayed. The same is true for sizeHintForRow(0), which
-        #     returns -1 until the widget is rendered. The widget claims to have a size of
-        #     (100, 30), once it becomes visible the size is (535, 192).
-        #     Leaving the framework here in case somebody figures out how to set this up
-        #     properly.
-        qList = self.form.baseList
-        row = (qList.count() + qList.frameWidth()) * 15
-        # qList.setMinimumHeight(row)
-        PathLog.debug(
-            "baseList({}, {}) {} * {}".format(
-                qList.size(), row, qList.count(), qList.sizeHintForRow(0)
-            )
-        )
 
 
 FreeCAD.Console.PrintLog("Loading PathTaskPanelBaseGeometryPage... done\n")

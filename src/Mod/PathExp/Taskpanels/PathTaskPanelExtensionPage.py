@@ -28,6 +28,8 @@ import Path.Base.Gui.Util as PathGui
 import Path.Log as PathLog
 import Taskpanels.PathTaskPanelPage as PathTaskPanelPage
 import Features.PathFeatureExtensions as PathFeatureExtensions
+
+# import FeaturesGui.PathFeatureExtensionsGui as PathFeatureExtensionsGui
 from Macros.Generator_Utilities import _flipEdge
 from pivy import coin
 
@@ -43,8 +45,11 @@ __doc__ = "Base classes for UI features within Path operations"
 translate = PathTaskPanelPage.translate
 
 
-PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
-# PathLog.trackModule(PathLog.thisModule())
+if False:
+    PathLog.setLevel(PathLog.Level.DEBUG, PathLog.thisModule())
+    PathLog.trackModule(PathLog.thisModule())
+else:
+    PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 
 
 def edgesMatchShape(e0, e1):
@@ -340,7 +345,6 @@ class TaskPanelExtensionPage(PathTaskPanelPage.TaskPanelPage):
                         break
                 item.appendRow([item0])
 
-        # ext = self._cachedExtension(self.obj, base, sub, None)
         ext = None
         item = QtGui.QStandardItem()
         item.setData(sub, QtCore.Qt.EditRole)
@@ -359,11 +363,13 @@ class TaskPanelExtensionPage(PathTaskPanelPage.TaskPanelPage):
             for edge in subEdges:
                 for (e, label) in edges:
                     if edge.isSame(e):
-                        ext1 = self._cachedExtension(self.obj, base, sub, label)
-                        if ext1.isValid():
+                        _ext = self._cachedExtension(self.obj, base, sub, label)
+                        if _ext.ext.irregular:
+                            PathLog.info(f"{label} extension is irregular.")
+                        if _ext.isValid():
                             extensionEdges[e] = label[4:]  # isolate edge number
-                            if not extendCorners:
-                                createSubItem(label, ext1)
+                            if not extendCorners or _ext.ext.irregular:
+                                createSubItem(label, _ext)
                                 subHasItem = True
 
         if extendCorners and includeEdges:
@@ -398,156 +404,28 @@ class TaskPanelExtensionPage(PathTaskPanelPage.TaskPanelPage):
                 subHasItem = True
 
         # Only add these subItems for horizontally oriented faces, not edges or vertical faces (from vertical face loops)
-        if sub.startswith("Face") and PathGeom.isHorizontal(subShape):
-            if includeSpecial:
-                # Add entry to extend outline of face
-                label = "Extend_" + sub
-                ext3 = self._cachedExtension(self.obj, base, sub, label)
-                createSubItem(label, ext3)
+        if (
+            includeSpecial
+            and sub.startswith("Face")
+            and PathGeom.isHorizontal(subShape)
+        ):
+            # Add entry to extend outline of face
+            label = f"Extend({sub})"
+            ext3 = self._cachedExtension(self.obj, base, sub, label, extType="Extend")
+            createSubItem(label, ext3)
 
-                # Add entry for waterline at face
-                label = "Waterline_" + sub
-                ext4 = self._cachedExtension(self.obj, base, sub, label)
-                createSubItem(label, ext4)
+            # Add entry for waterline at face
+            label = f"Waterline({sub})"
+            ext4 = self._cachedExtension(
+                self.obj, base, sub, label, extType="Waterline"
+            )
+            createSubItem(label, ext4)
 
-                # Add entry for avoid face
-                label = "Avoid_" + sub
-                ext5 = self._cachedExtension(self.obj, base, sub, label)
-                createSubItem(label, ext5)
-                subHasItem = True
-
-        if subHasItem:
-            # PathLog.info("subHasItem")
-            return item
-
-        return None
-
-    def createItemForBaseModel_mod(self, base, sub, edges, extensions):
-        PathLog.debug("createItemForBaseModel()")
-        PathLog.track(
-            base.Label, sub, "+", len(edges), len(base.Shape.getElement(sub).Edges)
-        )
-        # PathLog.debug("createItemForBaseModel() label: {}, sub: {}, {}, edgeCnt: {}, subEdges: {}".format(base.Label, sub, '+', len(edges), len(base.Shape.getElement(sub).Edges)))
-
-        extendCorners = self.form.extendCorners.isChecked()
-        includeEdges = self.form.includeEdges.isChecked()
-        includeSpecial = self.form.includeSpecial.isChecked()
-        subShape = base.Shape.getElement(sub)
-        subHasItem = False
-
-        def createSubItem(label, ext0):
-            # PathLog.info("createSubItem({})".format(label))
-            if ext0.root:
-                self.switch.addChild(ext0.root)
-                item0 = QtGui.QStandardItem()
-                item0.setData(label, QtCore.Qt.EditRole)
-                item0.setData(ext0, self.DataObject)
-                item0.setCheckable(True)
-                for e in extensions:
-                    if e.obj == base and e.sub == label:
-                        item0.setCheckState(QtCore.Qt.Checked)
-                        ext0.enable()
-                        break
-                item.appendRow([item0])
-
-        # ext = self._cachedExtension(self.obj, base, sub, None)
-        ext = None
-        item = QtGui.QStandardItem()
-        item.setData(sub, QtCore.Qt.EditRole)
-        item.setData(ext, self.DataObject)
-        item.setSelectable(False)
-
-        extensionEdges = {}
-        if includeEdges:
-            if self.usePerimeter and sub.startswith("Face"):
-                # Only show exterior extensions if `Use Outline` is True
-                subEdges = subShape.Wires[0].Edges
-            else:
-                # Show all exterior and interior extensions if `usePerimeter` is False, or sub is an edge
-                subEdges = subShape.Edges
-
-            for edge in subEdges:
-                for (e, label) in edges:
-                    if edge.isSame(e):
-                        ext1 = self._cachedExtension(self.obj, base, sub, label)
-                        if ext1.isValid():
-                            extensionEdges[e] = label[4:]  # isolate edge number
-                            if not extendCorners:
-                                createSubItem(label, ext1)
-                                subHasItem = True
-
-        if extendCorners and includeEdges:
-            self.extensionEdges = extensionEdges
-            # PathLog.debug("extensionEdges.values(): {}".format(extensionEdges.values()))
-            # Identify connected edges that form wires
-            for edgeList in Part.sortEdges(list(extensionEdges.keys())):
-                self.edgeList = edgeList
-                Part.show(Part.Wire(edgeList), "EdgeList")
-                if len(edgeList) == 1:
-                    label = (
-                        "Edge%s"
-                        % [
-                            extensionEdges[keyEdge]
-                            for keyEdge in extensionEdges.keys()
-                            if edgesMatchShape(keyEdge, edgeList[0])
-                        ][0]
-                    )
-                else:
-                    edgeCache = {}
-                    """edgeCache_orig = {
-                        extensionEdges[keyEdge]: (keyEdge, PathGeom.flipEdge(keyEdge))
-                        for keyEdge in extensionEdges.keys()
-                    }"""
-                    for keyEdge in extensionEdges.keys():
-                        edgeCache[extensionEdges[keyEdge]] = (
-                            keyEdge,
-                            _flipEdge(keyEdge),
-                        )
-
-                    numList = []
-                    for e in edgeList:
-                        for keyEdge in extensionEdges.keys():
-                            lbl = extensionEdges[keyEdge]
-                            edg, edgFlpd = edgeCache[lbl]
-                            if edgesMatchShapeNew(e, edg, edgFlpd):
-                                numList.append(lbl)
-                                break
-                            else:
-                                print(f"  not {lbl}")
-                    numList.sort(key=lambda s: int(s))
-
-                    """numList_orig = sorted(
-                        [
-                            extensionEdges[keyEdge]
-                            for e in edgeList
-                            for keyEdge in extensionEdges.keys()
-                            if edgesMatchShape(e, keyEdge, extensionEdges[keyEdge])
-                        ],
-                        key=lambda s: int(s),
-                    )"""
-                    label = "Wire(%s)" % ",".join(numList)
-                ext2 = self._cachedExtension(self.obj, base, sub, label)
-                createSubItem(label, ext2)
-                subHasItem = True
-
-        # Only add these subItems for horizontally oriented faces, not edges or vertical faces (from vertical face loops)
-        if sub.startswith("Face") and PathGeom.isHorizontal(subShape):
-            if includeSpecial:
-                # Add entry to extend outline of face
-                label = "Extend_" + sub
-                ext3 = self._cachedExtension(self.obj, base, sub, label)
-                createSubItem(label, ext3)
-
-                # Add entry for waterline at face
-                label = "Waterline_" + sub
-                ext4 = self._cachedExtension(self.obj, base, sub, label)
-                createSubItem(label, ext4)
-
-                # Add entry for avoid face
-                label = "Avoid_" + sub
-                ext5 = self._cachedExtension(self.obj, base, sub, label)
-                createSubItem(label, ext5)
-                subHasItem = True
+            # Add entry for avoid face
+            label = f"Avoid({sub})"
+            ext5 = self._cachedExtension(self.obj, base, sub, label, extType="Avoid")
+            createSubItem(label, ext5)
+            subHasItem = True
 
         if subHasItem:
             # PathLog.info("subHasItem")
@@ -779,6 +657,7 @@ class TaskPanelExtensionPage(PathTaskPanelPage.TaskPanelPage):
 
             self.forAllItemsCall(disableExtensionEdit)
         # self.setDirty()
+        pass
 
     def toggleExtensionCorners(self):
         PathLog.debug("toggleExtensionCorners()")
@@ -951,14 +830,14 @@ class TaskPanelExtensionPage(PathTaskPanelPage.TaskPanelPage):
         self._enableExtensions()
 
     # Methods for creating and managing cached extensions
-    def _cachedExtension(self, obj, base, sub, label):
+    def _cachedExtension(self, obj, base, sub, label, extType="Wire"):
         """_cachedExtension(obj, base, sub, label)...
         This method creates a new _Extension object if none is found within
         the extensionCache dictionary."""
         useRotation = False
 
         if label:
-            cacheLabel = base.Name + "_" + sub + "_" + label
+            cacheLabel = base.Name + "_" + label
         else:
             cacheLabel = base.Name + "_" + sub + "_None"
 
@@ -980,7 +859,6 @@ class TaskPanelExtensionPage(PathTaskPanelPage.TaskPanelPage):
             useRotation = True
 
         if cacheLabel in self.extensionsCache.keys():
-            # PathLog.debug("return _cachedExtension({})".format(cacheLabel))
             _ext = self.extensionsCache[cacheLabel]
             _ext.rotatedBaseShp = self.rotationCache[base.Name]
             if useRotation:
@@ -988,14 +866,18 @@ class TaskPanelExtensionPage(PathTaskPanelPage.TaskPanelPage):
                 _ext.rotations = rotations
                 _ext.cor = obj.CenterOfRotation
         else:
-            # PathLog.debug("_cachedExtension({}) created".format(cacheLabel))
+            # _ext = PathFeatureExtensionsGui._Extension(obj, base, sub)
             _ext = _Extension(obj, base, sub)
             _ext.rotatedBaseShp = self.rotationCache[base.Name]
             if useRotation:
                 rotations = obj.Proxy._getRotationsList(obj)
                 _ext.rotations = rotations
                 _ext.cor = obj.CenterOfRotation
-            _ext.setEdge(label)
+            # _ext.setEdge(label)
+            extObj = PathFeatureExtensions.createExtension(obj, base, sub, label)
+            extObj.extType = extType
+            _ext.setEdge(extObj)
+
             self.extensionsCache[cacheLabel] = _ext  # cache the extension
         return _ext
 
@@ -1013,6 +895,7 @@ class TaskPanelExtensionPage(PathTaskPanelPage.TaskPanelPage):
 
 # Helper class for TaskPanelExtensionPage() class to provide extension visualizations in viewport
 class _Extension(object):
+
     ColourEnabled = (1.0, 0.5, 1.0)
     ColourDisabled = (1.0, 1.0, 0.5)
     TransparencySelected = 0.0
@@ -1030,7 +913,15 @@ class _Extension(object):
         self.switch = None
         self.root = None
 
-    def setEdge(self, edge):
+    def setEdge(self, extObj):
+        if extObj:
+            self.ext = extObj
+            self.edge = extObj.sub
+
+        self.switch = self.createExtensionSoSwitch(self.ext)
+        self.root = self.switch
+
+    def setEdge_orig(self, edge):
         if edge:
             self.edge = edge
             self.ext = PathFeatureExtensions.createExtension(
@@ -1116,6 +1007,7 @@ class _Extension(object):
 
     def createExtensionSoSwitch(self, ext):
         if not ext:
+            PathLog.error("createExtensionSoSwitch() 'not ext'")
             return None
         # negRotVect = self.rotations.negative()
         negRotVect = [(a, -1.0 * d) for a, d in self.rotations]

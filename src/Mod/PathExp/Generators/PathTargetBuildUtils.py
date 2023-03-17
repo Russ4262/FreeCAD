@@ -47,8 +47,12 @@ __doc__ = (
 __contributors__ = ""
 
 
-PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
-# PathLog.trackModule(PathLog.thisModule())
+if False:
+    PathLog.setLevel(PathLog.Level.DEBUG, PathLog.thisModule())
+    PathLog.trackModule(PathLog.thisModule())
+else:
+    PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
+
 
 isRoughly = PathGeom.isRoughly
 Tolerance = PathGeom.Tolerance
@@ -633,6 +637,29 @@ def get3dCrossSectionFace(shape, sliceZ=None):
     return None
 
 
+def get3dCrossSectionFace_2(shape, sliceZ=None):
+    """get3dCrossSectionFace(shape)... Return a cross-sectional
+    face of the 3D shape provided, at sliceZ height or mid-point."""
+
+    if sliceZ is None:
+        sliceZ = (shape.BoundBox.ZMax + shape.BoundBox.ZMin) / 2.0
+    PathLog.info(f"sliceZ: {sliceZ}")
+    try:
+        sectionWires = shape.slice(FreeCAD.Vector(0.0, 0.0, 1.0), sliceZ)
+        if len(sectionWires) == 0:
+            PathLog.info(f"No section wires at {round(sliceZ,2)}")
+            return None
+    except Exception as ee:
+        PathLog.error(f"get3dCrossSectionFace_2()\n{ee}")
+        return None
+
+    closed = [w for w in sectionWires if w.isClosed()]
+    if len(closed) == 0:
+        PathLog.info(f"No closed section wires at {round(sliceZ,2)}")
+        return None
+    return Part.Face(closed)
+
+
 def getEnvelope(shape):
     """getCrossSectionFace(shape)... Return a cross-sectional
     face of the 3D shape provided."""
@@ -1063,6 +1090,14 @@ def printFacetPoints(f):
 
 
 def showFacet(f, height):
+    triFace = facetToFace(f)
+    bbf = makeBoundBoxFace(triFace.BoundBox, offset=2.0, zHeight=height)
+    Part.show(triFace, "__triFace")
+    Part.show(bbf, "__bbf")
+    return None
+
+
+def facetToFace(f):
     p0 = f.Points[0]
     p1 = f.Points[1]
     p2 = f.Points[2]
@@ -1070,11 +1105,7 @@ def showFacet(f, height):
     v1 = FreeCAD.Vector(p1[0], p1[1], p1[2])
     v2 = FreeCAD.Vector(p2[0], p2[1], p2[2])
     w = Part.makePolygon([v0, v1, v2, v0])
-    triFace = Part.Face(w)
-    bbf = makeBoundBoxFace(triFace.BoundBox, offset=2.0, zHeight=height)
-    Part.show(triFace, "__triFace")
-    Part.show(bbf, "__bbf")
-    return None
+    return Part.Face(w)
 
 
 def findLine(f, height):
@@ -1106,7 +1137,13 @@ def lineFromFacetPoints(p1, p2):
 
 
 def crossSectionMesh(mesh, height):
+    if PathGeom.isRoughly(height, 20.0):
+        mObj = FreeCAD.ActiveDocument.addObject("Mesh::Feature", "Mesh20")
+        mObj.Mesh = mesh
+
     edges = []
+    faces = []
+
     for f in mesh.Facets:
         p0 = f.Points[0]
         p1 = f.Points[1]
@@ -1117,16 +1154,15 @@ def crossSectionMesh(mesh, height):
         hz0 = PathGeom.isRoughly(z0, height)
         hz1 = PathGeom.isRoughly(z1, height)
         hz2 = PathGeom.isRoughly(z2, height)
-        if z0 > height and z1 > height and z2 > height:
-            # ignore all above
-            pass
-        elif z0 < height and z1 < height and z2 < height:
-            # ignore all below
-            pass
-        elif hz0:
+
+        if hz0:
             # check for horiz line
             if hz1:
-                edges.append(lineFromFacetPoints(p0, p1))
+                if hz2:
+                    faces.append(facetToFace(f))
+                    PathLog.error("Adding facet to faces list")
+                else:
+                    edges.append(lineFromFacetPoints(p0, p1))
             elif hz2:
                 edges.append(lineFromFacetPoints(p0, p2))
             elif z1 > height and z2 > height:
@@ -1158,6 +1194,12 @@ def crossSectionMesh(mesh, height):
                     # showFacet(f, height)
                     pass
 
+        elif z0 > height and z1 > height and z2 > height:
+            # ignore all above
+            pass
+        elif z0 < height and z1 < height and z2 < height:
+            # ignore all below
+            pass
         elif hz1 and z0 > height and z2 > height:
             pass  # triangle falling from height
         elif hz2 and z0 < height and z1 < height:
@@ -1173,9 +1215,12 @@ def crossSectionMesh(mesh, height):
             else:
                 print(f"height: {height}")
                 printFacetPoints(f)
+    # Efor
 
-    faces = []
     if len(edges) > 0:
+        if PathGeom.isRoughly(height, 20.0):
+            PathLog.info(f"len(edges): {len(edges)}")
+
         edgeLists = Part.sortEdges(edges)
         for lst in edgeLists:
             w = Part.Wire(lst)
@@ -1202,7 +1247,10 @@ def crossSectionMesh(mesh, height):
     if len(faces) > 0:
         for fc in faces:
             fc.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - fc.BoundBox.ZMin))
-        fused = fuseShapes(faces)
-        # Part.show(fused, "CSMesh")
-        return fused
+        fused = fuseShapes(faces).removeSplitter()
+        wire = TechDraw.findShapeOutline(fused, 1, FreeCAD.Vector(0, 0, 1))
+        if PathGeom.isRoughly(height, 20.0):
+            Part.show(wire, "Wire20")
+        return Part.Face(wire)
+
     return None

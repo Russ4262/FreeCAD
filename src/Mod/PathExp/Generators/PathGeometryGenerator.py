@@ -27,6 +27,7 @@ import FreeCAD
 import Path
 import Path.Log as PathLog
 import PathScripts.PathUtils as PathUtils
+import Path.Geom as PathGeom
 
 from PySide import QtCore
 
@@ -35,7 +36,6 @@ from lazy_loader.lazy_loader import LazyLoader
 
 Part = LazyLoader("Part", globals(), "Part")
 DraftGeomUtils = LazyLoader("DraftGeomUtils", globals(), "DraftGeomUtils")
-PathGeom = LazyLoader("Path.Geom", globals(), "Path.Geom")
 PathOpTools = LazyLoader(
     # "PathScripts.PathOpTools", globals(), "PathScripts.PathOpTools"
     "Path.Op.Util",
@@ -43,7 +43,6 @@ PathOpTools = LazyLoader(
     "Path.Op.Util",
 )
 time = LazyLoader("time", globals(), "time")
-json = LazyLoader("json", globals(), "json")
 math = LazyLoader("math", globals(), "math")
 area = LazyLoader("area", globals(), "area")
 
@@ -59,8 +58,11 @@ __doc__ = "Path strategies available for path generation."
 __contributors__ = ""
 
 
-PathLog.setLevel(PathLog.Level.DEBUG, PathLog.thisModule())
-# PathLog.trackModule(PathLog.thisModule())
+if True:
+    PathLog.setLevel(PathLog.Level.DEBUG, PathLog.thisModule())
+    PathLog.trackModule(PathLog.thisModule())
+else:
+    PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 
 
 # Qt translation handling
@@ -86,7 +88,7 @@ class PathGeometryGenerator:
         toolController:     instance of tool controller to be used
         jobTolerance:       job tolerance value
     Available Patterns:
-        - Adaptive, Circular, CircularZigZag, Grid, Line, LineOffset, Offset, Spiral, Triangle, ZigZag, ZigZagOffset
+        - Adaptive, Circular, CircularZigZag, Grid, Line, LineOffset, Offset, Profile, MultiProfile, Spiral, Triangle, ZigZag, ZigZagOffset
     Usage:
         - Instantiate this class.
         - Call the `setAdaptiveAttributes()` method with required attributes if you intend to use Adaptive cut pattern.
@@ -152,7 +154,7 @@ class PathGeometryGenerator:
             jobTolerance,)...
         PathGeometryGenerator class constructor method.
         """
-        PathLog.debug("PathGeometryGenerator.__init__()")
+        PathLog.debug(f"PathGeometryGenerator.__init__(cutPattern: {cutPattern})")
 
         # Debugging attributes
         self.isDebug = True if PathLog.getLevel(PathLog.thisModule()) == 4 else False
@@ -173,6 +175,7 @@ class PathGeometryGenerator:
         self.useStaticCenter = True  # Set True to use static center for all faces created by offsets and step downs.  Set False for dynamic centers based on PatternCenterAt
         self.isCenterSet = False
         self.endVector = None
+        self.startPoint = None
         self.pathParams = ""
         self.areaParams = ""
         self.pfsRtn = None
@@ -238,6 +241,12 @@ class PathGeometryGenerator:
         self.stockType = ""
         self.stockShape = None
 
+        ### Grid and Triangle pattern requirements
+        self.horizFeed = None
+        self.vertFeed = None
+        self.safeHeight = None
+        self.clearanceHeight = None
+
     def _debugMsg(self, msg, isError=False):
         """_debugMsg(msg)
         If `self.isDebug` flag is True, the provided message is printed in the Report View.
@@ -253,8 +262,8 @@ class PathGeometryGenerator:
         else:
             PathLog.debug(msg)
 
-    def _addDebugShape(self, shape, name="debug"):
-        if self.isDebug and self.showDebugShapes:
+    def _addDebugShape(self, shape, name="debug", force=False):
+        if (self.isDebug and self.showDebugShapes) or force:
             do = FreeCAD.ActiveDocument.addObject("Part::Feature", "debug_" + name)
             do.Shape = shape
             do.purgeTouched()
@@ -262,7 +271,7 @@ class PathGeometryGenerator:
     # Raw cut pattern geometry generation methods
     def _Line(self):
         """_Line()... Returns raw set of Line wires at Z=0.0."""
-        self._debugMsg("_Line()")
+        self._debugMsg("PGG._Line()")
 
         geomList = []
         centRot = FreeCAD.Vector(
@@ -309,11 +318,12 @@ class PathGeometryGenerator:
 
     def _LineOffset(self):
         """_LineOffset()... Returns raw set of Line wires at Z=0.0, with the Offset portion added later in the `_generatePathGeometry()` method."""
-        self._debugMsg("_LineOffset()")
+        self._debugMsg("PGG._LineOffset()")
         return self._Line()
 
     def _Circular(self):
         """_Circular()... Returns raw set of Circular wires at Z=0.0."""
+        self._debugMsg("PGG._Circular()")
         geomList = []
         radialPasses = self._getRadialPasses()
         minRad = self.toolDiameter * 0.45
@@ -345,6 +355,7 @@ class PathGeometryGenerator:
 
     def _CircularZigZag(self):
         """_CircularZigZag()... Returns raw set of Circular ZigZag wires at Z=0.0."""
+        self._debugMsg("PGG._CircularZigZag()")
         geomList = []
         radialPasses = self._getRadialPasses()
         minRad = self.toolDiameter * 0.45
@@ -389,6 +400,7 @@ class PathGeometryGenerator:
 
     def _ZigZag(self):
         """_ZigZag()... Returns raw set of ZigZag wires at Z=0.0."""
+        self._debugMsg("PGG._ZigZag()")
         geomList = []
         centRot = FreeCAD.Vector(
             0.0, 0.0, 0.0
@@ -434,6 +446,7 @@ class PathGeometryGenerator:
 
     def _ZigZagOffset(self):
         """_ZigZagOffset()... Returns raw set of ZigZag wires at Z=0.0, with the Offset portion added later in the `_generatePathGeometry()` method."""
+        self._debugMsg("PGG._ZigZagOffset()")
         return self._ZigZag()
 
     def _Offset(self):
@@ -442,7 +455,7 @@ class PathGeometryGenerator:
         Direction of cut is taken into account.
         Additional offset loop ordering is handled in the linking method.
         """
-        PathLog.debug("_Offset()")
+        self._debugMsg("PGG._Offset()")
 
         wires = []
         shape = self.face
@@ -518,7 +531,7 @@ class PathGeometryGenerator:
         Direction of cut is taken into account.
         Additional offset loop ordering is handled in the linking method.
         """
-        PathLog.debug("_Profile()")
+        self._debugMsg("PGG._Profile()")
 
         wires = []
         shape = self.face
@@ -597,7 +610,7 @@ class PathGeometryGenerator:
         Direction of cut is taken into account.
         Additional offset loop ordering is handled in the linking method.
         """
-        PathLog.debug("_MultiProfile()")
+        self._debugMsg("PGG._MultiProfile()")
 
         wires = []
         shape = self.face
@@ -692,6 +705,7 @@ class PathGeometryGenerator:
 
     def _Spiral(self):
         """_Spiral()... Returns raw set of Spiral wires at Z=0.0."""
+        self._debugMsg("PGG._Spiral()")
         geomList = []
         allEdges = []
         draw = True
@@ -714,8 +728,10 @@ class PathGeometryGenerator:
             PathLog.debug("_Spiral() regular pattern")
             if self.cutDirection == "Climb":
                 getPoint = self._makeRegSpiralPnt
+                self._debugMsg("Setting getPoint() to _makeRegSpiralPnt()")
             else:
                 getPoint = self._makeOppSpiralPnt
+                self._debugMsg("Setting getPoint() to _makeOppSpiralPnt()")
 
             while draw:
                 radAng = sumRadians + stepAng
@@ -744,8 +760,10 @@ class PathGeometryGenerator:
             PathLog.debug("_Spiral() REVERSED pattern")
             if self.cutDirection == "Conventional":
                 getPoint = self._makeOppSpiralPnt
+                self._debugMsg("Setting getPoint() to _makeOppSpiralPnt()")
             else:
                 getPoint = self._makeRegSpiralPnt
+                self._debugMsg("Setting getPoint() to _makeRegSpiralPnt()")
 
             while draw:
                 radAng = sumRadians + stepAng
@@ -781,6 +799,9 @@ class PathGeometryGenerator:
         """_Grid()...
         Returns raw set of Grid wires at Z=0.0 using `Path.fromShapes()` to generate gcode.
         Then a short converter algorithm is applied to the gcode to extract wires."""
+        self._debugMsg("PGG._Grid()")
+        if self.cutDirection == "Climb":
+            self.orientation = 1
         self.pocketMode = 6
         return self._extractGridAndTriangleWires()
 
@@ -788,6 +809,9 @@ class PathGeometryGenerator:
         """_Triangle()...
         Returns raw set of Triangle wires at Z=0.0 using `Path.fromShapes()` to generate gcode.
         Then a short converter algorithm is applied to the gcode to extract wires."""
+        self._debugMsg("PGG._Triangle()")
+        if self.cutDirection == "Climb":
+            self.orientation = 1
         self.pocketMode = 7
         return self._extractGridAndTriangleWires()
 
@@ -796,7 +820,8 @@ class PathGeometryGenerator:
         Returns raw set of Adaptive wires at Z=0.0 using a condensed version of code from the Adaptive operation.
         Currently, no helix entry wires are included, only the clearing portion of wires.
         """
-        PathLog.debug("_Adaptive() *** Adaptive path geometry generation started...")
+        self._debugMsg("PGG._Adaptive()")
+        # PathLog.debug("_Adaptive() *** Adaptive path geometry generation started...")
         startTime = time.time()
 
         self.targetFace.translate(
@@ -899,7 +924,7 @@ class PathGeometryGenerator:
     # Path linking methods
     def _Link_Line(self):
         """_Link_Line()... Apply necessary linking to resulting wire set after common between target face and raw wire set."""
-        self._debugMsg("_Link_Line()")
+        self._debugMsg("PGG._Link_Line()")
 
         allGroups = []
         allWires = []
@@ -994,11 +1019,12 @@ class PathGeometryGenerator:
 
     def _Link_LineOffset(self):
         """_Link_Line()... Apply necessary linking to resulting wire set after common between target face and raw wire set."""
+        self._debugMsg("PGG._Link_LineOffset()")
         return self._Link_Line()
 
     def _Link_Circular(self):
         """_Link_Circular()... Apply necessary linking to resulting wire set after common between target face and raw wire set."""
-        # PathLog.debug("_Link_Circular()")
+        self._debugMsg("PGG._Link_Circular()")
 
         def combineAdjacentArcs(grp):
             """combineAdjacentArcs(arcList)...
@@ -1137,18 +1163,23 @@ class PathGeometryGenerator:
 
     def _Link_CircularZigZag(self):
         """_Link_CircularZigZag()... Apply necessary linking to resulting wire set after common between target face and raw wire set."""
+        self._debugMsg("PGG._Link_CircularZigZag()")
         return self._Link_Circular()
 
     def _Link_ZigZag(self):
         """_Link_ZigZag()... Apply necessary linking to resulting wire set after common between target face and raw wire set."""
+        self._debugMsg("PGG._Link_ZigZag()")
         return self._Link_Line()
 
     def _Link_ZigZagOffset(self):
         """_Link_ZigZagOffset()... Apply necessary linking to resulting wire set after common between target face and raw wire set."""
+        self._debugMsg("PGG._Link_ZigZagOffset()")
         return self._Link_Line()
 
     def _Link_Offset(self):
         """_Link_Offset()... Apply necessary linking to resulting wire set after common between target face and raw wire set."""
+        self._debugMsg("PGG._Link_Offset()")
+
         if self.cutPatternReversed:
             return sorted(
                 self.rawPathGeometry.Wires, key=lambda wire: Part.Face(wire).Area
@@ -1162,6 +1193,8 @@ class PathGeometryGenerator:
 
     def _Link_Profile(self):
         """_Link_Profile()... Apply necessary linking to resulting wire set after common between target face and raw wire set."""
+        self._debugMsg("PGG._Link_Profile()")
+
         if self.cutPatternReversed:
             return sorted(
                 self.rawPathGeometry.Wires, key=lambda wire: Part.Face(wire).Area
@@ -1175,6 +1208,8 @@ class PathGeometryGenerator:
 
     def _Link_MultiProfile(self):
         """_Link_MultiProfile()... Apply necessary linking to resulting wire set after common between target face and raw wire set."""
+        self._debugMsg("PGG._Link_MultiProfile()")
+
         if self.cutPatternReversed:
             return sorted(
                 self.rawPathGeometry.Wires, key=lambda wire: Part.Face(wire).Area
@@ -1188,6 +1223,7 @@ class PathGeometryGenerator:
 
     def _Link_Spiral(self):
         """_Link_Spiral()... Apply necessary linking to resulting wire set after common between target face and raw wire set."""
+        self._debugMsg("PGG._Link_Spiral()")
 
         def sortWires0(wire):
             return wire.Edges[0].Vertexes[0].Point.sub(self.centerOfPattern).Length
@@ -1205,22 +1241,27 @@ class PathGeometryGenerator:
 
     def _Link_Grid(self):
         """_Link_Grid()... Apply necessary linking to resulting wire set after common between target face and raw wire set."""
+        self._debugMsg("PGG._Link_Grid()")
         # No linking required.
         return self.rawPathGeometry.Wires
 
     def _Link_Triangle(self):
         """_Link_Grid()... Apply necessary linking to resulting wire set after common between target face and raw wire set."""
+        self._debugMsg("PGG._Link_Triangle()")
         # No linking required.
         return self.rawPathGeometry.Wires
 
     def _Link_Adaptive(self):
         """_Link_Adaptive()... Apply necessary linking to resulting wire set after common between target face and raw wire set."""
+        self._debugMsg("PGG._Link_Adaptive()")
         # No linking required.
         return self.rawPathGeometry.Wires
 
     # Support methods
     def _prepareAttributes(self):
         """_prepareAttributes()... Prepare instance attribute values for path generation."""
+        self._debugMsg("PGG._prepareAttributes()")
+
         if self.isCenterSet:
             if self.useStaticCenter:
                 return
@@ -1254,6 +1295,8 @@ class PathGeometryGenerator:
 
     def _getPatternCenter(self):
         """_getPatternCenter()... Determine center of cut pattern and save in instance attribute."""
+        self._debugMsg("PGG._getPatternCenter()")
+
         centerAt = self.patternCenterAt
 
         if centerAt == "CenterOfMass":
@@ -1276,6 +1319,8 @@ class PathGeometryGenerator:
 
     def _getRadialPasses(self):
         """_getRadialPasses()... Return number of radial passes required for circular and spiral patterns."""
+        self._debugMsg("PGG._getRadialPasses()")
+
         # recalculate number of passes, if need be
         radialPasses = self.halfPasses
         if self.patternCenterAt != "CenterOfBoundBox":
@@ -1303,18 +1348,24 @@ class PathGeometryGenerator:
 
     def _makeRegSpiralPnt(self, move, b, radAng):
         """_makeRegSpiralPnt(move, b, radAng)... Return next point on regular spiral pattern."""
+        # self._debugMsg("PGG._makeRegSpiralPnt()")
+
         x = b * radAng * math.cos(radAng)
         y = b * radAng * math.sin(radAng)
         return FreeCAD.Vector(x, y, 0.0).add(move)
 
     def _makeOppSpiralPnt(self, move, b, radAng):
         """_makeOppSpiralPnt(move, b, radAng)... Return next point on opposite(reversed) spiral pattern."""
+        # self._debugMsg("PGG._makeOppSpiralPnt()")
+
         x = b * radAng * math.cos(radAng)
         y = b * radAng * math.sin(radAng)
         return FreeCAD.Vector(-1 * x, y, 0.0).add(move)
 
     def _getProfileWires(self):
         """_getProfileWires()... Return set of profile wires for target face."""
+        self._debugMsg("PGG._getProfileWires()")
+
         wireList = []
         shape = self.face
         offset = 0.0
@@ -1360,7 +1411,7 @@ class PathGeometryGenerator:
 
     def _applyPathLinking(self):
         """_applyPathLinking()... Control method for applying linking to target wire set."""
-        PathLog.debug(f"_applyPathLinking({self.cutPattern})")
+        self._debugMsg(f"PGG._applyPathLinking({self.cutPattern})")
 
         # patterns = ('Adaptive', 'Circular', 'CircularZigZag', 'Grid', 'Line', 'LineOffset', 'Offset', 'Spiral', 'Triangle', 'ZigZag', 'ZigZagOffset')
         linkMethodName = "_Link_" + self.cutPattern
@@ -1368,16 +1419,81 @@ class PathGeometryGenerator:
         linked = linkMethod()
         return linked
 
-    def _extractGridAndTriangleWires(self):
-        """_buildGridAndTrianglePaths() ... Returns a set of wires representng Grid or Triangle cut paths."""
-        PathLog.track()
-        # areaParams = {}
-        pathParams = {}
+    def wiresFromCommands(self, commands):
+        # Use modified version of PathGeom.wiresForPath() to extract wires from paths
+        wires = []
+        startPoint = FreeCAD.Vector(0.0, 0.0, 0.0)
+        if self.startPoint:
+            PathLog.debug(f"Using starting point: {self.startPoint}")
+            startPoint = self.startPoint
+        else:
+            PathLog.debug(f"No starting point.")
+        edges = []
+        cnt = 0
+        for cmd in commands:
+            cnt += 1
+            # print(f"cmd_{cnt}: {cmd}")
+            if cmd.Name in PathGeom.CmdMove:
+                # print(f"slowMove_{cnt}")
+                edg = PathGeom.edgeForCmd(cmd, startPoint)
+                # self._addDebugShape(edg, f"cmdEdge_{cnt}", True)
+                if PathGeom.isRoughly(edg.Vertexes[0].Point.z, edg.Vertexes[1].Point.z):
+                    # self._addDebugShape(edg, f"cmdEdge_{cnt}", True)
+                    edges.append(edg)
+                edg = None
+                startPoint = PathGeom.commandEndPoint(cmd, startPoint)
 
-        if self.cutDirection == "Climb":
-            self.orientation = 1
+            elif cmd.Name in PathGeom.CmdMoveRapid:
+                # print(f"rapidMove_{cnt}")
+                if len(edges) > 0:
+                    wires.append(Part.Wire(edges))
+                    edges = []
+                startPoint = PathGeom.commandEndPoint(cmd, startPoint)
+            # print(f"next startPoint: {startPoint}")
+        if edges:
+            wires.append(Part.Wire(edges))
+        return wires
+
+    def _extractGridAndTriangleWires(self):
+        """_extractGridAndTriangleWires(getsim=False) ... Generate paths for Grid and Triangle patterns."""
+        PathLog.track()
+        areaParams = {}
+        # heights = [i for i in self.depthParams]
+        heights = [self.targetFace.BoundBox.ZMin]
+        self._debugMsg("depths: {}".format(heights))
+
+        areaParams["Fill"] = 0
+        areaParams["Coplanar"] = 0
+        areaParams["PocketMode"] = 1
+        areaParams["SectionCount"] = -1
+        areaParams["Angle"] = self.cutPatternAngle
+        areaParams["FromCenter"] = not self.cutPatternReversed
+        areaParams["PocketStepover"] = (self.toolRadius * 2) * (
+            float(self.stepOver) / 100
+        )
+        # areaParams["PocketExtraOffset"] = self.materialAllowance
+        areaParams["ToolRadius"] = self.toolRadius
+
+        # Path.Area() pattern list is ['None', 'ZigZag', 'Offset', 'Spiral', 'ZigZagOffset', 'Line', 'Grid', 'Triangle']
+        areaParams["PocketMode"] = self.pocketMode
+
+        pathArea = Path.Area()
+        pathArea.setPlane(PathUtils.makeWorkplane(Part.makeCircle(5.0)))
+        pathArea.add(self.targetFace)
+        pathArea.setParams(**areaParams)
+
+        # Save pathArea parameters
+        self.areaParams = str(pathArea.getParams())
+        # self._debugMsg("Area with params: {}".format(pathArea.getParams()))
+
+        # Extract layer sections from pathArea object
+        sections = pathArea.makeSections(mode=0, project=True, heights=heights)
+        # self._debugMsg("sections = %s" % sections)
+        shapelist = [sec.getShape() for sec in sections]
+        # self._debugMsg("shapelist = %s" % shapelist)
 
         # Set path parameters
+        pathParams = {}
         pathParams["orientation"] = self.orientation
         # if MinTravel is turned on, set path sorting to 3DSort
         # 3DSort shouldn't be used without a valid start point. Can cause
@@ -1391,7 +1507,7 @@ class PathGeometryGenerator:
         if self.minTravel and self.startPoint:
             pathParams["sort_mode"] = 3
             pathParams["threshold"] = self.toolRadius * 2
-        pathParams["shapes"] = [self.targetFace]
+        pathParams["shapes"] = shapelist
         pathParams["feedrate"] = self.horizFeed
         pathParams["feedrate_v"] = self.vertFeed
         pathParams["verbose"] = True
@@ -1412,43 +1528,30 @@ class PathGeometryGenerator:
         self.pathParams = str(
             {key: value for key, value in pathParams.items() if key != "shapes"}
         )
-        PathLog.debug("Path with params: {}".format(self.pathParams))
+        # self._debugMsg("Path with params: {}".format(self.pathParams))
 
         # Build paths from path parameters
         (pp, end_vector) = Path.fromShapes(**pathParams)
-        PathLog.debug("pp: {}, end vector: {}".format(pp, end_vector))
+        self._debugMsg("pp: {}, end vector: {}".format(pp, end_vector))
         self.endVector = end_vector  # pylint: disable=attribute-defined-outside-init
 
-        self.commandList = pp.Commands
-
-        # Use modified version of PathGeom.wiresForPath() to extract wires from paths
         wires = []
-        startPoint = FreeCAD.Vector(0.0, 0.0, 0.0)
-        if self.startPoint:
-            startPoint = self.startPoint
         if hasattr(pp, "Commands"):
-            edges = []
-            for cmd in pp.Commands:
-                if cmd.Name in PathGeom.CmdMove:
-                    edg = PathGeom.edgeForCmd(cmd, startPoint)
-                    if PathGeom.isRoughly(edg.Vertexes[0].Z, edg.Vertexes[1].Z):
-                        edges.append(edg)
-                    startPoint = PathGeom.commandEndPoint(cmd, startPoint)
+            wires = self.wiresFromCommands(pp.Commands)
+        else:
+            self._debugMsg("No Commands returned from Path.fromShapes()")
 
-                elif cmd.Name in PathGeom.CmdMoveRapid:
-                    if len(edges) > 0:
-                        wires.append(Part.Wire(edges))
-                        edges = []
-                    startPoint = PathGeom.commandEndPoint(cmd, startPoint)
-            if edges:
-                wires.append(Part.Wire(edges))
+        self._debugMsg(f"PGG._extractGridAndTriangleWires() wire count: {len(wires)}")
+
+        # self.commandList = pp.Commands
         return wires
 
     def _generatePathGeometry(self):
         """_generatePathGeometry()... Control function that generates path geometry wire sets."""
-        self._debugMsg("_generatePathGeometry()")
+        self._debugMsg("PGG._generatePathGeometry()")
 
         patternMethod = getattr(self, "_" + self.cutPattern)
+        self._debugMsg("_generatePathGeometry() Calling specific cut pattern method...")
         self.rawGeoList = patternMethod()
         self._debugMsg(f"len(self.rawGeoList): {len(self.rawGeoList)}")
 
@@ -1485,7 +1588,7 @@ class PathGeometryGenerator:
         # Identify intersection of cross-section face and lineset
         if self.cutPattern == "MultiProfile" and self.profileOutside:
             self.rawPathGeometry = Part.makeCompound(geomShape.Wires)
-        elif self.cutPattern in ["Profile", "MultiProfile"]:
+        elif self.cutPattern in ["Profile", "MultiProfile", "Grid", "Triangle"]:
             self.rawPathGeometry = Part.makeCompound(geomShape.Wires)
         else:
             rawWireSet = Part.makeCompound(geomShape.Wires)
@@ -1506,6 +1609,8 @@ class PathGeometryGenerator:
     # Private adaptive support methods
     def _convertTo2d(self, pathArray):
         """_convertTo2d() ... Converts array of edge lists into list of point list pairs. Used for Adaptive cut pattern."""
+        self._debugMsg("PGG._convertTo2d()")
+
         output = []
         for path in pathArray:
             pth2 = []
@@ -1517,6 +1622,8 @@ class PathGeometryGenerator:
 
     def _discretize(self, edge, flipDirection=False):
         """_discretize(edge, flipDirection=False) ... Discretizes an edge into a set of points. Used for Adaptive cut pattern."""
+        self._debugMsg("PGG._discretize()")
+
         pts = edge.discretize(Deflection=0.0001)
         if flipDirection:
             pts.reverse()
@@ -1528,6 +1635,8 @@ class PathGeometryGenerator:
         Converts raw Adaptive algorithm data into gcode.
         Not currently active.  Will be modified to extract helix data as wires.
         Will be used for Adaptive cut pattern."""
+        self._debugMsg("PGG._generateGCode()")
+
         self.commandList = []
         commandList = []
         motionCutting = area.AdaptiveMotionType.Cutting
@@ -2120,6 +2229,8 @@ class PathGeometryGenerator:
             tolerance:          tolerance versus accuracy value within set range
             stockObj:           reference to job stock object
         """
+        self._debugMsg("PGG.setAdaptiveAttributes()")
+
         # Apply limits to argument values
         if tolerance < 0.001:
             tolerance = 0.001
@@ -2152,12 +2263,22 @@ class PathGeometryGenerator:
         #    self.helixAngle = 89.0
         pass
 
+    def setGridTriangleAttributes(
+        self, horizFeed, vertFeed, safeHeight, clearanceHeight, startPoint
+    ):
+        self._debugMsg("PGG.setGridTriangleAttributes()")
+        self.horizFeed = horizFeed
+        self.vertFeed = vertFeed
+        self.safeHeight = safeHeight
+        self.clearanceHeight = clearanceHeight
+        self.startPoint = startPoint
+
     def execute(self):
         """execute()...
         Call this method to execute the path generation code in PathGeometryGenerator class.
         Returns True on success.  Access class instance `pathGeometry` attribute for path geometry.
         """
-        self._debugMsg("StrategyClearing.execute()")
+        self._debugMsg("PGG.execute()")
 
         self.commandList = []  # Reset list
         # self.pathGeometry = []  # Reset list
@@ -2191,10 +2312,9 @@ class PathGeometryGenerator:
         else:
             #  Apply simple radius shrinking offset for clearing pattern generation.
             ofstVal = self.offsetDirection * (
-                self.toolRadius
-                - (self.jobTolerance / 10.0)  #  + self.materialAllowance
+                self.toolRadius - (self.jobTolerance / 2.0)  #  + self.materialAllowance
             )
-            PathLog.info(f"PathGeometryGenerator ofstVal: {ofstVal}")
+            PathLog.debug(f"PGG.execute() ofstVal: {ofstVal}")
             offsetWF = PathUtils.getOffsetArea(self.targetFace, ofstVal)
 
         # Part.show(offsetWF, "OffsetWF")

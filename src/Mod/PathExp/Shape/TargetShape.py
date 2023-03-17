@@ -525,13 +525,20 @@ class TargetShape(PathOp2.ObjectOp2):
         wires0 = DraftGeomUtils.findWires(rawEdges)
         for w in wires0:
             if w.isClosed():
+                if PathGeom.isRoughly(w.BoundBox.ZLength, 0.0):
+                    wr = w
+                else:
+                    wr = Part.Wire(flattenOpenWire(w, True).Edges)
                 fc = applyFeatureBoundary(
                     obj.FeatureBoundary,
-                    Part.Face(w),
+                    Part.Face(wr),
                     baseShape,
                     self.stock.Shape,
                     obj.RespectFeatureHoles,
                     obj.ExtensionLengthDefault.Value,
+                )
+                fc.translate(
+                    FreeCAD.Vector(0.0, 0.0, w.BoundBox.ZMin - fc.BoundBox.ZMin)
                 )
                 faceWires.append(fc)
             else:
@@ -549,12 +556,52 @@ class TargetShape(PathOp2.ObjectOp2):
                     obj.RespectFeatureHoles,
                     obj.ExtensionLengthDefault.Value,
                 )
+                fc.translate(
+                    FreeCAD.Vector(0.0, 0.0, w.BoundBox.ZMin - fc.BoundBox.ZMin)
+                )
                 faceWires.append(fc)
             else:
                 PathLog.error("Wire not closed.")
                 Part.show(w, "OpenWireError 2")
                 otherWires.append(w)
         return faceWires, otherWires
+
+    def _getRotationsList(self, obj, mapped=False):
+        # Proxy method for Extensions feature
+        return PathOp2.AlignToFeature.buildRotationsList(obj, mapped)
+
+    def _getModelEnvelope(self, obj, modelObj):
+        rotatedBaseShp = self.getRotatedShape(obj, modelObj.Shape)
+        if obj.ShowRotatedBase:
+            shpObj = Part.show(rotatedBaseShp, "RotatedBase")
+            shpObj.purgeTouched()
+
+        modelEnv = PathUtils.getEnvelope(
+            rotatedBaseShp, subshape=None, depthparams=self.depthparams
+        )
+        mdlCS = TargetBuildUtils.getCrossSectionFace(modelEnv)
+        mdlCS.translate(
+            # FreeCAD.Vector(0.0, 0.0, modelObj.Shape.BoundBox.ZMin - mdlCS.BoundBox.ZMin)
+            FreeCAD.Vector(0.0, 0.0, obj.FinalDepth.Value - mdlCS.BoundBox.ZMin)
+        )
+        fc = applyFeatureBoundary(
+            obj.FeatureBoundary,
+            mdlCS,
+            modelObj.Shape,
+            self.stock.Shape,
+            obj.RespectFeatureHoles,
+            obj.ExtensionLengthDefault.Value,
+        )
+        fc.translate(FreeCAD.Vector(0.0, 0.0, obj.FinalDepth.Value - fc.BoundBox.ZMin))
+        ftExt = fc.extrude(
+            FreeCAD.Vector(
+                # 0.0, 0.0, self.stock.Shape.BoundBox.ZMax - modelObj.Shape.BoundBox.ZMin
+                0.0,
+                0.0,
+                self.stock.Shape.BoundBox.ZMax - obj.FinalDepth.Value,
+            )
+        )
+        return ftExt
 
     # Main executable method
     def opExecute(self, obj):
@@ -592,7 +639,11 @@ class TargetShape(PathOp2.ObjectOp2):
             if e.extType == "Avoid":
                 avoidFeatures.append(e.feature)
 
-        if obj.Base:
+        if obj.Base and obj.ModelOnly:
+            for (m, subList) in obj.Base:
+                targetShapes.append(self._getModelEnvelope(obj, m))
+            hasGeometry = True
+        elif obj.Base:
             # PathLog.info("Processing base items ...")
             for (base, subList) in obj.Base:
                 rawFaces = []
@@ -607,14 +658,20 @@ class TargetShape(PathOp2.ObjectOp2):
                 for sub in subList:
                     if sub.startswith("Face"):
                         # rawFaces.append(rotatedBaseShp.getElement(sub).copy())
+                        face = rotatedBaseShp.getElement(sub)
                         fc = applyFeatureBoundary(
                             obj.FeatureBoundary,
-                            rotatedBaseShp.getElement(sub),
+                            face,
                             base.Shape,
                             self.stock.Shape,
                             obj.RespectFeatureHoles,
                             obj.ExtensionLengthDefault.Value,
                         )  # featureBoundary, face, baseShape, stockShape
+                        fc.translate(
+                            FreeCAD.Vector(
+                                0.0, 0.0, face.BoundBox.ZMin - fc.BoundBox.ZMin
+                            )
+                        )
                         rawFaces.append(fc)
                         # Add applicable extension
                         for ext in extensions:
@@ -680,25 +737,27 @@ class TargetShape(PathOp2.ObjectOp2):
                         FreeCAD.Vector(0.0, 0.0, -1.0 * stockThickness)
                     )
                     trimWithFaces = extReg.cut(extSrc)
-                    trimWithBase = trimWithFaces.cut(rotatedBaseShp).removeSplitter()
-                    # trimWithBase = trimWithFaces.cut(base.Shape)
-                    # shape = trimWithBase.common(self.job.Stock.Shape)
-                    # targetShapes.append(shape)
-                    targetShapes.append(trimWithBase)
+                    twb = trimWithFaces.cut(rotatedBaseShp)
+                    if twb:
+                        trimWithBase = twb.removeSplitter()
+                        # trimWithBase = trimWithFaces.cut(base.Shape)
+                        # shape = trimWithBase.common(self.job.Stock.Shape)
+                        # targetShapes.append(shape)
+                        targetShapes.append(trimWithBase)
+                    else:
+                        PathLog.warning("No trimWithBase shape")
                 else:
                     PathLog.warning("stock top - final depth - depth allowance < 0.0")
 
                 # Reset rotations
                 del rotatedBaseShp
             # Efor
-            del rotatedStockShp
 
             hasGeometry = True
-
         else:
-            # No base geometry provide
             pass
 
+        del rotatedStockShp
         holes = self._processHoles(obj)
         if holes:
             hasGeometry = True
@@ -715,34 +774,7 @@ class TargetShape(PathOp2.ObjectOp2):
 
         if not hasGeometry:
             for m in self.job.Model.Group:
-                rotatedBaseShp = self.getRotatedShape(obj, m.Shape)
-                if obj.ShowRotatedBase:
-                    shpObj = Part.show(rotatedBaseShp, "RotatedBase")
-                    shpObj.purgeTouched()
-
-                modelEnv = PathUtils.getEnvelope(
-                    rotatedBaseShp, subshape=None, depthparams=self.depthparams
-                )
-                mdlCS = TargetBuildUtils.getCrossSectionFace(modelEnv)
-                mdlCS.translate(
-                    FreeCAD.Vector(
-                        0.0, 0.0, m.Shape.BoundBox.ZMin - mdlCS.BoundBox.ZMin
-                    )
-                )
-                fc = applyFeatureBoundary(
-                    obj.FeatureBoundary,
-                    mdlCS,
-                    m.Shape,
-                    self.stock.Shape,
-                    obj.RespectFeatureHoles,
-                    obj.ExtensionLengthDefault.Value,
-                )
-                ftExt = fc.extrude(
-                    FreeCAD.Vector(
-                        0.0, 0.0, self.stock.Shape.BoundBox.ZMax - m.Shape.BoundBox.ZMin
-                    )
-                )
-                targetShapes.append(ftExt)
+                targetShapes.append(self._getModelEnvelope(obj, m))
 
         obj.ShowRotatedStock = False
         obj.ShowRotatedBase = False
@@ -751,31 +783,9 @@ class TargetShape(PathOp2.ObjectOp2):
     # Proxy method for Extensions feature
     # def rotateShapeWithList(self, shape, rotations):
     #    return AlignToFeature.rotateShapeWithList(shape, rotations)
-    def _getRotationsList(self, obj, mapped=False):
-        # Proxy method for Extensions feature
-        return PathOp2.AlignToFeature.buildRotationsList(obj, mapped)
 
 
 # Eclass
-
-
-def edgesToFaces(edges):
-    wires = DraftGeomUtils.findWires(edges)
-    for w in wires:
-        if w.isClosed():
-            fc = applyFeatureBoundary(
-                obj.FeatureBoundary,
-                Part.Face(w),
-                base.Shape,
-                self.stock.Shape,
-                obj.RespectFeatureHoles,
-                obj.ExtensionLengthDefault.Value,
-            )  # featureBoundary, face, baseShape, stockShape
-            rawFaces.append(fc)
-        else:
-            PathLog.error("Wire not closed.")
-            Part.show(ew, "OpenWireError")
-            openWires.append(flattenOpenWire(ew))
 
 
 def flattenOpenWire(wire, matchHeight=False):
@@ -796,12 +806,9 @@ def applyFeatureBoundary(
     featureBoundary, face, baseShape, stockShape, respectFeatureHoles, extLength
 ):
     if featureBoundary == "Boundbox":
-        newFace = PathGeom.makeBoundBoxFace(face.BoundBox, zHeight=face.BoundBox.ZMin)
+        newFace = PathGeom.makeBoundBoxFace(face.BoundBox)
     elif featureBoundary == "Stock":
         newFace = TargetBuildUtils.getCrossSectionFace(stockShape)
-        newFace.translate(
-            FreeCAD.Vector(0.0, 0.0, face.BoundBox.ZMin - stockShape.BoundBox.ZMin)
-        )
     elif featureBoundary == "Waterline":
         newFace = getWaterlineFace(stockShape, baseShape, face)
         if newFace is None:
@@ -813,18 +820,14 @@ def applyFeatureBoundary(
             PathLog.error("Waterline creation failed.  Using 'Feature' boundary.")
             newFace = face.copy()
     elif featureBoundary == "StockExt":
-        # wFace = PathGeom.makeBoundBoxFace(face.BoundBox, zHeight=face.BoundBox.ZMin)
         stockFace = TargetBuildUtils.getCrossSectionFace(stockShape)
-        stockFace.translate(
-            FreeCAD.Vector(0.0, 0.0, face.BoundBox.ZMin - stockFace.BoundBox.ZMin)
-        )
         newFace = PathUtils.getOffsetArea(stockFace, extLength)
     elif featureBoundary == "FeatureExt":
         newFace = PathUtils.getOffsetArea(face, extLength)
     else:
         newFace = face.copy()
 
-    # Part.show(newFace, "NewFace")
+    newFace.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - newFace.BoundBox.ZMin))
 
     if not respectFeatureHoles or len(face.Wires) == 1:
         return newFace

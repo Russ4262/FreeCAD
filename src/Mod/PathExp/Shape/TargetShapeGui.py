@@ -66,8 +66,6 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
             + "Mod\\PathExp\\GuiSupport\\PageTargetShapeEdit.ui"
         )
         form = FreeCADGui.PySideUic.loadUi(uiFilePath)
-        # form.depthAllowance.setEnabled(False)
-        # form.depthAllowance_label.setEnabled(False)
         return form
 
     def setFields(self, obj):
@@ -126,9 +124,6 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
             obj.RotationReferenceLink = [(baseObj, (f"{obj.Model}.{feat}"))]
         else:
             obj.RotationReferenceLink = []
-
-        # self.depthAllowance.updateProperty()
-        pass
 
     def updateQuantitySpinBoxes(self, index=None):
         # self.depthAllowance.updateSpinBox()
@@ -321,8 +316,8 @@ class TaskPanelOpPage(PathTaskPanelPage.TaskPanelPage):
         for mdl in models:
             cbox.addItem(mdl.Label, mdl.Name)
         cbox.blockSignals(False)
-        if len(models) == 1:
-            self._populateFeatures()
+        # if len(models) == 1:
+        self._populateFeatures()
 
     def _populateFeatures(self):
         mName = str(self.form.model.currentData())

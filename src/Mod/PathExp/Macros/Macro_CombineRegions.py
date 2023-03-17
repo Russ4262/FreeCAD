@@ -226,6 +226,7 @@ def _consolidateAreas(closedWires, saveHoles=True):
             result.append(small)
     # Ewhile
     faces = [t[1] for t in result]
+    # Part.show(Part.makeCompound(faces), "FacesConsolidate")
     outerFaces = [Part.Face(f.Wires[0]) for f in faces]
     innerFaces = []
     for f in faces:

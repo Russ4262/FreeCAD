@@ -270,14 +270,25 @@ def arcAdjustmentAngle(arc1, arc2):
 
 
 def extrudeEdgeToFace(feature, edge, length):
-    if hasattr(feature.Surface, "Axis"):
-        extDirection = FreeCAD.Vector(
-            feature.Surface.Axis.x, feature.Surface.Axis.y, 0
-        ).multiply(length)
-    else:
-        extDirection = FreeCAD.Vector(
-            feature.Surface.Direction.x, feature.Surface.Direction.y, 0
-        ).multiply(length)
+    PathLog.info("extrudeEdgeToFace()")
+    if hasattr(feature, "Surface"):
+        if hasattr(feature.Surface, "Axis"):  # When feature is Part.Face
+            extDirection = FreeCAD.Vector(
+                feature.Surface.Axis.x, feature.Surface.Axis.y, 0
+            ).multiply(length)
+        else:
+            extDirection = FreeCAD.Vector(
+                feature.Surface.Direction.x, feature.Surface.Direction.y, 0
+            ).multiply(length)
+    elif hasattr(feature, "Curve"):  # When feature is Part.Edge
+        if hasattr(feature.Curve, "Axis"):  # When feature is Part.Face
+            extDirection = FreeCAD.Vector(
+                feature.Curve.Axis.x, feature.Curve.Axis.y, 0
+            ).multiply(length)
+        else:
+            extDirection = FreeCAD.Vector(
+                feature.Curve.Direction.x, feature.Curve.Direction.y, 0
+            ).multiply(length)
     extFace = edge.extrude(extDirection)
     if PathGeom.isRoughly(extFace.common(feature).Area, 0.0):
         return extFace
@@ -304,7 +315,13 @@ class Extension(object):
         self.direction = direction
         self.extFaces = None
         self.isDebug = True if PathLog.getLevel(PathLog.thisModule()) == 4 else False
-        self.extType = "Regular"
+        self.extType = "Edge"
+        self.irregular = False
+
+        self.avoid = False
+        if sub.startswith("Avoid"):
+            self.avoid = True
+
         self.wire = None
         self.rotatedBaseShp = None
 
@@ -312,20 +329,32 @@ class Extension(object):
         return "%s:%s" % (self.feature, self.sub)
 
     def _getEdgeNumbers(self):
-        if "Wire" in self.sub:
-            numbers = [nr for nr in self.sub[5:-1].split(",")]
-        else:
+        if self.sub.startswith("Edge"):
             numbers = [self.sub[4:]]
+        else:
+            i = self.sub.index("(")
+            self.extType = self.sub[:i]
+            print(f"self.extType: {self.extType}")
+            if self.extType == "Wire":
+                numbers = [nr for nr in self.sub[i + 1 : -1].split(",")]
+            else:
+                numbers = []
 
         PathLog.debug("_getEdgeNumbers() -> %s" % numbers)
         return numbers
 
     def _getEdgeNames(self):
-        return ["Edge%s" % nr for nr in self._getEdgeNumbers()]
+        return [f"Edge{nr}" for nr in self._getEdgeNumbers()]
 
     def _getEdges(self):
         # return [self.obj.Shape.getElement(sub) for sub in self._getEdgeNames()]
-        return [self.rotatedBaseShp.getElement(sub) for sub in self._getEdgeNames()]
+        PathLog.info(f"self.sub:\n{self.sub}")
+        elements = []
+        for sub in self._getEdgeNames():
+            PathLog.info(f"sub: {sub}")
+            elements.append(self.rotatedBaseShp.getElement(sub))
+
+        return elements
 
     def _getDirectedNormal(self, p0, normal):
         poffPlus = p0 + 0.01 * normal
@@ -372,12 +401,17 @@ class Extension(object):
             self.rotatedBaseShp = self.obj.Shape
 
         # Fabricate extensions
-        if self.extType == "Regular":
+        if self.extType in ["Edge", "Wire"]:
             rtn = self._getRegularWire()
+        elif self.extType == "Extend":
+            PathLog.error("using _getRegularWire()")
+            rtn = self._getRegularWire()  # self._getExtendWire()
         elif self.extType == "Avoid":
-            rtn = self._getAvoidWire()
+            PathLog.error("using _getRegularWire()")
+            rtn = self._getRegularWire()  # self._getAvoidWire()
         elif self.extType == "Waterline":
-            rtn = self._getWaterlineWire()
+            PathLog.error("using _getRegularWire()")
+            rtn = self._getRegularWire()  # self._getWaterlineWire()
         else:
             PathLog.error(f"Extension type error: {self.extType}")
         # clear indexed model shape
@@ -444,6 +478,7 @@ class Extension(object):
                     faceNormal = face.normalAt(0, 0)
                     if PathGeom.isRoughly(faceNormal.z, 0.0):
                         PathLog.debug("Need to extrude edge laterally")
+                        self.irregular = True
                         self.extFaces = [extrudeEdgeToFace(feature, edge, length)]
                         return self.extFaces[0].Wires[0]
 
@@ -470,7 +505,7 @@ class Extension(object):
             PathLog.track()
             return Part.Wire([edge])
         else:
-            PathLog.debug("else is NOT Part.Circle")
+            PathLog.debug("else is NOT Part.Circle... tracking")
             PathLog.track(self.feature, self.sub, type(edge.Curve), endPoints(edge))
             direction = self._getDirection(sub)
             if direction is None:
@@ -478,26 +513,42 @@ class Extension(object):
                 return None
 
         extendedWire = _extendEdge(feature, edge, direction, length)
-        if extendedWire is None:
-            PathLog.debug(f"Discretizing {sub}")
-            extendedWire = _offsetDiscretizedEdge(feature, edge, direction, length)
-        self.wire = extendedWire
+        if extendedWire is not None:
+            self.wire = extendedWire
+            self.extFaces = [Part.Face(extendedWire)]
+            return extendedWire
 
         # Determine if calculated extension is oriented vertically
+        PathLog.debug(f"Discretizing {sub}")
+        extendedWire = _offsetDiscretizedEdge(feature, edge, direction, length)
         try:
             face = Part.Face(extendedWire)
+        except Exception as ee:
+            PathLog.debug(f"Failed to create face from extendedWire, {sub}")
+            # Part.show(extendedWire, "FailedExtendedWire")
+        else:
             faceNormal = face.normalAt(0, 0)
+            # PathLog.error(f"faceNormal: {faceNormal}")
             if PathGeom.isRoughly(faceNormal.z, 0.0):
                 PathLog.debug("Need to extrude edge laterally")
+                self.irregular = True
                 self.extFaces = [extrudeEdgeToFace(feature, edge, length)]
                 return self.extFaces[0].Wires[0]
-        except Exception as ee:
-            PathLog.debug("Failed to create face from extendedWire")
 
-        return extendedWire
+        if not PathGeom.isRoughly(edge.BoundBox.ZLength, 0.0):
+            PathLog.debug("Need to extrude edge laterally")
+            self.irregular = True
+            self.extFaces = [extrudeEdgeToFace(feature, edge, length)]
+            return self.extFaces[0].Wires[0]
+
+        return None  # extendedWire
 
     def _processRegularLoop(self, feature, sub, length):
         PathLog.debug("Extending multi-edge closed wire")
+        if self.irregular:
+            PathLog.info("Irregular extension in Wire() set.")
+            return None
+
         subFace = Part.Face(sub)
         featFace = Part.Face(feature.Wires[0])
 
@@ -547,7 +598,7 @@ class Extension(object):
         """_getRegularWire()... Private method to retrieve the extension area, pertaining to the feature
         and sub element provided at class instantiation, as a closed wire.  If no closed wire
         is possible, a `None` value is returned."""
-        PathLog.track()
+        PathLog.track(self.sub, self.length.Value)
 
         length = self.length.Value
         if PathGeom.isRoughly(0, length) or not self.sub:
@@ -557,15 +608,18 @@ class Extension(object):
         # feature = self.obj.Shape.getElement(self.feature)
         feature = self.rotatedBaseShp.getElement(self.feature)
         edges = self._getEdges()
-        sub = Part.Wire(Part.sortEdges(edges)[0])
+        if len(edges) == 0:
+            PathLog.error("_getRegularWire() No edges to create sub")
+            return None
+        wire = Part.Wire(Part.sortEdges(edges)[0])
 
         if 1 == len(edges):
-            return self._processRegularEdge(feature, edges, sub, length)
+            return self._processRegularEdge(feature, edges, wire, length)
 
-        elif sub.isClosed():
-            return self._processRegularLoop(feature, sub, length)
+        elif wire.isClosed():
+            return self._processRegularLoop(feature, wire, length)
 
-        return self._processRegularMultiEdges(feature, sub, length)
+        return self._processRegularMultiEdges(feature, wire, length)
 
     def _makeCircularExtFace(self, edge, extWire):
         """_makeCircularExtensionFace(edge, extWire)...
