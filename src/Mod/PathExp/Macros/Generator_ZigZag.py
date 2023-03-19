@@ -2,8 +2,6 @@
 # ***************************************************************************
 # *   Copyright (c) 2021 Russell Johnson (russ4262) <russ4262@gmail.com>    *
 # *                                                                         *
-# *   This file is part of the FreeCAD CAx development system.              *
-# *                                                                         *
 # *   This program is free software; you can redistribute it and/or modify  *
 # *   it under the terms of the GNU Lesser General Public License (LGPL)    *
 # *   as published by the Free Software Foundation; either version 2 of     *
@@ -30,7 +28,9 @@ import Path.Geom as PathGeom
 import Path
 import Part
 import math
-import Macros.Generator_Utilities as GenUtils
+
+# import Macros.Generator_Utilities as GenUtils
+import Generator_Utilities as GenUtils
 import Generator_DropCut as DropCut
 import Macro_CombineRegions
 
@@ -47,10 +47,11 @@ if False:
 else:
     PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 
-# PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
-# PathLog.trackModule(PathLog.thisModule())
+isDebug = True if PathLog.getLevel(PathLog.thisModule()) == 4 else False
+showDebugShapes = False
 
-IS_MACRO = True  # Set to True to use as macro
+MODULE_NAME = "Generator_ZigZag"
+IS_MACRO = False  # Set to True to use as macro
 IS_TEST_MODE = False
 TARGET_REGION = None  # 2D cross-section of target faces
 RESET_ATTRIBUTES = True
@@ -63,13 +64,12 @@ FEED_HORIZ = 0.0
 RAPID_VERT = 0.0
 RAPID_HORIZ = 0.0
 
-
 # geometry functions
 def _zigzag(
     halfDiag, patternCenterAt, halfPasses, cutOut, cutDirection, cutPatternReversed
 ):
     """ZigZag()... Returns raw set of ZigZag wires at Z=0.0."""
-    GenUtils._debugMsg("_zigzag()")
+    GenUtils._debugMsg(MODULE_NAME, "_zigzag()")
     geomList = []
     # Bottom left corner of face/selection/model
     centRot = FreeCAD.Vector(0.0, 0.0, 0.0)
@@ -115,7 +115,7 @@ def _zigzag(
 
 def _generatePathGeometry(face, rawGeoList, cutPatternAngle, centerOfPattern):
     """_generatePathGeometry()... Control function that generates path geometry wire sets."""
-    GenUtils._debugMsg("_generatePathGeometry()")
+    GenUtils._debugMsg(MODULE_NAME, "_generatePathGeometry()")
 
     # Create compound object to bind all geometry
     geomShape = Part.makeCompound(rawGeoList)
@@ -282,7 +282,7 @@ def _Link_Projected(wireList, cutDirection, cutReversed=False):
 
 # Geometry to paths methods
 def _linkRectangular(upHeight, trgtX, trgtY, downHeight):
-    GenUtils._debugMsg("_linkRectangular()")
+    GenUtils._debugMsg(MODULE_NAME, "_linkRectangular()")
     paths = []
     # Rapid retraction
     paths.append(Path.Command("G0", {"Z": upHeight, "F": RAPID_VERT}))
@@ -296,7 +296,7 @@ def _linkRectangular(upHeight, trgtX, trgtY, downHeight):
 
 def _buildStartPath(retractHeight, startPoint=None):
     """_buildStartPath(retractHeight, startPoint=None) ... Convert Offset pattern wires to paths."""
-    GenUtils._debugMsg("_buildStartPath()")
+    GenUtils._debugMsg(MODULE_NAME, "_buildStartPath()")
 
     paths = [Path.Command("G0", {"Z": retractHeight, "F": RAPID_VERT})]
     if startPoint is not None:
@@ -314,11 +314,11 @@ def _buildStartPath(retractHeight, startPoint=None):
     return paths
 
 
-def _buildLinePaths(
+def _buildZigZag3DPaths(
     wireList, retractHeight, finalDepth, keepToolDown, keepToolDownThreshold, toolRadius
 ):
-    """_buildLinePaths() ... Convert Line-based wires to paths."""
-    GenUtils._debugMsg("_buildLinePaths()")
+    """_buildZigZag3DPaths() ... Convert Line-based wires to paths."""
+    GenUtils._debugMsg(MODULE_NAME, "_buildZigZag3DPaths()")
     paths = []
     lastEdge = None
 
@@ -359,7 +359,7 @@ def _buildLinePaths(
 
         paths.append(Path.Command("G0", {"Z": retractHeight, "F": RAPID_VERT}))
 
-    # GenUtils._debugMsg("_buildLinePaths() path count: {}".format(len(paths)))
+    # GenUtils._debugMsg(MODULE_NAME, "_buildZigZag3DPaths() path count: {}".format(len(paths)))
     return paths
 
 
@@ -372,7 +372,7 @@ def _buildZigZagPaths(
     toolRadius,
 ):
     """_buildZigZagPaths() ... Convert ZigZag-based wires to paths."""
-    GenUtils._debugMsg("_buildZigZagPaths()")
+    GenUtils._debugMsg(MODULE_NAME, "_buildZigZagPaths()")
 
     # Proceed with KeepToolDown proceedure
     paths = []
@@ -440,7 +440,7 @@ def _buildZigZagPaths(
         lastPnt = lastEdgeVertexes[len(lastEdgeVertexes) - 1].Point
     # Efor
 
-    # GenUtils._debugMsg("_buildZigZagPaths() path count: {}".format(len(paths)))
+    # GenUtils._debugMsg(MODULE_NAME, "_buildZigZagPaths() path count: {}".format(len(paths)))
 
     return paths
 
@@ -449,12 +449,15 @@ def _buildZigZagPaths(
 def generatePathGeometry(
     flatFace,
     toolRadius,
-    cutOutWidth,
+    stepOver,
+    cutDirection,
     patternCenterAt="CenterOfBoundBox",
     patternCenterCustom=FreeCAD.Vector(0.0, 0.0, 0.0),
     cutPatternAngle=0.0,
     cutPatternReversed=False,
-    cutDirection="Clockwise",
+    minTravel=False,
+    keepToolDown=False,
+    jobTolerance=0.01,
 ):
     """
     Generates a path geometry shape from an assigned pattern for conversion to tool paths.
@@ -473,19 +476,19 @@ def generatePathGeometry(
     Call this method to execute the path generation code in LineClearingGenerator class.
     Returns True on success.  Access class instance `pathGeometry` attribute for path geometry.
     """
-    GenUtils._debugMsg("generatePathGeometry()")
+    GenUtils._debugMsg(MODULE_NAME, "generatePathGeometry()")
     PathLog.track(
-        f"(\ntool radius: {toolRadius} mm\n step over {cutOutWidth}%\n pattern center at {patternCenterAt}\n pattern center custom {patternCenterCustom}\n cut pattern angle {cutPatternAngle}\n cutPatternReversed {cutPatternReversed}\n cutDirection {cutDirection})"
+        f"(\ntool radius: {toolRadius} mm\n step over {stepOver}%\n pattern center at {patternCenterAt}\n pattern center custom {patternCenterCustom}\n cut pattern angle {cutPatternAngle}\n cutPatternReversed {cutPatternReversed}\n cutDirection {cutDirection})"
     )
 
     # Argument validation
-    if not type(cutOutWidth) is float:
+    if not type(stepOver) is float:
         raise ValueError("Cutout width must be a float")
 
-    if cutOutWidth < 0.0:
+    if stepOver < 0.0:
         raise ValueError("Cutout width less than zero")
 
-    if patternCenterAt not in GenUtils.patternCenterAtChoices:
+    if patternCenterAt not in [tup[1] for tup in GenUtils.PATTERNCENTERS]:
         raise ValueError("Invalid value for 'patternCenterAt' argument")
 
     if not type(patternCenterCustom) is FreeCAD.Vector:
@@ -512,6 +515,7 @@ def generatePathGeometry(
     global IS_CENTER_SET
     global GEOM_ATTRIBUTES
     pathGeometry = []
+    cutOutWidth = 2.0 * toolRadius * (stepOver / 100.0)
 
     geomAttributes = GenUtils._prepareAttributes(
         flatFace,
@@ -524,12 +528,12 @@ def generatePathGeometry(
     )
     if geomAttributes is not None:
         GEOM_ATTRIBUTES = geomAttributes
-    (centerOfPattern, halfDiag, __, halfPasses) = GEOM_ATTRIBUTES  # __ is cutPasses
+    (centerOfPattern, halfDiag, cutPasses, halfPasses) = GEOM_ATTRIBUTES
 
     rawGeoList = _zigzag(
         halfDiag,
         patternCenterAt,
-        halfPasses,
+        cutPasses,  # halfPasses,
         cutOutWidth,
         cutDirection,
         cutPatternReversed,
@@ -543,7 +547,7 @@ def generatePathGeometry(
     pathGeometry.extend(pathGeom)
     IS_CENTER_SET = True
 
-    # GenUtils._showGeom(pathGeometry)
+    # GenUtils._showGeom(pathGeometry, label="PathGeometry_ZigZag")
 
     return pathGeometry
 
@@ -559,7 +563,7 @@ def geometryToGcode(
     minTravel=False,
 ):
     """geometryToGcode(lineGeometry, retractHeight, finalDepth, keepToolDown, keepToolDownThreshold, startPoint, minTravel=False) Return line geometry converted to Gcode"""
-    GenUtils._debugMsg("geometryToGcode()")
+    GenUtils._debugMsg(MODULE_NAME, "geometryToGcode()")
 
     # Argument validation
     if not type(retractHeight) is float:
@@ -569,7 +573,9 @@ def geometryToGcode(
         raise ValueError("Final depth must be a float")
 
     if finalDepth is not None and finalDepth > retractHeight:
-        raise ValueError("Retract height must be greater than or equal to final depth\n")
+        raise ValueError(
+            "Retract height must be greater than or equal to final depth\n"
+        )
 
     if not type(keepToolDown) is bool:
         raise ValueError("Keep tool down must be a boolean")
@@ -590,7 +596,7 @@ def geometryToGcode(
             toolRadius,
         )
     else:
-        commandList = _buildLinePaths(
+        commandList = _buildZigZag3DPaths(
             lineGeometry,
             retractHeight,
             finalDepth,
@@ -605,7 +611,7 @@ def geometryToGcode(
 
         return commands
     else:
-        GenUtils._debugMsg("No commands in commandList")
+        GenUtils._debugMsg(MODULE_NAME, "No commands in commandList")
     return []
 
 
@@ -1082,11 +1088,12 @@ def testMacro(debug=False, createOps=True):
     print(f"Processing time: {workTime}")
 
 
-print("Imported Generator_ZigZag")
-
 if IS_MACRO and FreeCAD.GuiUp:
+    print("Executing Generator_ZigZag as macro")
     isTestValues = _getUserTestInput()
     if isTestValues[0]:
         testMacro(isTestValues[1], isTestValues[2])
     else:
         executeAsMacro()
+else:
+    print("Importing Generator_ZigZag")

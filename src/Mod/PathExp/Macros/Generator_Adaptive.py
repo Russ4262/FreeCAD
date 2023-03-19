@@ -23,48 +23,52 @@
 # *                                                                         *
 # ***************************************************************************
 
+import area
 import FreeCAD
+import Generator_Utilities
+import Generator_Utilities as GenUtils
+import math
+import Part
 import Path
+import Path.Geom as PathGeom
 import Path.Log as PathLog
 import PathScripts.PathUtils as PathUtils
-import Part
-import Path.Geom as PathGeom
-import Path.Op.Util as PathOpTools
-import Generator_Utilities
-import math
-import area
 
 
-__title__ = "Path Adaptive Path Geometry Generator"
+__title__ = "Adaptive Path Generator"
 __author__ = "Kresimir Tusek"
 __url__ = "http://www.freecadweb.org"
 __doc__ = "Path strategies available for path generation."
-__contributors__ = "Schildkroet"
+__contributors__ = "Schildkroet, Russ4262 (Russell Johnson)"
 
 
-PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
-# PathLog.trackModule(PathLog.thisModule())
+if False:
+    PathLog.setLevel(PathLog.Level.DEBUG, PathLog.thisModule())
+    PathLog.trackModule(PathLog.thisModule())
+else:
+    PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 
-PATHTYPES = ["2D", "3D"]
-PATHTYPE = "2D"
 
-IS_MACRO = False
-
-isDebug = True  # True if PathLog.getLevel(PathLog.thisModule()) == 4 else False
+isDebug = True if PathLog.getLevel(PathLog.thisModule()) == 4 else False
 showDebugShapes = False
 
+
+IS_MACRO = False
+MODULE_NAME = "Generator_Adaptive"
+PATHTYPES = ["2D", "3D"]
+PATHTYPE = "2D"
+FEED_VERT = 0.0
+FEED_HORIZ = 0.0
+RAPID_VERT = 0.0
+RAPID_HORIZ = 0.0
+
+
 _face = None
-_centerOfMass = None
-_centerOfPattern = None
-_halfDiag = None
-_halfPasses = None
 _isCenterSet = False
 _startPoint = None
 _toolRadius = None
-_rawPathGeometry = None
-patternCenterAtChoices = ("CenterOfMass", "CenterOfBoundBox", "XminYmin", "Custom")
+# patternCenterAtChoices = ("CenterOfMass", "CenterOfBoundBox", "XminYmin", "Custom")
 
-_useStaticCenter = True  # Set True to use static center for all faces created by offsets and step downs.  Set False for dynamic centers based on PatternCenterAt
 _targetFace = None
 _retractHeight = None
 _patternCenterAt = None
@@ -97,29 +101,6 @@ _safeHeight = None
 _startDepth = None
 _useHelixEntry = False
 _finalDepth = None
-
-
-def _debugMsg(msg, isError=False):
-    """_debugMsg(msg)
-    If `self.isDebug` flag is True, the provided message is printed in the Report View.
-    If not, then the message is assigned a debug status.
-    """
-    if isError:
-        PathLog.error("PathGeometryGenerator: " + msg + "\n")
-        return
-
-    if isDebug:
-        # PathLog.info(msg)
-        FreeCAD.Console.PrintMessage("PathGeometryGenerator: " + msg + "\n")
-    else:
-        PathLog.debug(msg)
-
-
-def _addDebugShape(shape, name="debug"):
-    if isDebug and showDebugShapes:
-        do = FreeCAD.ActiveDocument.addObject("Part::Feature", "debug_" + name)
-        do.Shape = shape
-        do.purgeTouched()
 
 
 # Raw cut pattern geometry generation methods
@@ -214,7 +195,6 @@ def _Adaptive():
 
         # Generate geometry
         # PathLog.debug("Extracting wires from Adaptive data...")
-        wires = []
         motionCutting = area.AdaptiveMotionType.Cutting
         for region in _adaptiveResults:
             for pth in region["AdaptivePaths"]:
@@ -232,8 +212,16 @@ def _Adaptive():
                         if not PathGeom.isRoughly(p1.sub(p2).Length, 0.0):
                             edges.append(Part.makeLine(p1, p2))
                             p1 = p2
-                    wires.append(Part.Wire(Part.__sortEdges__(edges)))
-        adaptiveGeometry = wires
+                    try:
+                        if len(edges) > 0:
+                            adaptiveGeometry.append(
+                                Part.Wire(Part.__sortEdges__(edges))
+                            )
+                    except:
+                        FreeCAD.Console.PrintError(
+                            "Path Error: Paths may be incorrect. Consider changing stepover value slightly.\n"
+                        )
+                        return adaptiveGeometry
         # PathLog.info("*** Done. Elapsed time: %f sec" % (time.time()-startTime))
         return adaptiveGeometry
 
@@ -265,21 +253,21 @@ def _Link_Projected(wireList, cutDirection, cutReversed=False):
 # Support methods
 def _generatePathGeometry():
     """_generatePathGeometry()... Control function that generates path geometry wire sets."""
-    _debugMsg("_generatePathGeometry()")
+    GenUtils._debugMsg(MODULE_NAME, "_generatePathGeometry()")
 
     _rawGeoList = _Adaptive()
 
     # Create compound object to bind all geometry
     geomShape = Part.makeCompound(_rawGeoList)
 
-    _addDebugShape(geomShape, "rawPathGeomShape")  # Debugging
+    GenUtils._addDebugShape(geomShape, "rawPathGeomShape")  # Debugging
 
     # Identify intersection of cross-section face and lineset
     # rawWireSet = Part.makeCompound(geomShape.Wires)
     # _rawPathGeometry = _face.common(rawWireSet)
     rawPathGeometry = _face.common(geomShape)
 
-    _addDebugShape(rawPathGeometry, "rawPathGeometry")  # Debugging
+    GenUtils._addDebugShape(rawPathGeometry, "rawPathGeometry")  # Debugging
 
     linkedPathGeom = _Link_Regular(rawPathGeometry)
 
@@ -287,18 +275,12 @@ def _generatePathGeometry():
 
 
 # Private adaptive support methods
-def _generateGCodeWithHelix(
-    toolController, clearanceHeight, safeHeight, startDepth, finalDepth
-):
-    """_generateGCodeWithHelix(toolController, clearanceHeight, safeHeight, startDepth, finalDepth) ...
+def _generateGCodeWithHelix(clearanceHeight, safeHeight, startDepth, finalDepth):
+    """_generateGCodeWithHelix(clearanceHeight, safeHeight, startDepth, finalDepth) ...
     Converts raw Adaptive algorithm data into gcode.
     Not currently active.  Will be modified to extract helix data as wires.
     Will be used for Adaptive cut pattern."""
     commandList = []
-    _vertFeed = toolController.VertFeed.Value
-    _vertRapid = toolController.VertRapid.Value
-    _horizFeed = toolController.HorizFeed.Value
-    _horizRapid = toolController.HorizRapid.Value
     motionCutting = area.AdaptiveMotionType.Cutting
     motionLinkClear = area.AdaptiveMotionType.LinkClear
     motionLinkNotClear = area.AdaptiveMotionType.LinkNotClear
@@ -407,7 +389,7 @@ def _generateGCodeWithHelix(
                             "X": helixStart[0],
                             "Y": helixStart[1],
                             "Z": passStartDepth,
-                            "F": _vertFeed,
+                            "F": FEED_VERT,
                         },
                     )
                 )
@@ -422,7 +404,7 @@ def _generateGCodeWithHelix(
                         commandList.append(
                             Path.Command(
                                 "G1",
-                                {"X": x, "Y": y, "Z": z, "F": _vertFeed},
+                                {"X": x, "Y": y, "Z": z, "F": FEED_VERT},
                             )
                         )
                         # lx = x
@@ -438,7 +420,7 @@ def _generateGCodeWithHelix(
                         commandList.append(
                             Path.Command(
                                 "G1",
-                                {"X": x, "Y": y, "Z": z, "F": _horizFeed},
+                                {"X": x, "Y": y, "Z": z, "F": FEED_HORIZ},
                             )
                         )
                         # lx = x
@@ -492,7 +474,7 @@ def _generateGCodeWithHelix(
                                     "X": p["X"] + region["HelixCenterPoint"][0],
                                     "Y": p["Y"] + region["HelixCenterPoint"][1],
                                     "Z": z,
-                                    "F": _vertFeed,
+                                    "F": FEED_VERT,
                                 },
                             )
                         )
@@ -525,7 +507,7 @@ def _generateGCodeWithHelix(
                                 "Z": passEndDepth,
                                 "I": i_off,
                                 "J": j_off,
-                                "F": _horizFeed,
+                                "F": FEED_HORIZ,
                             },
                         )
                     )
@@ -538,7 +520,7 @@ def _generateGCodeWithHelix(
                                 "Z": passEndDepth,
                                 "I": -i_off,
                                 "J": -j_off,
-                                "F": _horizFeed,
+                                "F": FEED_HORIZ,
                             },
                         )
                     )
@@ -583,7 +565,7 @@ def _generateGCodeWithHelix(
                             "X": helixStart[0],
                             "Y": helixStart[1],
                             "Z": passStartDepth,
-                            "F": _vertFeed,
+                            "F": FEED_VERT,
                         },
                     )
                 )
@@ -601,7 +583,7 @@ def _generateGCodeWithHelix(
                                 "Y": y,
                                 "Z": curDep - (depthPerOneCircle / 2),
                                 "I": -r,
-                                "F": _vertFeed,
+                                "F": FEED_VERT,
                             },
                         )
                     )
@@ -613,7 +595,7 @@ def _generateGCodeWithHelix(
                                 "Y": y,
                                 "Z": curDep - depthPerOneCircle,
                                 "I": r,
-                                "F": _vertFeed,
+                                "F": FEED_VERT,
                             },
                         )
                     )
@@ -629,7 +611,7 @@ def _generateGCodeWithHelix(
                                 "Y": y,
                                 "Z": curDep - (lastStep / 2),
                                 "I": -r,
-                                "F": _vertFeed,
+                                "F": FEED_VERT,
                             },
                         )
                     )
@@ -641,7 +623,7 @@ def _generateGCodeWithHelix(
                                 "Y": y,
                                 "Z": passEndDepth,
                                 "I": r,
-                                "F": _vertFeed,
+                                "F": FEED_VERT,
                             },
                         )
                     )
@@ -654,7 +636,7 @@ def _generateGCodeWithHelix(
                                 "Y": y,
                                 "Z": passEndDepth,
                                 "I": -r,
-                                "F": _vertFeed,
+                                "F": FEED_VERT,
                             },
                         )
                     )
@@ -665,7 +647,7 @@ def _generateGCodeWithHelix(
                                 "X": x,
                                 "Y": y,
                                 "Z": passEndDepth,
-                                "F": _vertFeed,
+                                "F": FEED_VERT,
                             },
                         )
                     )
@@ -679,7 +661,7 @@ def _generateGCodeWithHelix(
                             "Y": y,
                             "Z": passEndDepth,
                             "I": -r,
-                            "F": _horizFeed,
+                            "F": FEED_HORIZ,
                         },
                     )
                 )
@@ -691,7 +673,7 @@ def _generateGCodeWithHelix(
                             "Y": y,
                             "Z": passEndDepth,
                             "I": r,
-                            "F": _horizFeed,
+                            "F": FEED_HORIZ,
                         },
                     )
                 )
@@ -719,11 +701,11 @@ def _generateGCodeWithHelix(
                     z = passEndDepth
                     if z != lz:
                         commandList.append(
-                            Path.Command("G1", {"Z": z, "F": _vertFeed})
+                            Path.Command("G1", {"Z": z, "F": FEED_VERT})
                         )  # plunge at feed rate
 
                     commandList.append(
-                        Path.Command("G1", {"X": x, "Y": y, "F": _horizFeed})
+                        Path.Command("G1", {"X": x, "Y": y, "F": FEED_HORIZ})
                     )  # feed to point
 
                 elif motionType == motionLinkClear:
@@ -777,21 +759,18 @@ def _generateGCodeWithHelix(
     return commandList
 
 
-def _generateGCode(toolController, clearanceHeight, safeHeight, startDepth, finalDepth):
-    """_generateGCode(toolController, clearanceHeight, safeHeight, startDepth, finalDepth) ...
+def _generateGCode(clearanceHeight, safeHeight, startDepth, finalDepth):
+    """_generateGCode(clearanceHeight, safeHeight, startDepth, finalDepth) ...
     Converts raw Adaptive algorithm data into gcode.
     Not currently active.  Will be modified to extract helix data as wires.
     Will be used for Adaptive cut pattern."""
 
     if _useHelixEntry:
-        return _generateGCodeWithHelix(_adaptiveResults, toolController)
+        return _generateGCodeWithHelix(
+            _adaptiveResults, clearanceHeight, safeHeight, startDepth, finalDepth
+        )
 
     commandList = []
-    _vertFeed = toolController.VertFeed.Value
-    _vertRapid = toolController.VertRapid.Value
-    _horizFeed = toolController.HorizFeed.Value
-    _horizRapid = toolController.HorizRapid.Value
-
     motionCutting = area.AdaptiveMotionType.Cutting
     motionLinkClear = area.AdaptiveMotionType.LinkClear
     motionLinkNotClear = area.AdaptiveMotionType.LinkNotClear
@@ -871,7 +850,7 @@ def _generateGCode(toolController, clearanceHeight, safeHeight, startDepth, fina
                     "X": region["StartPoint"][0],
                     "Y": region["StartPoint"][1],
                     "Z": passEndDepth,
-                    "F": _vertFeed,
+                    "F": FEED_VERT,
                 },
             )
         )
@@ -894,11 +873,11 @@ def _generateGCode(toolController, clearanceHeight, safeHeight, startDepth, fina
                     z = passEndDepth
                     if z != lz:
                         commandList.append(
-                            Path.Command("G1", {"Z": z, "F": _vertFeed})
+                            Path.Command("G1", {"Z": z, "F": FEED_VERT})
                         )  # plunge at feed rate
 
                     commandList.append(
-                        Path.Command("G1", {"X": x, "Y": y, "F": _horizFeed})
+                        Path.Command("G1", {"X": x, "Y": y, "F": FEED_HORIZ})
                     )  # feed to point
 
                 elif motionType == motionLinkClear:
@@ -976,18 +955,15 @@ def _discretize(edge, flipDirection=False):
 
 
 # Geometry to paths methods
-def _buildStartPath(toolController):
+def _buildStartPath():
     """_buildStartPath() ... Convert Offset pattern wires to paths."""
-    _debugMsg("_buildStartPath()")
-
-    _vertRapid = toolController.VertRapid.Value
-    _horizRapid = toolController.HorizRapid.Value
+    GenUtils._debugMsg(MODULE_NAME, "_buildStartPath()")
 
     useStart = False
     if _startPoint:
         useStart = True
 
-    paths = [Path.Command("G0", {"Z": _retractHeight, "F": _vertRapid})]
+    paths = [Path.Command("G0", {"Z": _retractHeight, "F": RAPID_VERT})]
     if useStart:
         paths.append(
             Path.Command(
@@ -995,7 +971,7 @@ def _buildStartPath(toolController):
                 {
                     "X": _startPoint.x,
                     "Y": _startPoint.y,
-                    "F": _horizRapid,
+                    "F": RAPID_HORIZ,
                 },
             )
         )
@@ -1003,16 +979,12 @@ def _buildStartPath(toolController):
     return paths
 
 
-def _buildLinePaths(pathGeometry, toolController):
+def _buildLinePaths(pathGeometry):
     """_buildLinePaths() ... Convert Line-based wires to paths."""
-    _debugMsg("_buildLinePaths()")
+    GenUtils._debugMsg(MODULE_NAME, "_buildLinePaths()")
 
     paths = []
     wireList = pathGeometry
-    _vertFeed = toolController.VertFeed.Value
-    _vertRapid = toolController.VertRapid.Value
-    _horizFeed = toolController.HorizFeed.Value
-    _horizRapid = toolController.HorizRapid.Value
 
     for wire in wireList:
         if _finalDepth is not None:
@@ -1031,31 +1003,33 @@ def _buildLinePaths(pathGeometry, toolController):
                 {
                     "X": e0.Vertexes[0].X,
                     "Y": e0.Vertexes[0].Y,
-                    "F": _horizRapid,
+                    "F": RAPID_HORIZ,
                 },
             )
         )
         paths.append(
             # Path.Command("G0", {"Z": self.prevDepth + 0.1, "F": self.vertRapid})
-            Path.Command("G0", {"Z": _retractHeight, "F": _vertRapid})
+            Path.Command("G0", {"Z": _retractHeight, "F": RAPID_VERT})
         )
-        paths.append(Path.Command("G1", {"Z": finalDepth, "F": _vertFeed}))
+        paths.append(Path.Command("G1", {"Z": finalDepth, "F": FEED_VERT}))
 
         for e in wire.Edges:
-            paths.extend(PathGeom.cmdsForEdge(e, hSpeed=_horizFeed, vSpeed=_vertFeed))
+            paths.extend(PathGeom.cmdsForEdge(e, hSpeed=FEED_HORIZ, vSpeed=FEED_VERT))
 
         paths.append(
             # Path.Command("G0", {"Z": self.safeHeight, "F": self.vertRapid})
-            Path.Command("G0", {"Z": _retractHeight, "F": _vertRapid})
+            Path.Command("G0", {"Z": _retractHeight, "F": RAPID_VERT})
         )
 
-    _debugMsg("_buildLinePaths() path count: {}".format(len(paths)))
+    GenUtils._debugMsg(
+        MODULE_NAME, "_buildLinePaths() path count: {}".format(len(paths))
+    )
     return paths
 
 
-def geometryToGcode3D(lineGeometry, toolController, retractHeight, finalDepth=None):
-    """geometryToGcode(lineGeometry) Return line geometry converted to Gcode"""
-    _debugMsg("geometryToGcode()")
+def geometryToGcode3D(lineGeometry, retractHeight, finalDepth=None):
+    """geometryToGcode3D(lineGeometry, retractHeight, finalDepth=None) Return line geometry converted to Gcode"""
+    GenUtils._debugMsg(MODULE_NAME, "geometryToGcode3D()")
     global _retractHeight
     global _finalDepth
 
@@ -1067,18 +1041,20 @@ def geometryToGcode3D(lineGeometry, toolController, retractHeight, finalDepth=No
         raise ValueError("Final depth must be a float")
 
     if finalDepth is not None and finalDepth > retractHeight:
-        raise ValueError("Retract height must be greater than or equal to final depth\n")
+        raise ValueError(
+            "Retract height must be greater than or equal to final depth\n"
+        )
 
     _retractHeight = retractHeight
     _finalDepth = finalDepth
 
-    commandList = _buildLinePaths(lineGeometry, toolController)
+    commandList = _buildLinePaths(lineGeometry)
     if len(commandList) > 0:
-        commands = _buildStartPath(toolController)
+        commands = _buildStartPath()
         commands.extend(commandList)
         return commands
     else:
-        _debugMsg("No commands in commandList")
+        GenUtils._debugMsg(MODULE_NAME, "No commands in commandList")
     return []
 
 
@@ -1159,48 +1135,51 @@ def setAdaptiveAttributes(
         _helixConeAngle = 89.0
 
 
-def geometryToGcode(lines, toolController, retractHeight, finalDepth):
-    global _toolController
+def geometryToGcode(
+    lines,
+    retractHeight,
+    finalDepth,
+    keepToolDown,
+    keepToolDownThreshold,
+    startPoint,
+    toolRadius,
+):
     global _retractHeight
     # global _finalDepth
 
-    _toolController = toolController
     _retractHeight = retractHeight
     # _finalDepth = finalDepth
 
-    return _generateGCode(
-        toolController, _clearanceHeight, _safeHeight, _startDepth, finalDepth
-    )
+    return _generateGCode(_clearanceHeight, _safeHeight, _startDepth, finalDepth)
 
 
 def generatePathGeometry(
     targetFace,
     toolRadius,
     stepOver,
+    cutDirection,
+    patternCenterAt="CenterOfBoundBox",
+    patternCenterCustom=FreeCAD.Vector(0.0, 0.0, 0.0),
+    cutPatternAngle=45.0,
+    cutPatternReversed=False,
+    minTravel=False,
+    keepToolDown=False,
+    jobTolerance=0.01,
+):
+    """generatePathGeometry(
+    targetFace,
     patternCenterAt,
     patternCenterCustom,
-    cutPatternAngle,
     cutPatternReversed,
+    cutPatternAngle,
     cutDirection,
+    stepOver,
     minTravel,
     keepToolDown,
-    jobTolerance,
-):
-    """_init_(
-                targetFace,
-                patternCenterAt,
-                patternCenterCustom,
-                cutPatternReversed,
-                cutPatternAngle,
-                cutDirection,
-                stepOver,
-                minTravel,
-                keepToolDown,
-                jobTolerance)...
-    PathGeometryGenerator class constructor method.
+    jobTolerance)...
     """
     """
-    PathGeometryGenerator() class...
+    generatePathGeometry() ...
     Generates a path geometry shape from an assigned pattern for conversion to tool paths.
     Arguments:
         targetFace:         face shape to serve as base for path geometry generation
@@ -1214,17 +1193,8 @@ def generatePathGeometry(
         minTravel:          boolean to enable minimum travel (feature not enabled at this time)
         keepToolDown:       boolean to enable keeping tool down (feature not enabled at this time)
         jobTolerance:       job tolerance value
-    Available Patterns:
-        - Adaptive, Circular, CircularZigZag, Grid, Line, LineOffset, Offset, Spiral, Triangle, ZigZag, ZigZagOffset
-    Usage:
-        - Instantiate this class.
-        - Call the `setAdaptiveAttributes()` method with required attributes if you intend to use Adaptive cut pattern.
-        - Call the `execute()` method to generate the path geometry. The path geometry has correctional linking applied.
-        - The path geometry in now available in the `pathGeometry` attribute.
-    Notes:
-        - Grid and Triangle patterns are not rotatable at this time.
     """
-    PathLog.debug("Generator_Adaptive.generatePathGeometry()")
+    GenUtils._debugMsg(MODULE_NAME, "generatePathGeometry()")
 
     global _targetFace
     global _patternCenterAt
@@ -1242,16 +1212,7 @@ def generatePathGeometry(
     global _face
 
     _face = None
-    # _centerOfMass = None
-    # _centerOfPattern = None
-    # _halfDiag = None
-    ##_halfPasses = None
-    # _workingPlane = Part.makeCircle(2.0)  # make circle for workplane
-    # _rawPathGeometry = None
-    # _pathGeometry = []
-    # _useStaticCenter = True  # Set True to use static center for all faces created by offsets and step downs.  Set False for dynamic centers based on PatternCenterAt
     _offsetDirection = -1.0  # 1.0=outside;  -1.0=inside
-    # _targetFaceHeight = 0.0
 
     # Save argument values to class instance
     _targetFace = targetFace
@@ -1268,16 +1229,12 @@ def generatePathGeometry(
     _toolRadius = toolRadius
     _cutOut = toolRadius * 2.0 * (_stepOver / 100.0)
 
-    """execute()...
-    Call this method to execute the path generation code in PathGeometryGenerator class.
-    Returns True on success.  Access class instance `pathGeometry` attribute for path geometry.
-    """
-    _debugMsg("StrategyClearing.execute()")
-
     pathGeometry = []  # Reset list
 
     if hasattr(_targetFace, "Area") and PathGeom.isRoughly(_targetFace.Area, 0.0):
-        _debugMsg("PathGeometryGenerator: No area in working shape.")
+        GenUtils._debugMsg(
+            MODULE_NAME, "generatePathGeometry() No area in working shape."
+        )
         return False
 
     _targetFace.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - _targetFace.BoundBox.ZMin))
@@ -1288,9 +1245,9 @@ def generatePathGeometry(
     )
     offsetWF = PathUtils.getOffsetArea(_targetFace, ofstVal)
     if not offsetWF:
-        _debugMsg("getOffsetArea() failed")
+        GenUtils._debugMsg(MODULE_NAME, "getOffsetArea() failed")
     elif len(offsetWF.Faces) == 0:
-        _debugMsg("No offset faces to process for path geometry.")
+        GenUtils._debugMsg(MODULE_NAME, "No offset faces to process for path geometry.")
     else:
         for fc in offsetWF.Faces:
             # fc.translate(FreeCAD.Vector(0.0, 0.0, _targetFaceHeight))
@@ -1304,9 +1261,11 @@ def generatePathGeometry(
                     pathGeom = _generatePathGeometry()
                     pathGeometry.extend(pathGeom)
             else:
-                _debugMsg("No offset faces after cut with base shape.")
+                GenUtils._debugMsg(
+                    MODULE_NAME, "No offset faces after cut with base shape."
+                )
 
-    # _debugMsg("Path with params: {}".format(_pathParams))
+    # GenUtils._debugMsg(MODULE_NAME, "Path with params: {}".format(_pathParams))
 
     return pathGeometry
 

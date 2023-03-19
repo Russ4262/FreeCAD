@@ -2,8 +2,6 @@
 # ***************************************************************************
 # *   Copyright (c) 2021 Russell Johnson (russ4262) <russ4262@gmail.com>    *
 # *                                                                         *
-# *   This file is part of the FreeCAD CAx development system.              *
-# *                                                                         *
 # *   This program is free software; you can redistribute it and/or modify  *
 # *   it under the terms of the GNU Lesser General Public License (LGPL)    *
 # *   as published by the Free Software Foundation; either version 2 of     *
@@ -35,10 +33,10 @@ if FreeCAD.GuiUp:
     import Gui_Input
 
 
-__title__ = "Path Circle Clearing Generator"
+__title__ = "Path Generator Utilities"
 __author__ = "russ4262 (Russell Johnson)"
-__url__ = "https://www.freecadweb.org"
-__doc__ = "Generates the circle clearing toolpath for a 2D or 3D face"
+__url__ = ""
+__doc__ = "Utilities for clearing path generation."
 
 if False:
     PathLog.setLevel(PathLog.Level.DEBUG, PathLog.thisModule())
@@ -46,53 +44,54 @@ if False:
 else:
     PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 
-# PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
-# PathLog.trackModule(PathLog.thisModule())
+isDebug = True if PathLog.getLevel(PathLog.thisModule()) == 4 else False
+showDebugShapes = False
 
 
 IS_MACRO = False
-
-isDebug = True  # True if PathLog.getLevel(PathLog.thisModule()) == 4 else False
-showDebugShapes = False
-patternCenterAtChoices = ("CenterOfMass", "CenterOfBoundBox", "XminYmin", "Custom")
+MODULE_NAME = "Generator_Utilities"
 OPTIMIZE = False
 PATTERNS = [
-    "Adaptive",
-    "Spiral",
-    "CircleZigZag",
-    "Circle",
-    "Profile",
-    "Line",
-    "ZigZag",
-    "Offset",
+    ("Line", "Line"),
+    ("Adaptive", "Adaptive"),
+    ("Spiral", "Spiral"),
+    ("CircleZigZag", "CircleZigZag"),
+    ("Circle", "Circle"),
+    ("Profile", "Profile"),
+    ("ZigZag", "ZigZag"),
+    ("Offset", "Offset"),
 ]
-PATTERNCENTERS = ["CenterOfBoundBox", "CenterOfMass", "XminYmin", "Custom"]
-PATHTYPES = ["2D", "3D"]
+PATTERNCENTERS = [
+    ("CenterOfBoundBox", "CenterOfBoundBox"),
+    ("CenterOfMass", "CenterOfMass"),
+    ("XminYmin", "XminYmin"),
+    ("Custom", "Custom"),
+]
+PATHTYPES = [
+    ("3D", "3D"),
+    ("2D", "2D"),
+]
 LINEARDEFLECTION = FreeCAD.Units.Quantity("0.0001 mm")
-CUTDIRECTIONS = ["Clockwise", "CounterClockwise"]
+CUTDIRECTIONS = [
+    ("Clockwise", "Clockwise"),
+    ("CounterClockwise", "CounterClockwise"),
+]
 
 
-if False:
-    PathLog.setLevel(PathLog.Level.DEBUG, PathLog.thisModule())
-    PathLog.trackModule(PathLog.thisModule())
-else:
-    PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
-
-
-def _debugMsg(msg, isError=False):
-    """_debugMsg(msg)
+def _debugMsg(moduleName, msg, isError=False):
+    """_debugMsg(moduleName, msg, isError=False)
     If `_isDebug` flag is True, the provided message is printed in the Report View.
     If not, then the message is assigned a debug status.
     """
     if isError:
-        FreeCAD.Console.PrintError(msg + "\n")
+        FreeCAD.Console.PrintError(f"{moduleName}: {msg}\n")
         return
 
     if isDebug:
         # PathLog.info(msg)
-        FreeCAD.Console.PrintMessage(msg + "\n")
+        FreeCAD.Console.PrintMessage(f"{moduleName}: {msg}\n")
     else:
-        PathLog.debug(msg)
+        PathLog.debug(f"{moduleName}: {msg}\n")
 
 
 def _addDebugShape(shape, name="debug"):
@@ -102,7 +101,7 @@ def _addDebugShape(shape, name="debug"):
         do.purgeTouched()
 
 
-def _showGeom(wireList):
+def _showGeom(wireList, label=""):
     g = FreeCAD.ActiveDocument.addObject("App::DocumentObjectGroup", "Group")
     totalCnt = 0
     for w in wireList:
@@ -114,6 +113,8 @@ def _showGeom(wireList):
         # print(f"_showGeom() Wire edge count: {eCnt}")
         w = Part.show(w, "GeomWire")
         g.addObject(w)
+    if len(label) > 0:
+        g.Label = f"Group_{label}"
 
     print(f"_showGeom() {len(wireList)} wires have {totalCnt} total edges")
 
@@ -154,6 +155,7 @@ def _prepareAttributes(
     patternCenterCustom,
 ):
     """_prepareAttributes()... Prepare instance attribute values for path generation."""
+    _debugMsg(MODULE_NAME, "_prepareAttributes()")
     if isCenterSet:
         if useStaticCenter:
             PathLog.debug(
@@ -161,7 +163,6 @@ def _prepareAttributes(
             )
             return None
 
-    centerOfMass = None
     divisor = 2.0
     # Compute weighted center of mass of all faces combined
     if patternCenterAt == "CenterOfMass":
@@ -197,39 +198,11 @@ def _prepareAttributes(
     halfDiag = math.ceil(lineLen / 2.0)
 
     # Calculate number of passes
-    cutPasses = (
-        math.ceil(lineLen / cutOut) + 1
-    )  # Number of lines(passes) required to cover boundbox diagonal
+    # Number of lines(passes) required to cover boundbox diagonal
+    cutPasses = math.ceil(lineLen / cutOut) + 1
     halfPasses = math.ceil(cutPasses / divisor)
 
     return (centerOfPattern, halfDiag, cutPasses, halfPasses)
-
-
-def _getRadialPasses(
-    face, toolRadius, cutOut, patternCenterAt, centerOfPattern, halfPasses
-):
-    """_getRadialPasses()... Return number of radial passes required for circular and spiral patterns."""
-    # recalculate number of passes, if need be
-    if patternCenterAt != "CenterOfBoundBox":
-        # make 4 corners of boundbox in XY plane, find which is greatest distance to new circular center
-        EBB = face.BoundBox
-        CORNERS = [
-            FreeCAD.Vector(EBB.XMin, EBB.YMin, 0.0),
-            FreeCAD.Vector(EBB.XMin, EBB.YMax, 0.0),
-            FreeCAD.Vector(EBB.XMax, EBB.YMax, 0.0),
-            FreeCAD.Vector(EBB.XMax, EBB.YMin, 0.0),
-        ]
-        dMax = 0.0
-        for c in range(0, 4):
-            dist = CORNERS[c].sub(centerOfPattern).Length
-            if dist > dMax:
-                dMax = dist
-        # Line length to span boundbox diag with 2x cutter diameter extra on each end
-        diag = dMax + (4.0 * toolRadius)
-        # Number of lines(passes) required to cover boundbox diagonal
-        return math.ceil(diag / cutOut) + 1
-
-    return halfPasses
 
 
 def getAngle(pnt, centerOfPattern):
@@ -253,7 +226,7 @@ def _isOrientedTheSame(directionVector, wire):
     return False
 
 
-def _edgeValueAtLength(edge, length):
+def _edgeValueAtLength_orig(edge, length):
     edgeLen = edge.Length
     typeId = edge.Curve.TypeId
     if typeId == "Part::GeomBSplineCurve":
@@ -466,20 +439,20 @@ def _offsetFaceRegion(face, offsetValue):
     #  Apply simple radius shrinking offset for clearing pattern generation.
     offsetFace = PathUtils.getOffsetArea(face, offsetValue)
     if not offsetFace:
-        _debugMsg(f"getOffsetArea() failed; ofstVal: {offsetValue}")
+        _debugMsg(MODULE_NAME, f"getOffsetArea() failed; ofstVal: {offsetValue}")
         return []
     elif len(offsetFace.Faces) == 0:
-        _debugMsg("No offset faces to process for path geometry.")
+        _debugMsg(MODULE_NAME, "No offset faces to process for path geometry.")
         return []
 
     return [f.copy() for f in offsetFace.Faces]
 
 
-# Support functions for orienting and flipping wires and edges
+######################################################
+# Improved support functions for orienting and flipping wires and edges
 def _flipLine(edge):
     """_flipLine(edge)
-    Flips given edge around so the new Vertexes[0] was the old Vertexes[-1] and vice versa, without changing the shape.
-    Currently only lines, line segments, circles and arcs are supported."""
+    Flips given edge around so the new Vertexes[0] was the old Vertexes[-1] and vice versa, without changing the shape."""
 
     if not edge.Vertexes:
         return Part.Edge(
@@ -493,16 +466,14 @@ def _flipLine(edge):
 
 def _flipLineSegment(edge):
     """_flipLineSegment(edge)
-    Flips given edge around so the new Vertexes[0] was the old Vertexes[-1] and vice versa, without changing the shape.
-    Currently only lines, line segments, circles and arcs are supported."""
+    Flips given edge around so the new Vertexes[0] was the old Vertexes[-1] and vice versa, without changing the shape."""
 
     return Part.Edge(Part.LineSegment(edge.Vertexes[-1].Point, edge.Vertexes[0].Point))
 
 
 def _flipCircle(edge):
     """_flipCircle(edge)
-    Flips given edge around so the new Vertexes[0] was the old Vertexes[-1] and vice versa, without changing the shape.
-    Currently only lines, line segments, circles and arcs are supported."""
+    Flips given edge around so the new Vertexes[0] was the old Vertexes[-1] and vice versa, without changing the shape."""
 
     # Create an inverted circle
     circle = Part.Circle(edge.Curve.Center, -edge.Curve.Axis, edge.Curve.Radius)
@@ -521,8 +492,7 @@ def _flipCircle(edge):
 
 def _flipBSplineBezier(edge):
     """_flipBSplineBezier(edge)
-    Flips given edge around so the new Vertexes[0] was the old Vertexes[-1] and vice versa, without changing the shape.
-    Currently only lines, line segments, circles and arcs are supported."""
+    Flips given edge around so the new Vertexes[0] was the old Vertexes[-1] and vice versa, without changing the shape."""
     if type(edge.Curve) == Part.BSplineCurve:
         spline = edge.Curve
     else:
@@ -562,8 +532,7 @@ def _flipBSplineBezier(edge):
 
 def _flipEllipse(edge, deflection=0.001):
     """_flipEllipse(edge)
-    Flips given edge around so the new Vertexes[0] was the old Vertexes[-1] and vice versa, without changing the shape.
-    Currently only lines, line segments, circles and arcs are supported."""
+    Flips given edge around so the new Vertexes[0] was the old Vertexes[-1] and vice versa, without changing the shape."""
 
     edges = []
     points = edge.discretize(Deflection=deflection)
@@ -615,7 +584,8 @@ def flipWire(wire, deflection=0.001):
 
     edges.reverse()
     PathLog.debug(edges)
-    return Part.Wire(edges)
+    # return Part.Wire(edges)
+    return Part.Wire(Part.__sortEdges__(edges))
 
 
 def _orientEdges(inEdges):
@@ -701,6 +671,49 @@ def orientWire(w, forward=True):
     return wire
 
 
+def _edgeValueAtLength(edge, length):
+    edgeLen = edge.Length
+    # if PathGeom.isRoughly(edgeLen, 0.0):
+    if edgeLen == 0.0:
+        pnt = edge.Vertexes[0].Point
+        return FreeCAD.Vector(pnt.x, pnt.y, pnt.z)
+
+    if hasattr(edge, "Curve"):
+        typeId = edge.Curve.TypeId
+    elif hasattr(edge, "TypeId"):
+        typeId = edge.TypeId
+
+    if typeId == "Part::GeomBSplineCurve":
+        return edge.valueAt(length / edgeLen)
+    elif typeId == "Part::GeomCircle":
+        return edge.valueAt(
+            edge.FirstParameter
+            + length / edgeLen * (edge.LastParameter - edge.FirstParameter)
+        )
+    elif typeId == "Part::GeomLine":
+        return edge.valueAt(edge.FirstParameter + length)
+    elif typeId == "Part::GeomEllipse":
+        return edge.valueAt(
+            edge.FirstParameter
+            + length / edgeLen * (edge.LastParameter - edge.FirstParameter)
+        )
+    elif typeId == "Part::GeomParabola":
+        return edge.valueAt(
+            edge.FirstParameter
+            + length / edgeLen * (edge.LastParameter - edge.FirstParameter)
+        )
+    elif typeId == "Part::GeomHyperbola":
+        return edge.valueAt(
+            edge.FirstParameter
+            + length / edgeLen * (edge.LastParameter - edge.FirstParameter)
+        )
+    else:
+        print(f"_edgeValueAtLength() edge.Curve.TypeId, {typeId}, is not available.")
+        return None
+
+
+######################################################
+
 # Auxillary functions
 def getFacesFromSelection(selections=[]):
     populateSelection(selections)
@@ -785,7 +798,7 @@ def getJob():
 
 
 def addCustomOpToJob(job, tc):
-    import PathScripts.PathCustomGui as PathCustomGui
+    import Path.Op.Gui.Custom as PathCustomGui
 
     op = PathCustomGui.PathCustom.Create("Custom")
     op.ToolController = tc

@@ -1,7 +1,48 @@
+# -*- coding: utf-8 -*-
+# ***************************************************************************
+# *   Copyright (c) 2021 Russell Johnson (russ4262) <russ4262@gmail.com>    *
+# *                                                                         *
+# *   This program is free software; you can redistribute it and/or modify  *
+# *   it under the terms of the GNU Lesser General Public License (LGPL)    *
+# *   as published by the Free Software Foundation; either version 2 of     *
+# *   the License, or (at your option) any later version.                   *
+# *   for detail see the LICENCE text file.                                 *
+# *                                                                         *
+# *   This program is distributed in the hope that it will be useful,       *
+# *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+# *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+# *   GNU Library General Public License for more details.                  *
+# *                                                                         *
+# *   You should have received a copy of the GNU Library General Public     *
+# *   License along with this program; if not, write to the Free Software   *
+# *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  *
+# *   USA                                                                   *
+# *                                                                         *
+# ***************************************************************************
+
 import FreeCAD
 import Part
 import Path.Geom as PathGeom
 import PathScripts.PathUtils as PathUtils
+import Path.Log as PathLog
+
+__title__ = "Drop Cut Generator"
+__author__ = "russ4262 (Russell Johnson)"
+__url__ = ""
+__doc__ = (
+    "Produces wires representative of a toolbit following a projected path on a face."
+)
+
+if False:
+    PathLog.setLevel(PathLog.Level.DEBUG, PathLog.thisModule())
+    PathLog.trackModule(PathLog.thisModule())
+else:
+    PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
+
+
+isDebug = True if PathLog.getLevel(PathLog.thisModule()) == 4 else False
+showDebugShapes = False
+
 
 IS_MACRO = False
 LINEARDEFLECTION = FreeCAD.Units.Quantity("0.0001 mm")
@@ -361,7 +402,8 @@ def executeAsMacro():
         Part.show(dcWire, "Wire")
 
 
-print("Imported Generator_DropCut")
-
 if IS_MACRO:
+    print("Executing Generator_DropCut as macro")
     executeAsMacro()
+else:
+    print("Importing Generator_DropCut")

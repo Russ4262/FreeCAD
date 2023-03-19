@@ -2,8 +2,6 @@
 # ***************************************************************************
 # *   Copyright (c) 2021 Russell Johnson (russ4262) <russ4262@gmail.com>    *
 # *                                                                         *
-# *   This file is part of the FreeCAD CAx development system.              *
-# *                                                                         *
 # *   This program is free software; you can redistribute it and/or modify  *
 # *   it under the terms of the GNU Lesser General Public License (LGPL)    *
 # *   as published by the Free Software Foundation; either version 2 of     *
@@ -26,6 +24,7 @@
 import FreeCAD
 import Path.Log as PathLog
 import PathScripts.PathUtils as PathUtils
+import Generator_Utilities as GenUtils
 import Path.Geom as PathGeom
 import Path.Op.Util as PathOpTools
 import Path
@@ -45,18 +44,20 @@ if False:
 else:
     PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 
-# PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
-# PathLog.trackModule(PathLog.thisModule())
-
-isDebug = False  # True if PathLog.getLevel(PathLog.thisModule()) == 4 else False
+isDebug = True if PathLog.getLevel(PathLog.thisModule()) == 4 else False
 showDebugShapes = False
+
+MODULE_NAME = "Generator_Profile"
+FEED_VERT = 0.0
+FEED_HORIZ = 0.0
+RAPID_VERT = 0.0
+RAPID_HORIZ = 0.0
 
 _face = None
 _centerOfPattern = None
 _isCenterSet = False
 _startPoint = None
 _toolRadius = None
-_keepDownThreshold = None
 _workingPlane = Part.makeCircle(5.0, FreeCAD.Vector(0.0, 0.0, 0.0))
 patternCenterAtChoices = ("CenterOfMass", "CenterOfBoundBox", "XminYmin", "Custom")
 
@@ -74,37 +75,13 @@ _jobTolerance = None
 _prevDepth = None
 
 
-# Debugging feedback methods
-def _debugMsg(msg, isError=False):
-    """_debugMsg(msg)
-    If `isDebug` flag is True, the provided message is printed in the Report View.
-    If not, then the message is assigned a debug status.
-    """
-    if isError:
-        PathLog.error("Generator_Profile: " + msg + "\n")
-        return
-
-    if isDebug:
-        # PathLog.info(msg)
-        FreeCAD.Console.PrintMessage("Generator_Profile: " + msg + "\n")
-    else:
-        PathLog.debug(msg)
-
-
-def _addDebugShape(shape, name="debug"):
-    if isDebug and showDebugShapes:
-        do = FreeCAD.ActiveDocument.addObject("Part::Feature", "debug_" + name)
-        do.Shape = shape
-        do.purgeTouched()
-
-
 # Support methods
 def _profile():
     """_profile()...
     Returns raw profile wires at Z=0.0.
     Direction of cut is taken into account.
     """
-    _debugMsg("_profile()")
+    GenUtils._debugMsg(MODULE_NAME, "_profile()")
 
     wires = []
     shape = _face
@@ -125,7 +102,7 @@ def _profile():
 
     offsetArea = PathUtils.getOffsetArea(shape, offset, plane=_workingPlane)
     if offsetArea is False:
-        _debugMsg("_profile() offsetArea is False")
+        GenUtils._debugMsg(MODULE_NAME, "_profile() offsetArea is False")
         return wires
 
     # set initial cut direction
@@ -159,12 +136,12 @@ def _profile():
 
 def _generatePathGeometry(rawGeoList):
     """_generatePathGeometry()... Control function that generates path geometry wire sets."""
-    _debugMsg("_generatePathGeometry()")
+    GenUtils._debugMsg(MODULE_NAME, "_generatePathGeometry()")
 
     # Create compound object to bind all geometry
     geomShape = Part.makeCompound(rawGeoList)
 
-    _addDebugShape(geomShape, "rawPathGeomShape")  # Debugging
+    GenUtils._addDebugShape(geomShape, "rawPathGeomShape")  # Debugging
 
     # Position and rotate the Line and ZigZag geometry
     if _cutPatternAngle != 0.0:
@@ -176,13 +153,13 @@ def _generatePathGeometry(rawGeoList):
         cop.x, cop.y, 0.0 - geomShape.BoundBox.ZMin
     )
 
-    _addDebugShape(geomShape, "tmpGeometrySet")  # Debugging
+    GenUtils._addDebugShape(geomShape, "tmpGeometrySet")  # Debugging
 
     # Identify intersection of cross-section face and lineset
     rawWireSet = Part.makeCompound(geomShape.Wires)
     rawPathGeometry = _face.common(rawWireSet)
 
-    _addDebugShape(rawPathGeometry, "rawPathGeometry")  # Debugging
+    GenUtils._addDebugShape(rawPathGeometry, "rawPathGeometry")  # Debugging
 
     return rawPathGeometry
 
@@ -195,18 +172,15 @@ def _Link_Projected(wireList, cutDirection, cutReversed=False):
 
 
 # Geometry to paths methods
-def _buildStartPath(toolController):
+def _buildStartPath():
     """_buildStartPath() ... Convert Offset pattern wires to paths."""
-    _debugMsg("_buildStartPath()")
-
-    _vertRapid = toolController.VertRapid.Value
-    _horizRapid = toolController.HorizRapid.Value
+    GenUtils._debugMsg(MODULE_NAME, "_buildStartPath()")
 
     useStart = False
     if _startPoint:
         useStart = True
 
-    paths = [Path.Command("G0", {"Z": _retractHeight, "F": _vertRapid})]
+    paths = [Path.Command("G0", {"Z": _retractHeight, "F": RAPID_VERT})]
     if useStart:
         paths.append(
             Path.Command(
@@ -214,7 +188,7 @@ def _buildStartPath(toolController):
                 {
                     "X": _startPoint.x,
                     "Y": _startPoint.y,
-                    "F": _horizRapid,
+                    "F": RAPID_HORIZ,
                 },
             )
         )
@@ -222,16 +196,12 @@ def _buildStartPath(toolController):
     return paths
 
 
-def _buildLinePaths(pathGeometry, toolController):
-    """_buildLinePaths() ... Convert Line-based wires to paths."""
-    _debugMsg("_buildLinePaths()")
+def _buildLinePaths(pathGeometry):
+    """_buildLinePaths(pathGeometry) ... Convert Line-based wires to paths."""
+    GenUtils._debugMsg(MODULE_NAME, "_buildLinePaths()")
 
     paths = []
     wireList = pathGeometry
-    _vertFeed = toolController.VertFeed.Value
-    _vertRapid = toolController.VertRapid.Value
-    _horizFeed = toolController.HorizFeed.Value
-    _horizRapid = toolController.HorizRapid.Value
 
     for wire in wireList:
         # print(f"wire length: {len(wire.Edges)}")
@@ -252,33 +222,35 @@ def _buildLinePaths(pathGeometry, toolController):
                 {
                     "X": e0.Vertexes[0].X,
                     "Y": e0.Vertexes[0].Y,
-                    "F": _horizRapid,
+                    "F": RAPID_HORIZ,
                 },
             )
         )
         # paths.append(
-        #    Path.Command("G0", {"Z": _retractHeight, "F": _vertRapid})
+        #    Path.Command("G0", {"Z": _retractHeight, "F": RAPID_VERT})
         # )
-        paths.append(Path.Command("G1", {"Z": finalDepth, "F": _vertFeed}))
+        paths.append(Path.Command("G1", {"Z": finalDepth, "F": FEED_VERT}))
 
         eIdx = 0
         for e in wire.Edges:
             # print(f"edge cnt: {eIdx}")
-            paths.extend(PathGeom.cmdsForEdge(e, hSpeed=_horizFeed, vSpeed=_vertFeed))
+            paths.extend(PathGeom.cmdsForEdge(e, hSpeed=FEED_HORIZ, vSpeed=FEED_VERT))
             eIdx += 1
 
         paths.append(
             # Path.Command("G0", {"Z": self.safeHeight, "F": self.vertRapid})
-            Path.Command("G0", {"Z": _retractHeight, "F": _vertRapid})
+            Path.Command("G0", {"Z": _retractHeight, "F": RAPID_VERT})
         )
 
-    _debugMsg("_buildLinePaths() path count: {}".format(len(paths)))
+    GenUtils._debugMsg(
+        MODULE_NAME, "_buildLinePaths() path count: {}".format(len(paths))
+    )
     return paths
 
 
-def _buildPaths(pathGeometry, toolController):
+def _buildPaths(pathGeometry):
     """_buildPaths() ... Convert wires to paths."""
-    _debugMsg("_buildPaths()")
+    GenUtils._debugMsg(MODULE_NAME, "_buildPaths()")
 
     paths = []
     for w in pathGeometry:
@@ -291,7 +263,8 @@ def _buildPaths(pathGeometry, toolController):
 def generatePathGeometry(
     targetFace,
     toolRadius,
-    cutDirection="Clockwise",
+    stepOver,
+    cutDirection,
     patternCenterAt="CenterOfBoundBox",
     patternCenterCustom=FreeCAD.Vector(0.0, 0.0, 0.0),
     cutPatternAngle=0.0,
@@ -324,7 +297,7 @@ def generatePathGeometry(
     Returns True on success.  Access class instance `pathGeometry` attribute for path geometry.
     """
 
-    _debugMsg("generatePathGeometry()")
+    GenUtils._debugMsg(MODULE_NAME, "generatePathGeometry()")
     PathLog.track(
         "(tool radius: {} mm\n pattern center at {}\n pattern center custom ({}, {}, {})\n cut pattern angle {}\n cutPatternReversed {}\n cutDirection {}\n minTravel {}\n keepToolDown {}\n jobTolerance {})".format(
             toolRadius,
@@ -408,19 +381,26 @@ def generatePathGeometry(
     # ofstVal = -1.0 * (_toolRadius - (_jobTolerance / 10.0))
     # offsetFace = PathUtils.getOffsetArea(_targetFace, ofstVal)
     # if not offsetFace:
-    #    _debugMsg("getOffsetArea() failed")
+    #    GenUtils._debugMsg(MODULE_NAME,"getOffsetArea() failed")
 
     return _pathGeometry  # list of wires
 
 
-def geometryToGcode(pathGeometry, toolController, retractHeight, finalDepth=None):
-    """geometryToGcode(pathGeometry, toolController, retractHeight, finalDepth=None)
+def geometryToGcode(
+    pathGeometry,
+    retractHeight,
+    finalDepth,
+    keepToolDown,
+    keepToolDownThreshold,
+    startPoint,
+    toolRadius,
+):
+    """geometryToGcode(pathGeometry, retractHeight, finalDepth=None)
     Return line geometry converted to Gcode"""
-    _debugMsg("geometryToGcode()")
+    GenUtils._debugMsg(MODULE_NAME, "geometryToGcode()")
     global _retractHeight
     global _finalDepth
     global _prevDepth
-    global _keepDownThreshold
 
     # Argument validation
     if not type(retractHeight) is float:
@@ -437,16 +417,15 @@ def geometryToGcode(pathGeometry, toolController, retractHeight, finalDepth=None
     _retractHeight = retractHeight
     _finalDepth = finalDepth
     _prevDepth = retractHeight
-    _keepDownThreshold = 2.0 * _toolRadius * 0.8
 
-    commandList = _buildLinePaths(pathGeometry, toolController)
-    # commandList = _buildPaths(pathGeometry, toolController)
+    commandList = _buildLinePaths(pathGeometry)
+    # commandList = _buildPaths(pathGeometry)
     if len(commandList) > 0:
-        commands = _buildStartPath(toolController)
+        commands = _buildStartPath()
         commands.extend(commandList)
         return commands
     else:
-        _debugMsg("No commands in commandList")
+        GenUtils._debugMsg(MODULE_NAME, "No commands in commandList")
     return []
 
 
@@ -470,10 +449,12 @@ def generate(
         else float(toolController.Tool.Diameter)
     )
     toolRadius = toolDiameter / 2.0
+    stepOver = 50.0  # Not used for Profile
 
     pathGeom = generatePathGeometry(
         targetFace,
         toolRadius,
+        stepOver,
         cutDirection,
         patternCenterAt,
         patternCenterCustom,
@@ -484,7 +465,7 @@ def generate(
         jobTolerance,
     )
 
-    paths = geometryToGcode(pathGeom, toolController, retractHeight, finalDepth)
+    paths = geometryToGcode(pathGeom, retractHeight, finalDepth)
 
     return (paths, pathGeom)
 

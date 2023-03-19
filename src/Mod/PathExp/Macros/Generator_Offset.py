@@ -2,8 +2,6 @@
 # ***************************************************************************
 # *   Copyright (c) 2021 Russell Johnson (russ4262) <russ4262@gmail.com>    *
 # *                                                                         *
-# *   This file is part of the FreeCAD CAx development system.              *
-# *                                                                         *
 # *   This program is free software; you can redistribute it and/or modify  *
 # *   it under the terms of the GNU Lesser General Public License (LGPL)    *
 # *   as published by the Free Software Foundation; either version 2 of     *
@@ -26,6 +24,7 @@
 import FreeCAD
 import Path.Log as PathLog
 import PathScripts.PathUtils as PathUtils
+import Generator_Utilities as GenUtils
 import Path.Geom as PathGeom
 import Path.Op.Util as PathOpTools
 import Path
@@ -45,13 +44,16 @@ if False:
 else:
     PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 
-# PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
-# PathLog.trackModule(PathLog.thisModule())
-
-IS_MACRO = False
-
 isDebug = True  # True if PathLog.getLevel(PathLog.thisModule()) == 4 else False
 showDebugShapes = False
+
+
+IS_MACRO = False
+MODULE_NAME = "Generator_Offset"
+FEED_VERT = 0.0
+FEED_HORIZ = 0.0
+RAPID_VERT = 0.0
+RAPID_HORIZ = 0.0
 
 _face = None
 _centerOfMass = None
@@ -81,59 +83,14 @@ _jobTolerance = None
 _cutOut = None
 
 
-# Debugging feedback methods
-def _debugMsg(msg, isError=False):
-    """_debugMsg(msg)
-    If `isDebug` flag is True, the provided message is printed in the Report View.
-    If not, then the message is assigned a debug status.
-    """
-    if isError:
-        PathLog.error("Generator_Line: " + msg + "\n")
-        return
-
-    if isDebug:
-        # PathLog.info(msg)
-        FreeCAD.Console.PrintMessage("Generator_Line: " + msg + "\n")
-    else:
-        PathLog.debug(msg)
-
-
-def _addDebugShape(shape, name="debug"):
-    if isDebug and showDebugShapes:
-        do = FreeCAD.ActiveDocument.addObject("Part::Feature", "debug_" + name)
-        do.Shape = shape
-        do.purgeTouched()
-
-
 # Support functions
-def _getPatternCenter():
-    """_getPatternCenter()... Determine center of cut pattern and save in instance attribute."""
-    _debugMsg("_getPatternCenter()")
-    global _centerOfPattern
-    centerAt = _patternCenterAt
-
-    if centerAt == "CenterOfMass":
-        cntrPnt = FreeCAD.Vector(_centerOfMass.x, _centerOfMass.y, 0.0)
-    elif centerAt == "CenterOfBoundBox":
-        cent = _face.BoundBox.Center
-        cntrPnt = FreeCAD.Vector(cent.x, cent.y, 0.0)
-    elif centerAt == "XminYmin":
-        cntrPnt = FreeCAD.Vector(_face.BoundBox.XMin, _face.BoundBox.YMin, 0.0)
-    elif centerAt == "Custom":
-        cntrPnt = FreeCAD.Vector(_patternCenterCustom.x, _patternCenterCustom.y, 0.0)
-
-    _centerOfPattern = cntrPnt
-
-    return cntrPnt
-
-
 def _offset_original():
     """_offset()...
     Returns raw set of Offset wires at Z=0.0.
     Direction of cut is taken into account.
     Additional offset loop ordering is handled in the linking method.
     """
-    _debugMsg("_offset()")
+    GenUtils._debugMsg(MODULE_NAME, "_offset()")
 
     wires = []
     shape = _face
@@ -208,7 +165,7 @@ def _offset():
     Direction of cut is taken into account.
     Additional offset loop ordering is handled in the linking method.
     """
-    _debugMsg("_offset()")
+    GenUtils._debugMsg(MODULE_NAME, "_offset()")
 
     wires = []
     shape = _face
@@ -276,18 +233,15 @@ def _Link_Projected(wireList, cutDirection, cutReversed=False):
 
 
 # Geometry to paths methods
-def _buildStartPath(toolController):
+def _buildStartPath():
     """_buildStartPath() ... Convert Offset pattern wires to paths."""
-    _debugMsg("_buildStartPath()")
-
-    _vertRapid = toolController.VertRapid.Value
-    _horizRapid = toolController.HorizRapid.Value
+    GenUtils._debugMsg(MODULE_NAME, "_buildStartPath()")
 
     useStart = False
     if _startPoint:
         useStart = True
 
-    paths = [Path.Command("G0", {"Z": _retractHeight, "F": _vertRapid})]
+    paths = [Path.Command("G0", {"Z": _retractHeight, "F": RAPID_VERT})]
     if useStart:
         paths.append(
             Path.Command(
@@ -295,7 +249,7 @@ def _buildStartPath(toolController):
                 {
                     "X": _startPoint.x,
                     "Y": _startPoint.y,
-                    "F": _horizRapid,
+                    "F": RAPID_HORIZ,
                 },
             )
         )
@@ -303,9 +257,9 @@ def _buildStartPath(toolController):
     return paths
 
 
-def _buildPaths(pathGeometry, toolController):
-    """_buildPaths() ... Convert wires to paths."""
-    _debugMsg("_buildPaths()")
+def _buildPaths(pathGeometry):
+    """_buildPaths(pathGeometry) ... Convert wires to paths."""
+    GenUtils._debugMsg(MODULE_NAME, "_buildPaths()")
 
     paths = []
     for wire in pathGeometry:
@@ -356,7 +310,7 @@ def generatePathGeometry(
     Returns True on success.  Access class instance `pathGeometry` attribute for path geometry.
     """
 
-    _debugMsg("generatePathGeometry()")
+    GenUtils._debugMsg(MODULE_NAME, "generatePathGeometry()")
     PathLog.track(
         f"(tool radius: {toolRadius} mm\n step over {stepOver}\n pattern center at {patternCenterAt}\n pattern center custom {patternCenterCustom}\n cut pattern angle {cutPatternAngle}\n cutPatternReversed {cutPatternReversed}\n cutDirection {cutDirection}\n minTravel {minTravel}\n keepToolDown {keepToolDown}\n jobTolerance {jobTolerance})"
     )
@@ -440,15 +394,23 @@ def generatePathGeometry(
     # ofstVal = -1.0 * (_toolRadius - (_jobTolerance / 10.0))
     # offsetFace = PathUtils.getOffsetArea(_targetFace, ofstVal)
     # if not offsetFace:
-    #    _debugMsg("getOffsetArea() failed")
+    #    GenUtils._debugMsg(MODULE_NAME,  "getOffsetArea() failed")
 
     return _pathGeometry
 
 
-def geometryToGcode(pathGeometry, toolController, retractHeight, finalDepth=None):
-    """geometryToGcode(pathGeometry, toolController, retractHeight, finalDepth=None)
+def geometryToGcode(
+    pathGeometry,
+    retractHeight,
+    finalDepth,
+    keepToolDown,
+    keepToolDownThreshold,
+    startPoint,
+    toolRadius,
+):
+    """geometryToGcode(pathGeometry, retractHeight, finalDepth=None)
     Return line geometry converted to Gcode"""
-    _debugMsg("geometryToGcode()")
+    GenUtils._debugMsg(MODULE_NAME, "geometryToGcode()")
     global _retractHeight
     global _finalDepth
     global _keepDownThreshold
@@ -461,23 +423,23 @@ def geometryToGcode(pathGeometry, toolController, retractHeight, finalDepth=None
         raise ValueError("Final depth must be a float")
 
     if finalDepth is not None and finalDepth > retractHeight:
-        raise ValueError("Retract height must be greater than or equal to final depth\n")
+        raise ValueError(
+            "Retract height must be greater than or equal to final depth\n"
+        )
 
     _retractHeight = retractHeight
     _finalDepth = finalDepth
     _keepDownThreshold = 2.0 * _toolRadius * 0.8
 
-    # commandList = _buildLinePaths(pathGeometry, toolController)
-    # commandList = _buildOffsetPaths(pathGeometry, toolController)  # Need to fix FinalDepth issue
-    commandList = _buildPaths(
-        pathGeometry, toolController
-    )  # Need to fix FinalDepth issue
+    # commandList = _buildLinePaths(pathGeometry)
+    # commandList = _buildOffsetPaths(pathGeometry)  # Need to fix FinalDepth issue
+    commandList = _buildPaths(pathGeometry)  # Need to fix FinalDepth issue
     if len(commandList) > 0:
-        commands = _buildStartPath(toolController)
+        commands = _buildStartPath()
         commands.extend(commandList)
         return commands
     else:
-        _debugMsg("No commands in commandList")
+        GenUtils._debugMsg(MODULE_NAME, "No commands in commandList")
     return []
 
 
@@ -496,6 +458,16 @@ def generate(
     keepToolDown=False,
     jobTolerance=0.001,
 ):
+    global FEED_VERT
+    global FEED_HORIZ
+    global RAPID_VERT
+    global RAPID_HORIZ
+
+    FEED_VERT = toolController.VertFeed.Value
+    FEED_HORIZ = toolController.HorizFeed.Value
+    RAPID_VERT = toolController.VertRapid.Value
+    RAPID_HORIZ = toolController.HorizRapid.Value
+
     toolDiameter = (
         toolController.Tool.Diameter.Value
         if hasattr(toolController.Tool.Diameter, "Value")
@@ -517,206 +489,9 @@ def generate(
         jobTolerance,
     )
 
-    paths = geometryToGcode(pathGeom, toolController, retractHeight, finalDepth)
+    paths = geometryToGcode(pathGeom, retractHeight, finalDepth)
 
     return (paths, pathGeom)
-
-
-# Unused and old functions
-def _prepareAttributes():
-    """_prepareAttributes()... Prepare instance attribute values for path generation."""
-    _debugMsg("_prepareAttributes()")
-    global _isCenterSet
-    global _centerOfMass
-    global _halfPasses
-    global _halfDiag
-
-    if _isCenterSet:
-        if _useStaticCenter:
-            return
-
-    # Compute weighted center of mass of all faces combined
-    if _patternCenterAt == "CenterOfMass":
-        comF = _face.CenterOfMass
-        _centerOfMass = FreeCAD.Vector(comF.x, comF.y, 0.0)
-    _centerOfPattern = _getPatternCenter()
-
-    # calculate line length
-    deltaC = _targetFace.BoundBox.DiagonalLength
-    lineLen = deltaC + (
-        4.0 * _toolRadius
-    )  # Line length to span boundbox diag with 2x cutter diameter extra on each end
-    if _patternCenterAt == "Custom":
-        distToCent = _face.BoundBox.Center.sub(_centerOfPattern).Length
-        lineLen += distToCent
-    _halfDiag = math.ceil(lineLen / 2.0)
-
-    # Calculate number of passes
-    cutPasses = (
-        math.ceil(lineLen / _cutOut) + 1
-    )  # Number of lines(passes) required to cover boundbox diagonal
-    if _patternCenterAt == "Custom":
-        _halfPasses = math.ceil(cutPasses)
-    else:
-        _halfPasses = math.ceil(cutPasses / 2.0)
-
-    _isCenterSet = True
-
-
-def _generatePathGeometry(rawGeoList):
-    """_generatePathGeometry()... Control function that generates path geometry wire sets."""
-    _debugMsg("_generatePathGeometry()")
-
-    # Create compound object to bind all geometry
-    geomShape = Part.makeCompound(rawGeoList)
-
-    _addDebugShape(geomShape, "rawPathGeomShape")  # Debugging
-
-    # Position and rotate the Line and ZigZag geometry
-    if _cutPatternAngle != 0.0:
-        geomShape.Placement.Rotation = FreeCAD.Rotation(
-            FreeCAD.Vector(0, 0, 1), _cutPatternAngle
-        )
-    cop = _centerOfPattern
-    geomShape.Placement.Base = FreeCAD.Vector(
-        cop.x, cop.y, 0.0 - geomShape.BoundBox.ZMin
-    )
-
-    _addDebugShape(geomShape, "tmpGeometrySet")  # Debugging
-
-    # Identify intersection of cross-section face and lineset
-    rawWireSet = Part.makeCompound(geomShape.Wires)
-    rawPathGeometry = _face.common(rawWireSet)
-
-    _addDebugShape(rawPathGeometry, "rawPathGeometry")  # Debugging
-
-    return rawPathGeometry
-
-
-def _link_offset_orig(rawPathGeometry):
-    """_Link_Offset()... Apply necessary linking to resulting wire set after common between target face and raw wire set."""
-    if _cutPatternReversed:
-        return sorted(rawPathGeometry.Wires, key=lambda wire: Part.Face(wire).Area)
-    else:
-        return sorted(
-            rawPathGeometry.Wires,
-            key=lambda wire: Part.Face(wire).Area,
-            reverse=True,
-        )
-
-
-def _buildLinePaths(pathGeometry, toolController):
-    """_buildLinePaths() ... Convert Line-based wires to paths."""
-    _debugMsg("_buildLinePaths()")
-
-    paths = []
-    wireList = pathGeometry
-    _vertFeed = toolController.VertFeed.Value
-    _vertRapid = toolController.VertRapid.Value
-    _horizFeed = toolController.HorizFeed.Value
-    _horizRapid = toolController.HorizRapid.Value
-
-    for wire in wireList:
-        if _finalDepth is not None:
-            wire.translate(FreeCAD.Vector(0, 0, finalDepth))
-
-        e0 = wire.Edges[0]
-
-        if _finalDepth is None:
-            finalDepth = e0.Vertexes[0].Z
-        else:
-            finalDepth = _finalDepth
-
-        paths.append(
-            Path.Command(
-                "G0",
-                {
-                    "X": e0.Vertexes[0].X,
-                    "Y": e0.Vertexes[0].Y,
-                    "F": _horizRapid,
-                },
-            )
-        )
-        paths.append(
-            # Path.Command("G0", {"Z": self.prevDepth + 0.1, "F": self.vertRapid})
-            Path.Command("G0", {"Z": _retractHeight, "F": _vertRapid})
-        )
-        paths.append(Path.Command("G1", {"Z": finalDepth, "F": _vertFeed}))
-
-        for e in wire.Edges:
-            paths.extend(PathGeom.cmdsForEdge(e, hSpeed=_horizFeed, vSpeed=_vertFeed))
-
-        paths.append(
-            # Path.Command("G0", {"Z": self.safeHeight, "F": self.vertRapid})
-            Path.Command("G0", {"Z": _retractHeight, "F": _vertRapid})
-        )
-
-    _debugMsg("_buildLinePaths() path count: {}".format(len(paths)))
-    return paths
-
-
-def _buildOffsetPaths(pathGeometry, toolController):
-    """_buildOffsetPaths(height, wireList) ... Convert Offset pattern wires to paths."""
-    _debugMsg("_buildOffsetPaths()")
-
-    height = _finalDepth
-    wireList = pathGeometry
-    _vertFeed = toolController.VertFeed.Value
-    _vertRapid = toolController.VertRapid.Value
-    _horizFeed = toolController.HorizFeed.Value
-    _horizRapid = toolController.HorizRapid.Value
-
-    if _keepToolDown:
-        return _buildKeepOffsetDownPaths()
-
-    paths = []
-
-    if _cutDirection == "Climb":
-        for wire in wireList:
-            wire.translate(FreeCAD.Vector(0, 0, height))
-
-            e0 = wire.Edges[len(wire.Edges) - 1]
-            paths.append(
-                Path.Command(
-                    "G0",
-                    {
-                        "X": e0.Vertexes[1].X,
-                        "Y": e0.Vertexes[1].Y,
-                        "F": _horizRapid,
-                    },
-                )
-            )
-            paths.append(Path.Command("G1", {"Z": height, "F": _vertFeed}))
-
-            for i in range(len(wire.Edges) - 1, -1, -1):
-                e = wire.Edges[i]
-                paths.extend(PathGeom.cmdsForEdge(e, flip=True, hSpeed=_horizFeed))
-
-            paths.append(Path.Command("G0", {"Z": _retractHeight, "F": _vertRapid}))
-
-    else:
-        for wire in wireList:
-            wire.translate(FreeCAD.Vector(0, 0, height))
-
-            e0 = wire.Edges[0]
-            paths.append(
-                Path.Command(
-                    "G0",
-                    {
-                        "X": e0.Vertexes[0].X,
-                        "Y": e0.Vertexes[0].Y,
-                        "F": _horizRapid,
-                    },
-                )
-            )
-            paths.append(Path.Command("G1", {"Z": height, "F": _vertFeed}))
-
-            for e in wire.Edges:
-                paths.extend(PathGeom.cmdsForEdge(e, hSpeed=_horizFeed))
-
-            paths.append(Path.Command("G0", {"Z": _retractHeight, "F": _vertRapid}))
-
-    return paths
 
 
 # Raw cut pattern geometry generation methods
@@ -980,7 +755,7 @@ def _Offset(self):
 # Path linking method
 def _buildOffsetPaths_new(self):
     """_buildOffsetPaths(height, wireList) ... Convert Offset pattern wires to paths."""
-    _debugMsg("_buildOffsetPaths()")
+    GenUtils._debugMsg(MODULE_NAME, "_buildOffsetPaths()")
 
     height = _finalDepth
     wireList = _pathGeometry
@@ -1003,17 +778,17 @@ def _buildOffsetPaths_new(self):
                     {
                         "X": e0.Vertexes[1].X,
                         "Y": e0.Vertexes[1].Y,
-                        "F": _horizRapid,
+                        "F": RAPID_HORIZ,
                     },
                 )
             )
-            paths.append(Path.Command("G1", {"Z": height, "F": _vertFeed}))
+            paths.append(Path.Command("G1", {"Z": height, "F": FEED_VERT}))
 
             for i in range(len(wire.Edges) - 1, -1, -1):
                 e = wire.Edges[i]
-                paths.extend(PathGeom.cmdsForEdge(e, flip=True, hSpeed=_horizFeed))
+                paths.extend(PathGeom.cmdsForEdge(e, flip=True, hSpeed=FEED_HORIZ))
 
-            paths.append(Path.Command("G0", {"Z": _retractHeight, "F": _vertRapid}))
+            paths.append(Path.Command("G0", {"Z": _retractHeight, "F": RAPID_VERT}))
 
     else:
         print("Cut Direction = Clockwise")
@@ -1028,23 +803,23 @@ def _buildOffsetPaths_new(self):
                     {
                         "X": e0.Vertexes[0].X,
                         "Y": e0.Vertexes[0].Y,
-                        "F": _horizRapid,
+                        "F": RAPID_HORIZ,
                     },
                 )
             )
-            paths.append(Path.Command("G1", {"Z": height, "F": _vertFeed}))
+            paths.append(Path.Command("G1", {"Z": height, "F": FEED_VERT}))
 
             for e in wire.Edges:
-                paths.extend(PathGeom.cmdsForEdge(e, hSpeed=_horizFeed))
+                paths.extend(PathGeom.cmdsForEdge(e, hSpeed=FEED_HORIZ))
 
-            paths.append(Path.Command("G0", {"Z": _retractHeight, "F": _vertRapid}))
+            paths.append(Path.Command("G0", {"Z": _retractHeight, "F": RAPID_VERT}))
 
     return paths
 
 
 def _buildKeepOffsetDownPaths(self):
     """_buildKeepOffsetDownPaths(height, wireList) ... Convert Offset pattern wires to paths."""
-    _debugMsg("_buildKeepOffsetDownPaths()")
+    GenUtils._debugMsg(MODULE_NAME, "_buildKeepOffsetDownPaths()")
 
     paths = []
     height = _finalDepth
@@ -1068,29 +843,29 @@ def _buildKeepOffsetDownPaths(self):
                         {
                             "X": pnt0.x,
                             "Y": pnt0.y,
-                            "F": _horizFeed,
+                            "F": FEED_HORIZ,
                         },
                     )
                 )
             else:
                 paths.extend(_linkRectangular(_retractHeight, pnt0.x, pnt0.y, height))
         else:
-            paths.append(Path.Command("G0", {"Z": _retractHeight, "F": _vertFeed}))
+            paths.append(Path.Command("G0", {"Z": _retractHeight, "F": FEED_VERT}))
             paths.append(
                 Path.Command(
                     "G0",
                     {
                         "X": e0.Vertexes[0].X,
                         "Y": e0.Vertexes[0].Y,
-                        "F": _horizRapid,
+                        "F": RAPID_HORIZ,
                     },
                 )
             )
-            paths.append(Path.Command("G1", {"Z": height, "F": _vertFeed}))
+            paths.append(Path.Command("G1", {"Z": height, "F": FEED_VERT}))
 
             for i in range(len(wire.Edges) - 1, -1, -1):
                 e = wire.Edges[i]
-                paths.extend(PathGeom.cmdsForEdge(e, flip=True, hSpeed=_horizFeed))
+                paths.extend(PathGeom.cmdsForEdge(e, flip=True, hSpeed=FEED_HORIZ))
 
             # Save last point
             lastPnt = wire.Edges[0].Vertexes[0].Point
@@ -1112,28 +887,28 @@ def _buildKeepOffsetDownPaths(self):
                         {
                             "X": pnt0.x,
                             "Y": pnt0.y,
-                            "F": _horizFeed,
+                            "F": FEED_HORIZ,
                         },
                     )
                 )
             else:
                 paths.extend(_linkRectangular(_retractHeight, pnt0.x, pnt0.y, height))
         else:
-            paths.append(Path.Command("G0", {"Z": _retractHeight, "F": _vertFeed}))
+            paths.append(Path.Command("G0", {"Z": _retractHeight, "F": FEED_VERT}))
             paths.append(
                 Path.Command(
                     "G0",
                     {
                         "X": e0.Vertexes[0].X,
                         "Y": e0.Vertexes[0].Y,
-                        "F": _horizRapid,
+                        "F": RAPID_HORIZ,
                     },
                 )
             )
-            paths.append(Path.Command("G1", {"Z": height, "F": _vertFeed}))
+            paths.append(Path.Command("G1", {"Z": height, "F": FEED_VERT}))
 
             for i in range(0, eCnt):
-                paths.extend(PathGeom.cmdsForEdge(wire.Edges[i], hSpeed=_horizFeed))
+                paths.extend(PathGeom.cmdsForEdge(wire.Edges[i], hSpeed=FEED_HORIZ))
 
             # Save last point
             lastEdgeVertexes = wire.Edges[eCnt - 1].Vertexes

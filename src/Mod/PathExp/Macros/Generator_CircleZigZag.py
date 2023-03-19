@@ -2,8 +2,6 @@
 # ***************************************************************************
 # *   Copyright (c) 2021 Russell Johnson (russ4262) <russ4262@gmail.com>    *
 # *                                                                         *
-# *   This file is part of the FreeCAD CAx development system.              *
-# *                                                                         *
 # *   This program is free software; you can redistribute it and/or modify  *
 # *   it under the terms of the GNU Lesser General Public License (LGPL)    *
 # *   as published by the Free Software Foundation; either version 2 of     *
@@ -27,7 +25,7 @@ import FreeCAD
 import Path.Log as PathLog
 import PathScripts.PathUtils as PathUtils
 import Path.Geom as PathGeom
-import Path.Op.Util as PathOpTools
+import Generator_Utilities as GenUtils
 import DraftGeomUtils
 import Path
 import Part
@@ -35,10 +33,10 @@ import math
 import time
 
 
-__title__ = "Path Circle Clearing Generator"
+__title__ = "CircleZigZag Path Generator"
 __author__ = "russ4262 (Russell Johnson)"
-__url__ = "https://www.freecadweb.org"
-__doc__ = "Generates the circle clearing toolpath for a 2D or 3D face"
+__url__ = ""
+__doc__ = "Generates the circle zigzag clearing toolpath for a 2D or 3D face"
 
 if False:
     PathLog.setLevel(PathLog.Level.DEBUG, PathLog.thisModule())
@@ -46,28 +44,24 @@ if False:
 else:
     PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 
-# PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
-# PathLog.trackModule(PathLog.thisModule())
-
-
-PATHTYPES = ["2D", "3D"]
-PATHTYPE = "2D"
-
-IS_MACRO = False
-
-isDebug = True  # True if PathLog.getLevel(PathLog.thisModule()) == 4 else False
+isDebug = True if PathLog.getLevel(PathLog.thisModule()) == 4 else False
 showDebugShapes = False
 
+MODULE_NAME = "Generator_CircleZigZag"
+IS_MACRO = False
+PATHTYPES = ["2D", "3D"]
+PATHTYPE = "2D"
+FEED_VERT = 0.0
+FEED_HORIZ = 0.0
+RAPID_VERT = 0.0
+RAPID_HORIZ = 0.0
+
 _face = None
-_centerOfMass = None
 _centerOfPattern = None
-_halfDiag = None
-_halfPasses = None
 _isCenterSet = False
 _startPoint = None
 _toolRadius = None
 _rawPathGeometry = None
-patternCenterAtChoices = ("CenterOfMass", "CenterOfBoundBox", "XminYmin", "Custom")
 
 _useStaticCenter = True  # Set True to use static center for all faces created by offsets and step downs.  Set False for dynamic centers based on PatternCenterAt
 _targetFace = None
@@ -82,81 +76,21 @@ _stepOver = None
 _minTravel = None  # Inactive feature
 _keepToolDown = None
 _jobTolerance = None
-_cutOut = None
-
-
-if False:
-    PathLog.setLevel(PathLog.Level.DEBUG, PathLog.thisModule())
-    PathLog.trackModule(PathLog.thisModule())
-else:
-    PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
-
-
-def _debugMsg(msg, isError=False):
-    """_debugMsg(msg)
-    If `_isDebug` flag is True, the provided message is printed in the Report View.
-    If not, then the message is assigned a debug status.
-    """
-    if isError:
-        FreeCAD.Console.PrintError("Generator_Circle: " + msg + "\n")
-        return
-
-    if isDebug:
-        # PathLog.info(msg)
-        FreeCAD.Console.PrintMessage("Generator_Circle: " + msg + "\n")
-    else:
-        PathLog.debug(msg)
-
-
-def _addDebugShape(shape, name="debug"):
-    if isDebug and showDebugShapes:
-        do = FreeCAD.ActiveDocument.addObject("Part::Feature", "debug_" + name)
-        do.Shape = shape
-        do.purgeTouched()
 
 
 # Raw cut pattern geometry generation methods
-def _Circle():
-    """_Circle()... Returns raw set of Circular wires at Z=0.0."""
+def _CircularZigZag(
+    radialPasses, stepOver, cutOut, centerOfPattern, cutDirection, cutPatternReversed
+):
+    """_CircularZigZag(radialPasses, stepOver, cutOut, centerOfPattern, cutDirection, cutPatternReversed)
+    ... Returns raw set of Circular ZigZag wires at Z=0.0."""
     geomList = []
-    radialPasses = _getRadialPasses()
-    # minRad = _toolRadius * 2.0 * 0.45
-    minRad = _toolRadius * 0.95
-
-    if (_cutDirection == "Conventional" and not _cutPatternReversed) or (
-        _cutDirection != "Conventional" and _cutPatternReversed
-    ):
-        direction = FreeCAD.Vector(0.0, 0.0, 1.0)
-    else:
-        direction = FreeCAD.Vector(0.0, 0.0, -1.0)
-
-    # Make small center circle to start pattern
-    if _stepOver > 50.0:
-        circle = Part.makeCircle(minRad, _centerOfPattern, direction)
-        geomList.append(circle)
-
-    for lc in range(1, radialPasses + 1):
-        rad = lc * _cutOut
-        if rad >= minRad:
-            wire = Part.Wire([Part.makeCircle(rad, _centerOfPattern, direction)])
-            geomList.append(wire)
-
-    if not _cutPatternReversed:
-        geomList.reverse()
-
-    return geomList
-
-
-def _CircularZigZag():
-    """_CircularZigZag()... Returns raw set of Circular ZigZag wires at Z=0.0."""
-    geomList = []
-    radialPasses = _getRadialPasses()
     minRad = _toolRadius * 2.0 * 0.45
     dirForward = FreeCAD.Vector(0, 0, 1)
     dirReverse = FreeCAD.Vector(0, 0, -1)
 
-    if (_cutDirection == "CounterClockwise" and _cutPatternReversed) or (
-        _cutDirection != "CounterClockwise" and not _cutPatternReversed
+    if (cutDirection == "CounterClockwise" and cutPatternReversed) or (
+        cutDirection != "CounterClockwise" and not cutPatternReversed
     ):
         activeDir = dirForward
         direction = 1
@@ -165,8 +99,8 @@ def _CircularZigZag():
         direction = -1
 
     # Make small center circle to start pattern
-    if _stepOver > 50:
-        circle = Part.makeCircle(minRad, _centerOfPattern, activeDir)
+    if stepOver > 50:
+        circle = Part.makeCircle(minRad, centerOfPattern, activeDir)
         geomList.append(circle)
         direction *= -1  # toggle direction
         activeDir = (
@@ -174,9 +108,9 @@ def _CircularZigZag():
         )  # update active direction after toggle
 
     for lc in range(1, radialPasses + 1):
-        rad = lc * _cutOut
+        rad = lc * cutOut
         if rad >= minRad:
-            wire = Part.Wire([Part.makeCircle(rad, _centerOfPattern, activeDir)])
+            wire = Part.Wire([Part.makeCircle(rad, centerOfPattern, activeDir)])
             geomList.append(wire)
             direction *= -1  # toggle direction
             activeDir = (
@@ -184,15 +118,16 @@ def _CircularZigZag():
             )  # update active direction after toggle
     # Efor
 
-    if not _cutPatternReversed:
+    if not cutPatternReversed:
         geomList.reverse()
 
     return geomList
 
 
 # Path linking method
-def _Link_Regular():
-    """_Link_Regular()... Apply necessary linking to resulting wire set after common between target face and raw wire set."""
+def _Link_Regular(rawPathGeometry, centerOfPattern, cutPatternReversed):
+    """_Link_Regular(rawPathGeometry, centerOfPattern, cutPatternReversed)
+    ... Apply necessary linking to resulting wire set after common between target face and raw wire set."""
     # PathLog.debug("_Link_Regular()")
 
     def combineAdjacentArcs(grp):
@@ -283,15 +218,15 @@ def _Link_Regular():
 
     allGroups = []
     allWires = []
-    if _cutPatternReversed:  # inside to out
+    if cutPatternReversed:  # inside to out
         edges = sorted(
-            _rawPathGeometry.Edges,
-            key=lambda e: e.Curve.Center.sub(_centerOfPattern).Length,
+            rawPathGeometry.Edges,
+            key=lambda e: e.Curve.Center.sub(centerOfPattern).Length,
         )
     else:
         edges = sorted(
-            _rawPathGeometry.Edges,
-            key=lambda e: e.Curve.Center.sub(_centerOfPattern).Length,
+            rawPathGeometry.Edges,
+            key=lambda e: e.Curve.Center.sub(centerOfPattern).Length,
             reverse=True,
         )
     limit = len(edges)
@@ -366,7 +301,7 @@ def _link_circle_projected_clockwise(wireList):
     # Group dataTups by distance to center of pattern
     ringGroups = []
     w = dataTups[0]
-    if _isArcClockwise(w[0]):
+    if GenUtils._isArcClockwise(w[0], _centerOfPattern):
         ring = [w]
     else:
         ring = [(flipWire(w[0]), w[1])]
@@ -374,26 +309,27 @@ def _link_circle_projected_clockwise(wireList):
 
     for w in dataTups[1:]:
         if w[1] == dist:
-            if _isArcClockwise(w[0]):
+            if GenUtils._isArcClockwise(w[0], _centerOfPattern):
                 ring.append(w)
             else:
                 ring.append((flipWire(w[0]), w[1]))
         else:
             ring.sort(
-                key=lambda tup: getAngle(
-                    tup[0].Edges[0].valueAt(tup[0].Edges[0].FirstParameter)
+                key=lambda tup: GenUtils.getAngle(
+                    tup[0].Edges[0].valueAt(tup[0].Edges[0].FirstParameter),
+                    _centerOfPattern,
                 ),
                 reverse=True,
             )
             ringGroups.append(ring)
-            if _isArcClockwise(w[0]):
+            if GenUtils._isArcClockwise(w[0], _centerOfPattern):
                 ring = [w]
             else:
                 ring = [(flipWire(w[0]), w[1])]
             dist = w[1]
     ring.sort(
-        key=lambda tup: getAngle(
-            tup[0].Edges[0].valueAt(tup[0].Edges[0].FirstParameter)
+        key=lambda tup: GenUtils.getAngle(
+            tup[0].Edges[0].valueAt(tup[0].Edges[0].FirstParameter), _centerOfPattern
         ),
         reverse=True,
     )
@@ -430,7 +366,7 @@ def _link_circle_projected_counterclockwise(wireList):
     # Group dataTups by distance to center of pattern
     ringGroups = []
     w = dataTups[0]
-    if not _isArcClockwise(w[0]):
+    if not GenUtils._isArcClockwise(w[0], _centerOfPattern):
         ring = [w]
     else:
         ring = [(flipWire(w[0]), w[1])]
@@ -438,25 +374,26 @@ def _link_circle_projected_counterclockwise(wireList):
 
     for w in dataTups[1:]:
         if w[1] == dist:
-            if not _isArcClockwise(w[0]):
+            if not GenUtils._isArcClockwise(w[0], _centerOfPattern):
                 ring.append(w)
             else:
                 ring.append((flipWire(w[0]), w[1]))
         else:
             ring.sort(
-                key=lambda tup: getAngle(
-                    tup[0].Edges[0].valueAt(tup[0].Edges[0].FirstParameter)
+                key=lambda tup: GenUtils.getAngle(
+                    tup[0].Edges[0].valueAt(tup[0].Edges[0].FirstParameter),
+                    _centerOfPattern,
                 ),
             )
             ringGroups.append(ring)
-            if not _isArcClockwise(w[0]):
+            if not GenUtils._isArcClockwise(w[0], _centerOfPattern):
                 ring = [w]
             else:
                 ring = [(flipWire(w[0]), w[1])]
             dist = w[1]
     ring.sort(
-        key=lambda tup: getAngle(
-            tup[0].Edges[0].valueAt(tup[0].Edges[0].FirstParameter)
+        key=lambda tup: GenUtils.getAngle(
+            tup[0].Edges[0].valueAt(tup[0].Edges[0].FirstParameter), _centerOfPattern
         ),
     )
     ringGroups.append(ring)
@@ -468,74 +405,27 @@ def _link_circle_projected_counterclockwise(wireList):
 
 
 # Support methods
-def _prepareAttributes():
-    """_prepareAttributes()... Prepare instance attribute values for path generation."""
-    global _isCenterSet
-    global _centerOfPattern
-    global _halfPasses
-    global _centerOfMass
-    global _halfDiag
-
-    if _isCenterSet:
-        if _useStaticCenter:
-            return
-
-    # Compute weighted center of mass of all faces combined
-    if _patternCenterAt == "CenterOfMass":
-        comF = _face.CenterOfMass
-        _centerOfMass = FreeCAD.Vector(comF.x, comF.y, 0.0)
-    _centerOfPattern = _getPatternCenter()
-
-    # calculate line length
-    deltaC = _targetFace.BoundBox.DiagonalLength
-    lineLen = deltaC + (
-        4.0 * _toolRadius
-    )  # Line length to span boundbox diag with 2x cutter diameter extra on each end
-    if _patternCenterAt == "Custom":
-        distToCent = _face.BoundBox.Center.sub(_centerOfPattern).Length
-        lineLen += distToCent
-    _halfDiag = math.ceil(lineLen / 2.0)
-
-    # Calculate number of passes
-    cutPasses = (
-        math.ceil(lineLen / _cutOut) + 1
-    )  # Number of lines(passes) required to cover boundbox diagonal
-    if _patternCenterAt == "Custom":
-        _halfPasses = math.ceil(cutPasses)
-    else:
-        _halfPasses = math.ceil(cutPasses / 2.0)
-
-    _isCenterSet = True
-
-
-def _getPatternCenter():
-    """_getPatternCenter()... Determine center of cut pattern and save in instance attribute."""
-    centerAt = _patternCenterAt
-
-    if centerAt == "CenterOfMass":
-        cntrPnt = FreeCAD.Vector(_centerOfMass.x, _centerOfMass.y, 0.0)
-    elif centerAt == "CenterOfBoundBox":
-        cent = _face.BoundBox.Center
-        cntrPnt = FreeCAD.Vector(cent.x, cent.y, 0.0)
-    elif centerAt == "XminYmin":
-        cntrPnt = FreeCAD.Vector(_face.BoundBox.XMin, _face.BoundBox.YMin, 0.0)
-    elif centerAt == "Custom":
-        cntrPnt = FreeCAD.Vector(_patternCenterCustom.x, _patternCenterCustom.y, 0.0)
-
-    return cntrPnt
-
-
-def _generatePathGeometry():
-    """_generatePathGeometry()... Control function that generates path geometry wire sets."""
-    _debugMsg("_generatePathGeometry()")
+def _generatePathGeometry(
+    radialPasses, stepOver, cutOut, centerOfPattern, cutDirection, cutPatternReversed
+):
+    """_generatePathGeometry(radialPasses, stepOver, cutOut, centerOfPattern, cutDirection, cutPatternReversed)
+    ... Control function that generates path geometry wire sets."""
+    GenUtils._debugMsg(MODULE_NAME, "_generatePathGeometry()")
     global _rawPathGeometry
 
-    _rawGeoList = _Circle()
+    _rawGeoList = _CircularZigZag(
+        radialPasses,
+        stepOver,
+        cutOut,
+        centerOfPattern,
+        cutDirection,
+        cutPatternReversed,
+    )  # _Circle()
 
     # Create compound object to bind all geometry
     geomShape = Part.makeCompound(_rawGeoList)
 
-    _addDebugShape(geomShape, "rawPathGeomShape")  # Debugging
+    GenUtils._addDebugShape(geomShape, "rawPathGeomShape")  # Debugging
 
     """# Position and rotate the Line and ZigZag geometry
     if _cutPatternAngle != 0.0:
@@ -555,173 +445,25 @@ def _generatePathGeometry():
     # _rawPathGeometry = _face.common(rawWireSet)
     _rawPathGeometry = _face.common(geomShape)
 
-    _addDebugShape(_rawPathGeometry, "rawPathGeometry")  # Debugging
+    GenUtils._addDebugShape(_rawPathGeometry, "rawPathGeometry")  # Debugging
 
-    _linkedPathGeom = _Link_Regular()
+    _linkedPathGeom = _Link_Regular(
+        _rawPathGeometry, centerOfPattern, cutPatternReversed
+    )
 
     return _linkedPathGeom
 
 
-def _getRadialPasses():
-    """_getRadialPasses()... Return number of radial passes required for circular and spiral patterns."""
-    # recalculate number of passes, if need be
-    radialPasses = _halfPasses
-    if _patternCenterAt != "CenterOfBoundBox":
-        # make 4 corners of boundbox in XY plane, find which is greatest distance to new circular center
-        EBB = _face.BoundBox
-        CORNERS = [
-            FreeCAD.Vector(EBB.XMin, EBB.YMin, 0.0),
-            FreeCAD.Vector(EBB.XMin, EBB.YMax, 0.0),
-            FreeCAD.Vector(EBB.XMax, EBB.YMax, 0.0),
-            FreeCAD.Vector(EBB.XMax, EBB.YMin, 0.0),
-        ]
-        dMax = 0.0
-        for c in range(0, 4):
-            dist = CORNERS[c].sub(_centerOfPattern).Length
-            if dist > dMax:
-                dMax = dist
-        diag = dMax + (
-            4.0 * _toolRadius
-        )  # Line length to span boundbox diag with 2x cutter diameter extra on each end
-        radialPasses = (
-            math.ceil(diag / _cutOut) + 1
-        )  # Number of lines(passes) required to cover boundbox diagonal
-
-    return radialPasses
-
-
-def getAngle(pnt):
-    p = pnt.sub(_centerOfPattern)
-    angle = math.degrees(math.atan2(p.y, p.x))
-    if angle < 0.0:
-        angle += 360.0
-    return angle
-
-
-def _edgeValueAtLength(edge, length):
-    edgeLen = edge.Length
-    typeId = edge.Curve.TypeId
-    if typeId == "Part::GeomBSplineCurve":
-        return edge.valueAt(length / edgeLen)
-    elif typeId == "Part::GeomCircle":
-        return edge.valueAt(
-            edge.FirstParameter
-            + length / edgeLen * (edge.LastParameter - edge.FirstParameter)
-        )
-    elif typeId == "Part::GeomLine":
-        return edge.valueAt(edge.FirstParameter + length)
-    elif typeId == "Part::GeomEllipse":
-        return edge.valueAt(
-            edge.FirstParameter
-            + length / edgeLen * (edge.LastParameter - edge.FirstParameter)
-        )
-    else:
-        print(f"_edgeValueAtLength() edge.Curve.TypeId, {typeId}, is not available.")
-        return None
-
-
-def _wireMidpoint(wire):
-    wireLength = wire.Length
-    halfLength = wireLength / 2.0
-
-    if len(wire.Edges) == 1:
-        return _edgeValueAtLength(wire.Edges[0], halfLength)
-
-    dist = 0.0
-    for e in wire.Edges:
-        eLen = e.Length
-        newDist = dist + eLen
-        if PathGeom.isRoughly(newDist, halfLength):
-            return e.valueAt(e.LastParameter)
-        elif newDist > halfLength:
-            return _edgeValueAtLength(e, halfLength - dist)
-        dist = newDist
-
-
-def _wireQuartilePoint(wire):
-    wireLength = wire.Length
-    quartileLength = wireLength / 4.0
-
-    if len(wire.Edges) == 1:
-        return _edgeValueAtLength(wire.Edges[0], quartileLength)
-
-    dist = 0.0
-    for e in wire.Edges:
-        eLen = e.Length
-        newDist = dist + eLen
-        if PathGeom.isRoughly(newDist, quartileLength):
-            return e.valueAt(e.LastParameter)
-        elif newDist > quartileLength:
-            return _edgeValueAtLength(e, quartileLength - dist)
-        dist = newDist
-
-
-def _isArcClockwise(wire):
-    """_isArcClockwise(wire) Return True if arc is oriented clockwise.
-    Incomming wire is assumed to be an arc shape (single arc edge, or discretized version)."""
-    if wire.isClosed():
-        # This method is not reliable for open wires
-        # return PathOpTools._isWireClockwise(wire)
-        p1 = wire.Edges[0].valueAt(wire.Edges[0].FirstParameter)
-        p2 = _wireQuartilePoint(wire)
-
-        a1 = getAngle(p1)
-        if PathGeom.isRoughly(a1, 360.0):
-            a1 = 0.0
-        a2 = getAngle(p2) - a1
-        if a2 < 0.0:
-            a2 += 360.0
-
-        if PathGeom.isRoughly(a2, 90.0):
-            return True
-
-        return False
-
-    p1 = wire.Edges[0].valueAt(wire.Edges[0].FirstParameter)
-    p2 = _wireQuartilePoint(wire)  # _wireMidpoint(wire)
-    p3 = wire.Edges[-1].valueAt(wire.Edges[-1].LastParameter)
-
-    a1 = getAngle(p1)
-    if PathGeom.isRoughly(a1, 360.0):
-        a1 = 0.0
-    a2 = getAngle(p2)
-    a3 = getAngle(p3)
-
-    a2 -= a1
-    if a2 < 0.0:
-        a2 += 360.0
-    a3 -= a1
-    if a3 < 0.0:
-        a3 += 360.0
-
-    if a3 > a2 and a2 > 0.0:
-        return False
-
-    if a3 < a2 and a2 < 360.0:
-        return True
-
-    FreeCAD.Console.PrintError(
-        f"ERROR _isArcClockwise() a1: {round(a1, 2)},  a2: {round(a2, 2)},  a3: {round(a3, 2)}\n"
-    )
-
-    return None
-
-
 # Gcode production method
-def _buildStartPath(toolController):
+def _buildStartPath():
     """_buildStartPath() ... Convert Offset pattern wires to paths."""
-    _debugMsg("_buildStartPath()")
-
-    _vertFeed = toolController.VertFeed.Value
-    _vertRapid = toolController.VertRapid.Value
-    _horizFeed = toolController.HorizFeed.Value
-    _horizRapid = toolController.HorizRapid.Value
+    GenUtils._debugMsg(MODULE_NAME, "_buildStartPath()")
 
     useStart = False
     if _startPoint:
         useStart = True
 
-    paths = [Path.Command("G0", {"Z": _retractHeight, "F": _vertRapid})]
+    paths = [Path.Command("G0", {"Z": _retractHeight, "F": RAPID_VERT})]
     if useStart:
         paths.append(
             Path.Command(
@@ -729,7 +471,7 @@ def _buildStartPath(toolController):
                 {
                     "X": _startPoint.x,
                     "Y": _startPoint.y,
-                    "F": _horizRapid,
+                    "F": RAPID_HORIZ,
                 },
             )
         )
@@ -737,16 +479,12 @@ def _buildStartPath(toolController):
     return paths
 
 
-def _buildLinePaths(pathGeometry, toolController):
-    """_buildLinePaths() ... Convert Line-based wires to paths."""
-    _debugMsg("_buildLinePaths()")
+def _buildCircleZigZagPaths(pathGeometry):
+    """_buildCircleZigZagPaths(pathGeometry) ... Convert CircleZigZag wires to paths."""
+    GenUtils._debugMsg(MODULE_NAME, "_buildCircleZigZagPaths()")
 
     paths = []
     wireList = pathGeometry
-    _vertFeed = toolController.VertFeed.Value
-    _vertRapid = toolController.VertRapid.Value
-    _horizFeed = toolController.HorizFeed.Value
-    _horizRapid = toolController.HorizRapid.Value
 
     for wire in wireList:
         if _finalDepth is not None:
@@ -765,154 +503,40 @@ def _buildLinePaths(pathGeometry, toolController):
                 {
                     "X": e0.Vertexes[0].X,
                     "Y": e0.Vertexes[0].Y,
-                    "F": _horizRapid,
+                    "F": RAPID_HORIZ,
                 },
             )
         )
         paths.append(
             # Path.Command("G0", {"Z": self.prevDepth + 0.1, "F": self.vertRapid})
-            Path.Command("G0", {"Z": _retractHeight, "F": _vertRapid})
+            Path.Command("G0", {"Z": _retractHeight, "F": RAPID_VERT})
         )
-        paths.append(Path.Command("G1", {"Z": finalDepth, "F": _vertFeed}))
+        paths.append(Path.Command("G1", {"Z": finalDepth, "F": FEED_VERT}))
 
         for e in wire.Edges:
-            paths.extend(PathGeom.cmdsForEdge(e, hSpeed=_horizFeed, vSpeed=_vertFeed))
+            paths.extend(PathGeom.cmdsForEdge(e, hSpeed=FEED_HORIZ, vSpeed=FEED_VERT))
 
         paths.append(
             # Path.Command("G0", {"Z": self.safeHeight, "F": self.vertRapid})
-            Path.Command("G0", {"Z": _retractHeight, "F": _vertRapid})
+            Path.Command("G0", {"Z": _retractHeight, "F": RAPID_VERT})
         )
 
-    _debugMsg("_buildLinePaths() path count: {}".format(len(paths)))
-    return paths
-
-
-# Support functions
-def _flipLine(edge):
-    """_flipLine(edge)
-    Flips given edge around so the new Vertexes[0] was the old Vertexes[-1] and vice versa, without changing the shape.
-    Currently only lines, line segments, circles and arcs are supported."""
-
-    if not edge.Vertexes:
-        return Part.Edge(
-            Part.Line(
-                edge.valueAt(edge.LastParameter), edge.valueAt(edge.FirstParameter)
-            )
-        )
-
-    return Part.Edge(Part.LineSegment(edge.Vertexes[-1].Point, edge.Vertexes[0].Point))
-
-
-def _flipLineSegment(edge):
-    """_flipLineSegment(edge)
-    Flips given edge around so the new Vertexes[0] was the old Vertexes[-1] and vice versa, without changing the shape.
-    Currently only lines, line segments, circles and arcs are supported."""
-
-    return Part.Edge(Part.LineSegment(edge.Vertexes[-1].Point, edge.Vertexes[0].Point))
-
-
-def _flipCircle(edge):
-    """_flipCircle(edge)
-    Flips given edge around so the new Vertexes[0] was the old Vertexes[-1] and vice versa, without changing the shape.
-    Currently only lines, line segments, circles and arcs are supported."""
-
-    # Create an inverted circle
-    circle = Part.Circle(edge.Curve.Center, -edge.Curve.Axis, edge.Curve.Radius)
-    # Rotate the circle appropriately so it starts at edge.valueAt(edge.LastParameter)
-    circle.rotate(
-        FreeCAD.Placement(
-            circle.Center,
-            circle.Axis,
-            180 - math.degrees(edge.LastParameter + edge.Curve.AngleXU),
-        )
+    GenUtils._debugMsg(
+        MODULE_NAME, "_buildCircleZigZagPaths() path count: {}".format(len(paths))
     )
-    # Now the edge always starts at 0 and LastParameter is the value range
-    arc = Part.Edge(circle, 0, edge.LastParameter - edge.FirstParameter)
-    return arc
-
-
-def _flipBSplineBezier(edge):
-    """_flipBSplineBezier(edge)
-    Flips given edge around so the new Vertexes[0] was the old Vertexes[-1] and vice versa, without changing the shape.
-    Currently only lines, line segments, circles and arcs are supported."""
-    if type(edge.Curve) == Part.BSplineCurve:
-        spline = edge.Curve
-    else:
-        spline = edge.Curve.toBSpline()
-
-    mults = spline.getMultiplicities()
-    weights = spline.getWeights()
-    knots = spline.getKnots()
-    poles = spline.getPoles()
-    perio = spline.isPeriodic()
-    ratio = spline.isRational()
-    degree = spline.Degree
-
-    ma = max(knots)
-    mi = min(knots)
-    knots = [ma + mi - k for k in knots]
-
-    mults.reverse()
-    weights.reverse()
-    poles.reverse()
-    knots.reverse()
-
-    flipped = Part.BSplineCurve()
-    flipped.buildFromPolesMultsKnots(poles, mults, knots, perio, degree, weights, ratio)
-
-    return Part.Edge(flipped)
-
-
-def _flipEllipse(edge, deflection=0.001):
-    """_flipEllipse(edge)
-    Flips given edge around so the new Vertexes[0] was the old Vertexes[-1] and vice versa, without changing the shape.
-    Currently only lines, line segments, circles and arcs are supported."""
-
-    edges = []
-    points = edge.discretize(Deflection=deflection)
-    prev = points[0]
-    for i in range(1, len(points)):
-        now = points[i]
-        edges.append(_flipLine(Part.makeLine(prev, now)))
-        prev = now
-    return edges
-
-
-def flipWire(wire, deflection=0.001):
-    """Flip the entire wire and all its edges so it is being processed the other way around."""
-    edges = []
-    for e in wire.Edges:
-        if Part.Line == type(e.Curve):
-            edges.append(_flipLine(e))
-        elif Part.LineSegment == type(e.Curve):
-            edges.append(_flipLineSegment(e))
-        elif Part.Circle == type(e.Curve):
-            edges.append(_flipCircle(e))
-        elif type(e.Curve) in [Part.BSplineCurve, Part.BezierCurve]:
-            edges.append(_flipBSplineBezier(e))
-        elif type(e.Curve) == Part.OffsetCurve:
-            edges.append(e.reversed())
-        elif type(e.Curve) == Part.Ellipse:
-            edges.extend(_flipEllipse(e, deflection))
-        else:
-            PathLog.warning("%s not supported for flipping" % type(e.Curve))
-            edges.append(None)
-
-    edges.reverse()
-    PathLog.debug(edges)
-    return Part.Wire(edges)
+    return paths
 
 
 # Public functions
 def generatePathGeometry(
     targetFace,
     toolRadius,
-    stepOver=50.0,
+    stepOver,
+    cutDirection,
     patternCenterAt="CenterOfBoundBox",
     patternCenterCustom=FreeCAD.Vector(0.0, 0.0, 0.0),
     cutPatternAngle=0.0,
     cutPatternReversed=False,
-    cutDirection="Clockwise",
     minTravel=False,
     keepToolDown=False,
     jobTolerance=0.001,
@@ -951,13 +575,14 @@ def generatePathGeometry(
         - Call the `generate()` method to generate the path geometry. The path geometry has correctional linking applied.
         - The path geometry in now available in the `pathGeometry` attribute.
     """
-    _debugMsg("Generator_Circle.generatePathGeometry()")
-    _debugMsg(
-        f"(step over {stepOver}\n pattern center at {patternCenterAt}\n pattern center custom {patternCenterCustom}\n cut pattern angle {cutPatternAngle}\n cutPatternReversed {cutPatternReversed}\n cutDirection {cutDirection}\n minTravel {minTravel}\n keepToolDown {keepToolDown}\n jobTolerance {jobTolerance})"
+    GenUtils._debugMsg(MODULE_NAME, "Generator_Circle.generatePathGeometry()")
+    GenUtils._debugMsg(
+        MODULE_NAME,
+        f"(step over {stepOver}\n pattern center at {patternCenterAt}\n pattern center custom {patternCenterCustom}\n cut pattern angle {cutPatternAngle}\n cutPatternReversed {cutPatternReversed}\n cutDirection {cutDirection}\n minTravel {minTravel}\n keepToolDown {keepToolDown}\n jobTolerance {jobTolerance})",
     )
 
     if hasattr(targetFace, "Area") and PathGeom.isRoughly(targetFace.Area, 0.0):
-        _debugMsg("Generator_Circle: No area in working shape.")
+        GenUtils._debugMsg(MODULE_NAME, "Generator_Circle: No area in working shape.")
         return None
 
     # Argument validation
@@ -976,7 +601,7 @@ def generatePathGeometry(
     if stepOver < 0.1 or stepOver > 100.0:
         raise ValueError("Step over exceeds limits")
 
-    if patternCenterAt not in patternCenterAtChoices:
+    if patternCenterAt not in [tup[1] for tup in GenUtils.PATTERNCENTERS]:
         raise ValueError("Invalid value for 'patternCenterAt' argument")
 
     if not type(patternCenterCustom) is FreeCAD.Vector:
@@ -1007,7 +632,6 @@ def generatePathGeometry(
     global _minTravel
     global _keepToolDown
     global _jobTolerance
-    global _cutOut
     global _isCenterSet
     global _toolRadius
     global _face
@@ -1028,19 +652,24 @@ def generatePathGeometry(
     _keepToolDown = keepToolDown
     _jobTolerance = jobTolerance
     _toolRadius = toolRadius
-    _cutOut = _toolRadius * 2.0 * (_stepOver / 100.0)
 
     _targetFace.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - _targetFace.BoundBox.ZMin))
 
     pathGeometry = []
+    centerOfPattern = None
+    halfDiag = 0.0
+    cutPasses = 0.0
+    halfPasses = 0.0
+    isCenterSet = _isCenterSet
+    cutOut = _toolRadius * 2.0 * (_stepOver / 100.0)
 
     #  Apply simple radius shrinking offset for clearing pattern generation.
     ofstVal = -1.0 * (_toolRadius - (_jobTolerance / 10.0))
     offsetFace = PathUtils.getOffsetArea(_targetFace, ofstVal)
     if not offsetFace:
-        _debugMsg("getOffsetArea() failed")
+        GenUtils._debugMsg(MODULE_NAME, "getOffsetArea() failed")
     elif len(offsetFace.Faces) == 0:
-        _debugMsg("No offset faces to process for path geometry.")
+        GenUtils._debugMsg(MODULE_NAME, "No offset faces to process for path geometry.")
     else:
         for fc in offsetFace.Faces:
             fc.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - fc.BoundBox.ZMin))
@@ -1050,21 +679,47 @@ def generatePathGeometry(
                 for f in useFaces.Faces:
                     f.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - f.BoundBox.ZMin))
                     _face = f
-                    _prepareAttributes()
-                    pathGeom = _generatePathGeometry()
+                    attributes = GenUtils._prepareAttributes(
+                        f,
+                        toolRadius,
+                        cutOut,
+                        isCenterSet,
+                        _useStaticCenter,
+                        patternCenterAt,
+                        patternCenterCustom,
+                    )
+                    if attributes is not None:
+                        (centerOfPattern, halfDiag, cutPasses, halfPasses) = attributes
+                    pathGeom = _generatePathGeometry(
+                        cutPasses,
+                        stepOver,
+                        cutOut,
+                        centerOfPattern,
+                        cutDirection,
+                        cutPatternReversed,
+                    )
                     pathGeometry.extend(pathGeom)
             else:
-                _debugMsg("No offset faces after cut with base shape.")
+                GenUtils._debugMsg(
+                    MODULE_NAME, "No offset faces after cut with base shape."
+                )
 
     return pathGeometry
 
 
-def geometryToGcode(pathGeometry, toolController, retractHeight, finalDepth=None):
-    """geometryToGcode(pathGeometry) Return line geometry converted to Gcode"""
-    _debugMsg("geometryToGcode()")
+def geometryToGcode(
+    pathGeometry,
+    retractHeight,
+    finalDepth,
+    keepToolDown,
+    keepToolDownThreshold,
+    startPoint,
+    toolRadius,
+):
+    """geometryToGcode(pathGeometry, retractHeight, finalDepth=None) Return line geometry converted to Gcode"""
+    GenUtils._debugMsg(MODULE_NAME, "geometryToGcode()")
     global _retractHeight
     global _finalDepth
-    global _toolController
 
     # Argument validation
     if not type(retractHeight) is float:
@@ -1074,19 +729,20 @@ def geometryToGcode(pathGeometry, toolController, retractHeight, finalDepth=None
         raise ValueError("Final depth must be a float")
 
     if finalDepth is not None and finalDepth > retractHeight:
-        raise ValueError("Retract height must be greater than or equal to final depth\n")
+        raise ValueError(
+            "Retract height must be greater than or equal to final depth\n"
+        )
 
-    _toolController = toolController
     _retractHeight = retractHeight
     _finalDepth = finalDepth
 
-    commandList = _buildLinePaths(pathGeometry, toolController)
+    commandList = _buildCircleZigZagPaths(pathGeometry)
     if len(commandList) > 0:
-        commands = _buildStartPath(toolController)
+        commands = _buildStartPath()
         commands.extend(commandList)
         return commands
     else:
-        _debugMsg("No commands in commandList")
+        GenUtils._debugMsg(MODULE_NAME, "No commands in commandList")
     return []
 
 

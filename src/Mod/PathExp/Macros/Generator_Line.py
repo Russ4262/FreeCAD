@@ -2,8 +2,6 @@
 # ***************************************************************************
 # *   Copyright (c) 2021 Russell Johnson (russ4262) <russ4262@gmail.com>    *
 # *                                                                         *
-# *   This file is part of the FreeCAD CAx development system.              *
-# *                                                                         *
 # *   This program is free software; you can redistribute it and/or modify  *
 # *   it under the terms of the GNU Lesser General Public License (LGPL)    *
 # *   as published by the Free Software Foundation; either version 2 of     *
@@ -26,17 +24,17 @@
 import FreeCAD
 import Path.Log as PathLog
 import Path.Geom as PathGeom
+import Generator_Utilities as GenUtils
+import Generator_DropCut as DropCut
+import Macro_CombineRegions
 import Path
 import Part
 import math
-import Macros.Generator_Utilities as GenUtils
-import Generator_DropCut as DropCut
-import Macro_CombineRegions
 
 
 __title__ = "Line Geometry and Path Generator"
 __author__ = "russ4262 (Russell Johnson)"
-__url__ = "https://www.freecadweb.org"
+__url__ = ""
 __doc__ = "Generates the line-clearing toolpath for a single 2D face"
 
 
@@ -46,10 +44,12 @@ if False:
 else:
     PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 
-# PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
-# PathLog.trackModule(PathLog.thisModule())
 
-IS_MACRO = True  # Set to True to use as macro
+isDebug = True if PathLog.getLevel(PathLog.thisModule()) == 4 else False
+showDebugShapes = False
+
+MODULE_NAME = "Generator_Line"
+IS_MACRO = False  # Set to True to use as macro
 IS_TEST_MODE = False
 TARGET_REGION = None  # 2D cross-section of target faces
 RESET_ATTRIBUTES = True
@@ -68,7 +68,7 @@ def _line(
     halfDiag, patternCenterAt, halfPasses, cutOut, cutDirection, cutPatternReversed
 ):
     """_line()... Returns raw set of raw Part.Line wires at Z=0.0."""
-    GenUtils._debugMsg("_line()")
+    GenUtils._debugMsg(MODULE_NAME, "_line()")
     geomList = []
     centRot = FreeCAD.Vector(
         0.0, 0.0, 0.0
@@ -109,11 +109,12 @@ def _line(
 
 def _generatePathGeometry(face, rawGeoList, cutPatternAngle, centerOfPattern):
     """_generatePathGeometry()... Control function that generates path geometry wire sets."""
-    GenUtils._debugMsg("_generatePathGeometry()")
+    GenUtils._debugMsg(MODULE_NAME, "GL._generatePathGeometry()")
 
     # Create compound object to bind all geometry
     geomShape = Part.makeCompound(rawGeoList)
 
+    # GenUtils._addDebugShape(face, "rawPathGeomFace")  # Debugging
     # GenUtils._addDebugShape(geomShape, "rawPathGeomShape")  # Debugging
 
     # Position and rotate the Line geometry
@@ -140,7 +141,7 @@ def _generatePathGeometry(face, rawGeoList, cutPatternAngle, centerOfPattern):
 # Regular wire linking function
 def _Link_Regular(rawPathGeometry):
     """_Link_Regular()... Apply necessary linking to resulting wire set after common between target face and raw wire set."""
-    GenUtils._debugMsg("_Link_Regular()")
+    GenUtils._debugMsg(MODULE_NAME, "_Link_Regular()")
 
     allGroups = []
     allWires = []
@@ -263,7 +264,7 @@ def _Link_Projected(wireList, cutDirection, cutReversed=False):
 # Geometry to paths methods
 def _buildStartPath(retractHeight, startPoint=None):
     """_buildStartPath(retractHeight, startPoint=None) ... Convert Offset pattern wires to paths."""
-    GenUtils._debugMsg("_buildStartPath()")
+    GenUtils._debugMsg(MODULE_NAME, "_buildStartPath()")
 
     paths = [Path.Command("G0", {"Z": retractHeight, "F": RAPID_VERT})]
     if startPoint is not None:
@@ -285,7 +286,7 @@ def _buildLinePaths(
     wireList, retractHeight, finalDepth, keepToolDown, keepToolDownThreshold, toolRadius
 ):
     """_buildLinePaths() ... Convert Line-based wires to paths."""
-    GenUtils._debugMsg("_buildLinePaths()")
+    GenUtils._debugMsg(MODULE_NAME, "_buildLinePaths()")
     paths = []
     lastEdge = None
 
@@ -326,20 +327,29 @@ def _buildLinePaths(
 
         paths.append(Path.Command("G0", {"Z": retractHeight, "F": RAPID_VERT}))
 
-    # GenUtils._debugMsg("_buildLinePaths() path count: {}".format(len(paths)))
+    # GenUtils._debugMsg(MODULE_NAME,"_buildLinePaths() path count: {}".format(len(paths)))
     return paths
 
 
 # Public functions
+def enableDebug():
+    print("Generator_Line.enableDebug()")
+    GenUtils.isDebug = True
+    GenUtils.showDebugShapes = True
+
+
 def generatePathGeometry(
     flatFace,
     toolRadius,
-    cutOutWidth,
+    stepOver,
+    cutDirection,
     patternCenterAt="CenterOfBoundBox",
     patternCenterCustom=FreeCAD.Vector(0.0, 0.0, 0.0),
     cutPatternAngle=0.0,
     cutPatternReversed=False,
-    cutDirection="Clockwise",
+    minTravel=False,
+    keepToolDown=False,
+    jobTolerance=0.01,
 ):
     """
     Generates a path geometry shape from an assigned pattern for conversion to tool paths.
@@ -356,19 +366,20 @@ def generatePathGeometry(
     Call this method to execute the path generation code in LineClearingGenerator class.
     Returns True on success.  Access class instance `pathGeometry` attribute for path geometry.
     """
-    GenUtils._debugMsg("generatePathGeometry()")
-    PathLog.track(
-        f"(\ntool radius: {toolRadius} mm\n step over {cutOutWidth}%\n pattern center at {patternCenterAt}\n pattern center custom {patternCenterCustom}\n cut pattern angle {cutPatternAngle}\n cutPatternReversed {cutPatternReversed}\n cutDirection {cutDirection})"
+    GenUtils._debugMsg(MODULE_NAME, "generatePathGeometry()")
+    GenUtils._debugMsg(
+        MODULE_NAME,
+        f"(\ntool radius: {toolRadius} mm\n step over {stepOver}%\n pattern center at {patternCenterAt}\n pattern center custom {patternCenterCustom}\n cut pattern angle {cutPatternAngle}\n cutPatternReversed {cutPatternReversed}\n cutDirection {cutDirection})",
     )
 
     # Argument validation
-    if not type(cutOutWidth) is float:
+    if not type(stepOver) is float:
         raise ValueError("Cutout width must be a float")
 
-    if cutOutWidth < 0.0:
+    if stepOver < 0.0:
         raise ValueError("Cutout width less than zero")
 
-    if patternCenterAt not in GenUtils.patternCenterAtChoices:
+    if patternCenterAt not in [tup[1] for tup in GenUtils.PATTERNCENTERS]:
         raise ValueError("Invalid value for 'patternCenterAt' argument")
 
     if not type(patternCenterCustom) is FreeCAD.Vector:
@@ -396,6 +407,8 @@ def generatePathGeometry(
     global GEOM_ATTRIBUTES
     pathGeometry = []
 
+    cutOutWidth = 2.0 * toolRadius * (stepOver / 100.0)
+
     geomAttributes = GenUtils._prepareAttributes(
         flatFace,
         toolRadius,
@@ -407,12 +420,12 @@ def generatePathGeometry(
     )
     if geomAttributes is not None:
         GEOM_ATTRIBUTES = geomAttributes
-    (centerOfPattern, halfDiag, __, halfPasses) = GEOM_ATTRIBUTES  # __ is cutPasses
+    (centerOfPattern, halfDiag, cutPasses, halfPasses) = GEOM_ATTRIBUTES
 
     rawGeoList = _line(
         halfDiag,
         patternCenterAt,
-        halfPasses,
+        cutPasses,  # halfPasses,
         cutOutWidth,
         cutDirection,
         cutPatternReversed,
@@ -426,7 +439,7 @@ def generatePathGeometry(
     pathGeometry.extend(pathGeom)
     IS_CENTER_SET = True
 
-    # GenUtils._showGeom(pathGeometry)
+    # GenUtils._showGeom(pathGeometry, label="PathGeometry_Line")
 
     return pathGeometry
 
@@ -442,7 +455,7 @@ def geometryToGcode(
     minTravel=False,
 ):
     """geometryToGcode(lineGeometry, retractHeight, finalDepth, keepToolDown, keepToolDownThreshold, startPoint, minTravel=False) Return line geometry converted to Gcode"""
-    GenUtils._debugMsg("geometryToGcode()")
+    GenUtils._debugMsg(MODULE_NAME, "geometryToGcode()")
 
     # Argument validation
     if not type(retractHeight) is float:
@@ -452,7 +465,9 @@ def geometryToGcode(
         raise ValueError("Final depth must be a float")
 
     if finalDepth is not None and finalDepth > retractHeight:
-        raise ValueError("Retract height must be greater than or equal to final depth\n")
+        raise ValueError(
+            "Retract height must be greater than or equal to final depth\n"
+        )
 
     if not type(keepToolDown) is bool:
         raise ValueError("Keep tool down must be a boolean")
@@ -478,7 +493,7 @@ def geometryToGcode(
 
         return commands
     else:
-        GenUtils._debugMsg("No commands in commandList")
+        GenUtils._debugMsg(MODULE_NAME, "No commands in commandList")
     return []
 
 
@@ -527,6 +542,7 @@ def generate(
     FEED_HORIZ = toolController.HorizFeed.Value
     RAPID_VERT = toolController.VertRapid.Value
     RAPID_HORIZ = toolController.HorizRapid.Value
+
     cutOutWidth = 2.0 * toolRadius * (stepOver / 100.0)
     offsetValue = -1.0 * (toolRadius - (jobTolerance / 10.0))
     offsetFaces = GenUtils._offsetFaceRegion(region, offsetValue)
@@ -547,6 +563,7 @@ def generate(
             cutDirection,
         )
 
+        GenUtils._addDebugShape(Part.makeCompound(pathGeomList), "PathGeomList_Line")
         if PATH_TYPE == "3D":
             # Project path geometry onto origninal faces
             projectionWires = DropCut.getProjectedGeometry(fusedFace, pathGeomList)
@@ -959,8 +976,11 @@ def testMacro(debug=False, createOps=True):
 print("Imported Generator_Line")
 
 if IS_MACRO and FreeCAD.GuiUp:
+    print("Executing Generator_Line as macro")
     isTestValues = _getUserTestInput()
     if isTestValues[0]:
         testMacro(isTestValues[1], isTestValues[2])
     else:
         executeAsMacro()
+else:
+    print("Importing Generator_Line")
