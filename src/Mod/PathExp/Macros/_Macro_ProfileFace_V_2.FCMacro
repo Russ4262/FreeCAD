@@ -1,0 +1,498 @@
+import FreeCAD
+import FreeCADGui
+import Part
+import TechDraw
+import math
+import Path.Geom as PathGeom
+
+
+##################################################
+##################################################
+
+
+def pointToText(p):
+    """vertexToText(p) Return text reference string from point or vector object."""
+    x = round(p.x, 3)
+    y = round(p.y, 3)
+    z = round(p.z, 3)
+    txt = f",{x},{y},{z},"
+    return txt.replace("-0.0,", "0.0,")
+
+
+def _edgeValueAtLength(edge, length):
+    edgeLen = edge.Length
+    # if PathGeom.isRoughly(edgeLen, 0.0):
+    if edgeLen == 0.0:
+        pnt = edge.Vertexes[0].Point
+        return FreeCAD.Vector(pnt.x, pnt.y, pnt.z)
+
+    if hasattr(edge, "Curve"):
+        typeId = edge.Curve.TypeId
+    elif hasattr(edge, "TypeId"):
+        typeId = edge.TypeId
+    else:
+        # print(dir(edge))
+        print("_edgeValueAtLength() returning None")
+        return None
+
+    if typeId == "Part::TopoShape":
+        print(edge.ShapeType)
+        print(dir(edge))
+
+    if typeId == "Part::GeomBSplineCurve":
+        return edge.valueAt(length / edgeLen)
+    elif typeId == "Part::GeomCircle":
+        return edge.valueAt(
+            edge.FirstParameter
+            + length / edgeLen * (edge.LastParameter - edge.FirstParameter)
+        )
+    elif typeId == "Part::GeomLine":
+        return edge.valueAt(edge.FirstParameter + length)
+    elif typeId == "Part::GeomEllipse":
+        return edge.valueAt(
+            edge.FirstParameter
+            + length / edgeLen * (edge.LastParameter - edge.FirstParameter)
+        )
+    elif typeId == "Part::GeomParabola":
+        return edge.valueAt(
+            edge.FirstParameter
+            + length / edgeLen * (edge.LastParameter - edge.FirstParameter)
+        )
+    elif typeId == "Part::GeomHyperbola":
+        return edge.valueAt(
+            edge.FirstParameter
+            + length / edgeLen * (edge.LastParameter - edge.FirstParameter)
+        )
+    else:
+        # print(dir(edge))
+        print(f"_edgeValueAtLength() edge.Curve.TypeId, {typeId}, is not available.")
+        return None
+
+
+def makeEdgeMidpointTups(edges):
+    tups = []
+    for ei in range(0, len(edges)):
+        e = edges[ei]
+        eLen = e.Length / 2.0
+        txt = f"L{round(eLen,6)}_" + pointToText(_edgeValueAtLength(e, eLen))
+        tups.append((txt, ei, e))
+    # Sort tups by xyz_length text, so same edges find each other
+    tups.sort(key=lambda t: t[0])
+    return tups
+
+
+##################################################
+##################################################
+
+
+class Node:
+    def __init__(self, label, edges, edgeIndexes, vertexIndexes):
+        self.notOriented = True
+        self.label = label
+        self.edges = edges
+        self.edgeIndexes = edgeIndexes
+        self.vertexIndexes = vertexIndexes
+        self.inboundAngle = -500.0
+        self.inboundIndex = -1
+        self.outboundIndex = -1
+        self.outboundEdge = None
+        self.outStartIdx = 1
+        self.Point = self._getPoint()
+        # cnt = len(edges)
+        # print(f"Node count: {len(edges)}")
+        # if cnt == 1:
+        #    Part.show(edges[0], "LoneNode")
+
+    def _getPoint(self):
+        self.Point = self.edges[0].Vertexes[self.vertexIndexes[0]].Point
+
+    def findOutboundIndexFromAngle(self, angle):
+        # print(f"findOutboundIndexFromAngle({angle})")
+        buffer = 360.0 - angle
+        cnt = len(self.edges)
+        # print(f"cnt is {cnt}")
+        tups = []
+        # print(f"angle is {angle}, and buffer is {buffer}")
+        for i in range(self.outStartIdx, cnt):
+            edg = self.edges[i]
+            ei = self.edgeIndexes[i]
+            # Part.show(edg, f"Edge_{self.inboundIndex}_")
+            vi = self.vertexIndexes[i]
+            rawAng = getEdgeAngle(edg, vi)
+            ang = normalizeDegrees(rawAng + buffer)
+            # print(f"rawAng: {rawAng};  ang: {ang}")
+            tups.append((ang, vi, edg, ei))
+        tups.sort(key=lambda tup: tup[0])
+        if len(tups) == 0:
+            print("NO outbound tups")
+            print(f"len(self.edges) {len(self.edges)}")
+            print(f"self.edgeIndexes {self.edgeIndexes}")
+            # for ed in self.edges:
+            #    Part.show(ed, f"Node_{self.edgeIndexes[0]}_Edge")
+            return
+
+        # print(f"outbound tups {tups}")
+        self.outboundEdge = tups[0][2].copy()
+        self.outboundIndex = tups[0][3]  # self.edgeIndexes[idx]
+        # Part.show(self.outboundEdge, "Outbound")
+
+    def orientByInboundEdgeIndex(self, edgeIndex):
+        """reorder data lists so inbound is first"""
+        # print(f"orientByInboundEdgeIndex({edgeIndex})")
+
+        if edgeIndex not in self.edgeIndexes:
+            print("     index not in node")
+            return False
+
+        i = self.edgeIndexes.index(edgeIndex)
+        if i > 0:
+            # place inbound edge at beginning of each data list
+            inbnd = self.edges.pop(i)
+            self.edges.insert(0, inbnd)
+            inbnd = self.edgeIndexes.pop(i)
+            self.edgeIndexes.insert(0, inbnd)
+            inbnd = self.vertexIndexes.pop(i)
+            self.vertexIndexes.insert(0, inbnd)
+
+        # set inbound details
+        edge = self.edges[0]
+        vi = self.vertexIndexes[0]
+        self.inboundAngle = getEdgeAngle(edge, vi)
+        self.inboundIndex = self.edgeIndexes[0]
+        self.findOutboundIndexFromAngle(self.inboundAngle)
+        return True
+
+    def hasEdgeIndex(self, index):
+        if index in self.edgeIndexes:
+            return True
+        return False
+
+
+def filterSingleVertexEdges(alledges):
+    edges = [e.copy() for e in alledges]
+    tups = []
+    log = {}
+    for ei in range(len(edges)):
+        e = edges[ei]
+        for vi in range(len(e.Vertexes)):
+            v = e.Vertexes[vi]
+            txt = pointToText(v.Point)
+            tups.append((txt, ei, vi))
+            if txt in log.keys():
+                log[txt].append((ei, vi))
+            else:
+                log[txt] = [(ei, vi)]
+    # Sort tups by xyz text, so same vertexes find each other
+    tups.sort(key=lambda t: t[0])
+
+    singles = []
+    for v in log.values():
+        if len(v) == 1:
+            singles.append(v[0][0])
+    singles.sort(reverse=True)
+    # print(f"singles: {singles}")
+    for s in singles:
+        edges.pop(s)
+
+    return edges
+
+
+def makeProjection(shape):
+    bfbb = shape.BoundBox
+    targetFace = PathGeom.makeBoundBoxFace(
+        bfbb, offset=5.0, zHeight=math.floor(bfbb.ZMin - 5.0)
+    )
+
+    direction = FreeCAD.Vector(0.0, 0.0, -1.0)
+    #      receiver_face.makeParallelProjection(project_shape, direction)
+    proj = targetFace.makeParallelProjection(shape, direction)
+    proj.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - proj.BoundBox.ZMin))
+    return proj
+
+
+def identifyNodes(edges):
+    nodes = {}
+    for ei in range(len(edges)):
+        e = edges[ei]
+        for vi in range(len(e.Vertexes)):
+            v = e.Vertexes[vi]
+            txt = pointToText(v.Point)
+            if txt in nodes.keys():
+                nodes[txt].append((e, ei, vi, txt))
+            else:
+                nodes[txt] = [(e, ei, vi, txt)]
+    keys = [k for k in nodes.keys()]
+    keys.sort()
+    sortedNodes = {}
+    for k in keys:
+        # if len(nodes[k]) == 1:
+        #    print(f"lone key: {k}")
+        sortedNodes[k] = nodes[k]
+    # print(f"sortedNodes.keys(): {sortedNodes.keys()}")
+    return sortedNodes
+
+
+def vector_to_degrees(vector):
+    ang = round(math.degrees(math.atan2(vector.y, vector.x)), 6)
+    if ang < 0.0:
+        ang += 360.0
+    return ang
+
+
+def normalizeDegrees(a):
+    if a > 360.0:
+        a -= 360.0
+    elif a < 0.0:
+        a += 360.0
+    return a
+
+
+def getEdgeAngle(edge, vi):
+    if vi == 0:
+        p1 = _edgeValueAtLength(edge, edge.Length * 0.04)
+        p2 = edge.Vertexes[0].Point
+    elif vi == 1:
+        p1 = _edgeValueAtLength(edge, edge.Length * 0.96)
+        p2 = edge.Vertexes[1].Point
+    return vector_to_degrees(p1.sub(p2))
+
+
+def findMinEdgeAndVertex(edges):
+    minX = edges[0].Vertexes[0].X
+    minY = edges[0].Vertexes[0].Y
+    minZ = edges[0].Vertexes[0].Z
+    for ed in edges:
+        for vr in ed.Vertexes:
+            if vr.X < minX:
+                minX = vr.X
+            if vr.Y < minY:
+                minY = vr.Y
+            if vr.Z < minZ:
+                minZ = vr.Z
+    minPnt = FreeCAD.Vector(minX - 5.0, minY - 5.0, minZ)
+    # print(f"minPnt: {minPnt}")
+
+    eIdx = 0
+    edge = edges[eIdx]
+    vIdx = 0
+    vertex = edge.Vertexes[vIdx]
+    label = pointToText(vertex.Point)
+    dist = 9.9e12
+    # print(f"dist: {dist}")
+
+    for ei in range(len(edges)):
+        e = edges[ei]
+        for vi in range(len(e.Vertexes)):
+            v = e.Vertexes[vi]
+            d = v.Point.sub(minPnt).Length
+            if d < dist:
+                # print(f"d: {d}")
+                eIdx = ei
+                edge = e
+                vIdx = vi
+                vertex = v
+                dist = d
+                label = pointToText(v.Point)
+    # Efor
+    return (minPnt, label, eIdx, edge, vIdx, vertex)
+
+
+def filterDuplicateEdges(edges):
+    # Filter out duplicate edges
+    # logText("filterDuplicateEdges()")
+
+    tups = makeEdgeMidpointTups(edges)
+    if len(tups) == 0:
+        return tups
+
+    # Remove duplicates
+    unique = [tups[0]]
+    deleted = []
+    for t in tups[1:]:
+        if t[0] == unique[-1][0]:
+            deleted.append(t)
+        else:
+            unique.append(t)
+
+    return [u[2] for u in unique]
+
+
+def getProjection(shape, method=1):
+    rawEdges = []
+    if method == 1:
+        _groups = TechDraw.projectEx(shape, FreeCAD.Vector(0.0, 0.0, 1.0))
+        for g in _groups[0:5]:
+            if g:
+                if hasattr(g, "Edges"):
+                    rawEdges.extend(g.Edges)
+                else:
+                    rawEdges.append(g)
+    elif method == 2:
+        for f in shape.Faces:
+            # only look at outside wires
+            rawEdges.extend(makeProjection(f.Wires[0]).Edges)
+    elif method == 3:
+        import PathScripts.PathUtils as PathUtils
+
+        strDep = shape.BoundBox.ZMax
+        step = shape.BoundBox.ZLength / 5.0 if shape.BoundBox.ZLength > 1.0 else 0.2
+        finDep = (
+            shape.BoundBox.ZMin
+            if shape.BoundBox.ZLength > 1.0
+            else shape.BoundBox.ZMax - 1.0
+        )
+        finish_step = 0.0
+        depth_params = PathUtils.depth_params(
+            clearance_height=strDep + 5.0,
+            safe_height=strDep + 2.0,
+            start_depth=strDep,
+            step_down=step,
+            z_finish_step=finish_step,
+            final_depth=finDep,
+            user_depths=None,
+        )
+        shapeEnv = PathUtils.getEnvelope(shape, depthparams=depth_params)
+        wires = []
+        for s in shapeEnv.slice(
+            FreeCAD.Vector(0.0, 0.0, 1.0),
+            (shapeEnv.BoundBox.ZMax - shapeEnv.BoundBox.ZMin) / 2.0,
+        ):
+            wires.append(s)
+        rawEdges.extend(wires[0].Edges)
+    else:
+        print(f"getProjection(method={method}) invalid method")
+
+    # comp = Part.makeCompound(rawEdges)
+    # Part.show(comp, f"Comp_{method}")
+
+    return rawEdges
+
+
+def identifyProfileWire(edges):
+    # Identify and compile node objects
+    rawNodes = identifyNodes(edges)
+    nodes = []
+    for grp in rawNodes.values():
+        edgs = []
+        edgeIndexes = []
+        vertexIndexes = []
+        for t in grp:
+            edgs.append(t[0])
+            edgeIndexes.append(t[1])
+            vertexIndexes.append(t[2])
+        nodes.append(Node(t[3], edgs, edgeIndexes, vertexIndexes))
+
+    # Find seed node
+    (minPnt, lbl, eIdx, edge, vIdx, vertex) = findMinEdgeAndVertex(edges)
+    # seedPnt = pointToText(minPnt)
+    seedEdge = Part.makeLine(vertex.Point, minPnt)
+    seedAngle = getEdgeAngle(seedEdge, 0)
+    seedLabel = lbl
+    # Part.show(seedEdge, "SeedEdge")
+    # print(f"seedPnt: {seedPnt}")
+    # print(f"seedAngle: {seedAngle}")
+    # print(f"seedLabel: {seedLabel}")
+
+    # pnt = edge.Vertexes[vIdx].Point
+    # line = Part.makeLine(pnt, FreeCAD.Vector(pnt.x, pnt.y, pnt.z + 10.0))
+    # Part.show(line, "MinPoint")
+
+    nCnt = len(nodes)
+    for ni in range(nCnt):
+        n = nodes[ni]
+        if n.label == seedLabel:
+            seedNodeIndex = ni
+            break
+
+    profileEdges = []
+    nCnt -= 1
+    seedNode = nodes.pop(seedNodeIndex)
+    seedNode.outStartIdx = 0
+    seedNode.findOutboundIndexFromAngle(seedAngle)
+    index = seedNode.outboundIndex
+    startIndex = index  # when this is reach in loop, profile complete
+    profileEdges.append(seedNode.outboundEdge)
+    # print(f"seedNode outbound index: {index}")
+
+    seek = 200
+    while seek > 0:
+        pi = -1
+        # print(f"seeking {index}")
+        for ni in range(nCnt):
+            if nodes[ni].hasEdgeIndex(index):
+                # print(".. .. .. found")
+                pi = ni
+                break
+        if pi != -1:
+            n = nodes.pop(pi)
+            nCnt -= 1
+            if n.orientByInboundEdgeIndex(index):
+                profileEdges.append(n.outboundEdge)
+                index = n.outboundIndex
+                # if n.outboundEdge:
+                #    Part.show(n.outboundEdge, "Outbound")
+                # print(f"next seeking {index}")
+        else:
+            print("breaking: No node")
+            break
+
+        if index == startIndex:
+            print("breaking: startIndex found")
+            seek = -5
+            break
+        seek -= 1
+    # Ewhile
+
+    # Part.show(Part.makeCompound(profileEdges), "ProfileEdges")
+    try:
+        pw = Part.Wire(profileEdges)
+        if pw.isClosed():
+            return pw
+    except Exception as ee:
+        print(f"ERROR: Failed to create wire.\n{ee}")
+
+    return None
+
+
+def extractProfileWire(shp):
+    for m in [1, 2, 3]:
+        rawEdges = getProjection(shp, m)
+        # print(f"rawEdges count: {len(rawEdges)}")
+
+        if m == 3:
+            pw = Part.Wire([e.copy() for e in rawEdges])
+            if pw.isClosed():
+                pw.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - pw.BoundBox.ZMin))
+                return pw
+        else:
+            uEdges = filterDuplicateEdges(rawEdges)
+            # print(f"unique count: {len(uEdges)}")
+            # fdeComp = Part.makeCompound(uEdges)
+            # Part.show(fdeComp, "fdeComp")
+
+            edges = filterSingleVertexEdges(uEdges)
+            # print(f"connected count: {len(edges)}")
+            # fsveComp = Part.makeCompound(edges)
+            # Part.show(fsveComp, "fsveComp")
+
+            pw = identifyProfileWire(edges)
+            if pw:
+                pw.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - pw.BoundBox.ZMin))
+                return pw
+
+    return None
+
+
+print("\n\n")
+doc = FreeCAD.ActiveDocument
+sel = FreeCADGui.Selection.getSelectionEx()
+base = sel[0].Object
+subs = sel[0].SubElementNames
+
+# shp  = doc.getObject("Body004").Shape.fuse(doc.getObject("Body006").Shape)
+shp = base.Shape
+profile = extractProfileWire(shp)
+if profile:
+    profileFace = Part.Face(profile)
+    profileFace.translate(FreeCAD.Vector(0.0, 0.0, shp.BoundBox.ZMax))
+    Part.show(profileFace, "Profile")

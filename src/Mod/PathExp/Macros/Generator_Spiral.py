@@ -435,10 +435,9 @@ def generatePathGeometry(
     _halfDiag = None
     _halfPasses = None
     _isCenterSet = False
-    _offsetDirection = -1.0  # 1.0=outside;  -1.0=inside
 
     # Save argument values to class instance
-    _targetFace = targetFace
+    _targetFace = targetFace.copy()
     _patternCenterAt = patternCenterAt
     _patternCenterCustom = patternCenterCustom
     _cutPatternReversed = cutPatternReversed
@@ -462,42 +461,31 @@ def generatePathGeometry(
     if _targetFace.BoundBox.ZMin != 0.0:
         _targetFace.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - _targetFace.BoundBox.ZMin))
 
-    #  Apply simple radius shrinking offset for clearing pattern generation.
-    ofstVal = _offsetDirection * (_toolRadius - (_jobTolerance / 10.0))
-    offsetWF = PathUtils.getOffsetArea(_targetFace, ofstVal)
-    if not offsetWF:
-        GenUtils._debugMsg(MODULE_NAME, "getOffsetArea() failed")
-    elif len(offsetWF.Faces) == 0:
-        GenUtils._debugMsg(MODULE_NAME, "No offset faces to process for path geometry.")
-    else:
-        for fc in offsetWF.Faces:
-            # fc.translate(FreeCAD.Vector(0.0, 0.0, _targetFaceHeight))
-
-            useFaces = fc
-            if useFaces.Faces:
-                for f in useFaces.Faces:
-                    f.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - f.BoundBox.ZMin))
-                    _face = f
-                    (
-                        _centerOfPattern,
-                        _cutPasses,
-                        _halfPasses,
-                        _centerOfMass,
-                    ) = GenUtils._prepareAttributes(
-                        _face,
-                        _toolRadius,
-                        _cutOut,
-                        _isCenterSet,
-                        _useStaticCenter,
-                        _patternCenterAt,
-                        _patternCenterCustom,
-                    )
-                    pathGeom = _generatePathGeometry()
-                    pathGeometry.extend(pathGeom)
-            else:
-                GenUtils._debugMsg(
-                    MODULE_NAME, "No offset faces after cut with base shape."
+    for fc in _targetFace.Faces:
+        if fc.Faces:
+            for f in fc.Faces:
+                f.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - f.BoundBox.ZMin))
+                _face = f
+                (
+                    _centerOfPattern,
+                    _cutPasses,
+                    _halfPasses,
+                    _centerOfMass,
+                ) = GenUtils._prepareAttributes(
+                    _face,
+                    _toolRadius,
+                    _cutOut,
+                    _isCenterSet,
+                    _useStaticCenter,
+                    _patternCenterAt,
+                    _patternCenterCustom,
                 )
+                pathGeom = _generatePathGeometry()
+                pathGeometry.extend(pathGeom)
+        else:
+            GenUtils._debugMsg(
+                MODULE_NAME, "No offset faces after cut with base shape."
+            )
 
     # GenUtils._debugMsg(MODULE_NAME, "Path with params: {}".format(_pathParams))
 

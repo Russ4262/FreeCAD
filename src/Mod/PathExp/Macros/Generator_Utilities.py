@@ -95,7 +95,7 @@ def _debugMsg(moduleName, msg, isError=False):
 
 
 def _addDebugShape(shape, name="debug"):
-    if isDebug and showDebugShapes:
+    if showDebugShapes:
         do = FreeCAD.ActiveDocument.addObject("Part::Feature", "debug_" + name)
         do.Shape = shape
         do.purgeTouched()
@@ -224,28 +224,6 @@ def _isOrientedTheSame(directionVector, wire):
     ):
         return True
     return False
-
-
-def _edgeValueAtLength_orig(edge, length):
-    edgeLen = edge.Length
-    typeId = edge.Curve.TypeId
-    if typeId == "Part::GeomBSplineCurve":
-        return edge.valueAt(length / edgeLen)
-    elif typeId == "Part::GeomCircle":
-        return edge.valueAt(
-            edge.FirstParameter
-            + length / edgeLen * (edge.LastParameter - edge.FirstParameter)
-        )
-    elif typeId == "Part::GeomLine":
-        return edge.valueAt(edge.FirstParameter + length)
-    elif typeId == "Part::GeomEllipse":
-        return edge.valueAt(
-            edge.FirstParameter
-            + length / edgeLen * (edge.LastParameter - edge.FirstParameter)
-        )
-    else:
-        print(f"_edgeValueAtLength() edge.Curve.TypeId, {typeId}, is not available.")
-        return None
 
 
 def _wireMidpoint(wire):

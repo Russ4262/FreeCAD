@@ -64,11 +64,11 @@ RAPID_HORIZ = 0.0
 
 
 # geometry functions
-def _line(
+def _Line(
     halfDiag, patternCenterAt, halfPasses, cutOut, cutDirection, cutPatternReversed
 ):
-    """_line()... Returns raw set of raw Part.Line wires at Z=0.0."""
-    GenUtils._debugMsg(MODULE_NAME, "_line()")
+    """_Line()... Returns raw set of raw Part.Line wires at Z=0.0."""
+    GenUtils._debugMsg(MODULE_NAME, "_Line()")
     geomList = []
     centRot = FreeCAD.Vector(
         0.0, 0.0, 0.0
@@ -152,6 +152,19 @@ def _Link_Regular(rawPathGeometry):
             return True
         return False
 
+    def getReferencePoint(comp, direction):
+        bb = comp.BoundBox
+        dist = bb.DiagonalLength * 50.0
+        point = FreeCAD.Vector(0.0, 0.0, 0.0).add(direction)
+        point.multiply(dist)
+        revPoint = FreeCAD.Vector(-1.0 * point.x, -1.0 * point.y, point.z)
+        return bb.Center.add(revPoint)
+
+    def distToRefPnt(refPnt, edge):
+        midPnt = edge.Vertexes[0].Point.add(edge.Vertexes[1].Point)
+        midPnt.multiply(0.5)
+        return refPnt.sub(midPnt).Length
+
     i = 0
     edges = rawPathGeometry.Edges
     limit = len(edges)
@@ -165,43 +178,54 @@ def _Link_Regular(rawPathGeometry):
     p1 = e.Vertexes[1].Point
     vect = p1.sub(p0)
     targetAng = math.atan2(vect.y, vect.x)
-    group = [(edges[0], vect.Length)]
     direction = p1.sub(p0).normalize()
+    # get distant point for ordering lines in groups
+    refPnt = getReferencePoint(rawPathGeometry, direction)
+
+    group = [(e, vect.Length, distToRefPnt(refPnt, e))]
 
     for i in range(1, limit):
         # get next edge
         ne = edges[i]
         np0 = ne.Vertexes[0].Point  # Next point 0
         np1 = ne.Vertexes[1].Point  # Next point 1
+        if not isOriented(direction, np0, np1):
+            ne = Part.makeLine(np1, np0)  # flip line segment
+            np0 = ne.Vertexes[0].Point  # Next point 0
+            np1 = ne.Vertexes[1].Point  # Next point 1
+
         diff = np1.sub(p0)
         nxtAng = math.atan2(diff.y, diff.x)
-
         # Check if prev and next are colinear
         angDiff = abs(nxtAng - targetAng)
-        if 0.000001 > angDiff:
-            if isOriented(direction, np0, np1):
-                group.append((ne, np1.sub(p0).Length))
-            else:
-                # PathLog.info("flipping line")
-                line = Part.makeLine(np1, np0)  # flip line segment
-                group.append((line, np1.sub(p0).Length))
+        if (
+            PathGeom.isRoughly(angDiff, 0.0)
+            or PathGeom.isRoughly(angDiff, math.pi)
+            or PathGeom.isRoughly(angDiff, 2 * math.pi)
+        ):
+            group.append((ne, np1.sub(p0).Length, distToRefPnt(refPnt, ne)))
         else:
             # Save current group
+            group.sort(key=lambda tup: tup[2])
             allGroups.append(group)
             # Rotate edge and point value
             e = ne
             p0 = np0
             # Create new group
-            group = [(ne, np1.sub(p0).Length)]
+            group = [(ne, np1.sub(p0).Length, distToRefPnt(refPnt, ne))]
 
     allGroups.append(group)
 
     for g in allGroups:
+        wires = []
         if len(g) == 1:
-            wires = [Part.Wire([g[0][0]])]
+            w = Part.Wire([g[0][0]])
+            wires.append(w)
         else:
             g.sort(key=lambda grp: grp[1])
-            wires = [Part.Wire([edg]) for edg, __ in g]
+            for edg, __, __ in g:
+                wires.append(Part.Wire([edg]))
+
         allWires.extend(wires)
 
     return allWires
@@ -332,12 +356,6 @@ def _buildLinePaths(
 
 
 # Public functions
-def enableDebug():
-    print("Generator_Line.enableDebug()")
-    GenUtils.isDebug = True
-    GenUtils.showDebugShapes = True
-
-
 def generatePathGeometry(
     flatFace,
     toolRadius,
@@ -354,22 +372,28 @@ def generatePathGeometry(
     """
     Generates a path geometry shape from an assigned pattern for conversion to tool paths.
     Arguments:
-        flatFace:             face shape to serve as base for path geometry generation
+        flatFace:           face shape to serve as base for path geometry generation
         toolRadius:         tool radius
         stepOver:           step over percentage
+        cutDirection:       conventional or climb
         patternCenterAt:    choice of centering options
         patternCenterCustom: custom (x, y, 0.0) center point
         cutPatternAngle:    rotation angle applied to rotatable patterns
         cutPatternReversed: boolean to reverse cut pattern from inside-out to outside-in
-        cutDirection:       conventional or climb
+        minTravel:          boolean (inactive)
+        keepToolDown:       boolean (inactive)
+        jobTolerance:       float value of job tolerance (inactive)
 
     Call this method to execute the path generation code in LineClearingGenerator class.
     Returns True on success.  Access class instance `pathGeometry` attribute for path geometry.
     """
+    GenUtils.isDebug = isDebug
+    GenUtils.showDebugShapes = showDebugShapes
+
     GenUtils._debugMsg(MODULE_NAME, "generatePathGeometry()")
     GenUtils._debugMsg(
         MODULE_NAME,
-        f"(\ntool radius: {toolRadius} mm\n step over {stepOver}%\n pattern center at {patternCenterAt}\n pattern center custom {patternCenterCustom}\n cut pattern angle {cutPatternAngle}\n cutPatternReversed {cutPatternReversed}\n cutDirection {cutDirection})",
+        f"(\ntool radius: {toolRadius} mm;  step over {stepOver}%;  pattern center at {patternCenterAt};  pattern center custom {patternCenterCustom};  cut pattern angle {cutPatternAngle};  cutPatternReversed {cutPatternReversed};  cutDirection {cutDirection})",
     )
 
     # Argument validation
@@ -422,7 +446,7 @@ def generatePathGeometry(
         GEOM_ATTRIBUTES = geomAttributes
     (centerOfPattern, halfDiag, cutPasses, halfPasses) = GEOM_ATTRIBUTES
 
-    rawGeoList = _line(
+    rawGeoList = _Line(
         halfDiag,
         patternCenterAt,
         cutPasses,  # halfPasses,
@@ -668,9 +692,11 @@ def _getUserTestInput():
 def executeAsMacro():
     import time
 
+    if not IS_MACRO:
+        GenUtils.isDebug = isDebug
+        GenUtils.showDebugShapes = showDebugShapes
+
     timeStart = time.time()
-    # GenUtils.isDebug = True
-    # GenUtils.showDebugShapes = True
 
     job, tc = GenUtils.getJobAndToolController()
     if job is None:

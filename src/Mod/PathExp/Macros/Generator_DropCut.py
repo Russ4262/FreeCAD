@@ -46,6 +46,7 @@ showDebugShapes = False
 
 IS_MACRO = False
 LINEARDEFLECTION = FreeCAD.Units.Quantity("0.0001 mm")
+MAX_DROPS = 25
 moveCnt = 0
 
 
@@ -78,6 +79,13 @@ def _line(e, sampleInterval, cnt, __):
     return e.FirstParameter + (sampleInterval * cnt)
 
 
+def _parabola(e, sampleInterval, cnt, edgeLen):
+    # This method is experimental, a copy of the _ellipse() method
+    print(".. _parabola")
+    rate = (sampleInterval * cnt) / edgeLen
+    return e.FirstParameter + rate * (e.LastParameter - e.FirstParameter)
+
+
 def _getValueAtArgument(typeId):
     if typeId == "Part::GeomBSplineCurve":
         return _bspline
@@ -87,6 +95,8 @@ def _getValueAtArgument(typeId):
         return _line
     elif typeId == "Part::GeomEllipse":
         return _ellipse
+    elif typeId == "Part::GeomParabola":
+        return _parabola
 
     print(f"_followEdge() e.Curve.TypeId, {typeId}, is not available.")
     return None
@@ -105,8 +115,11 @@ def _dropShapeToFace(toolShape, face, location, destination, startDepth, dropTol
         trans = FreeCAD.Vector(0.0, 0.0, dist * -0.8)
         toolShape.translate(trans)
         dist = toolShape.distToShape(face)[0]
-        if drops > 12:
-            print(f"_dropShapeToFace() Breaking at dist = {dist} mm")
+        if drops > MAX_DROPS:
+            print(
+                f"_dropShapeToFace() Breaking at {MAX_DROPS} at distance of {dist} mm"
+            )
+            # print(f"_dropShapeToFace() dtf {dtf}")
             break
     return toolShape, _toolShapeCenter(toolShape), drops
 
@@ -133,14 +146,14 @@ def _followEdge(
         moveCnt += 1
         # move to next point along edge
         valueAtParam = valueFunction(e, sampleInterval, loopCnt, edgeLen)
-        nxt = e.valueAt(valueAtParam)
+        dest = e.valueAt(valueAtParam)
         tool, center, drpCnt = _dropShapeToFace(
-            tool, face, location, nxt, startDepth, dropTolerance
+            tool, face, location, dest, startDepth, dropTolerance
         )
         dropCnt += drpCnt
-        if center.z < nxt.z:
+        if center.z < dest.z:
             # print("Vertically adjusting tool")
-            center.z = nxt.z
+            center.z = dest.z
         points.append(center)
         location = center
         eLen -= sampleInterval
@@ -148,14 +161,14 @@ def _followEdge(
 
     if loopCnt == 0 or lastEdge:
         # experimental section for edges of length less than sampleInterval
-        nxt = e.valueAt(e.LastParameter)
+        dest = e.valueAt(e.LastParameter)
         tool, center, drpCnt = _dropShapeToFace(
-            tool, face, location, nxt, startDepth, dropTolerance
+            tool, face, location, dest, startDepth, dropTolerance
         )
         dropCnt += drpCnt
-        if center.z < nxt.z:
+        if center.z < dest.z:
             # print("Vertically adjusting tool")
-            center.z = nxt.z
+            center.z = dest.z
         points.append(FreeCAD.Vector(center.x, center.y, center.z))
 
     return points, dropCnt
@@ -216,7 +229,32 @@ def getToolShape(toolController):
     return full.cut(faceExt)
 
 
-# Public functions
+###################################################
+def _dropCutAtPoints(
+    dropPoints,
+    toolShape,
+    faceShape,
+    startDepth,
+    dropTolerance,
+):
+    points = []
+    tool = toolShape
+    dropCnt = 0
+    location = _toolShapeCenter(tool)
+    for dest in dropPoints:
+        tool, center, drops = _dropShapeToFace(
+            tool, faceShape, location, dest, startDepth, dropTolerance
+        )
+        if center.z < dest.z:
+            # print("Vertically adjusting tool")
+            center.z = dest.z
+        dropCnt += drops
+        location = center
+        points.append(center)
+
+    return points, dropCnt
+
+
 def dropCutWires(
     pathWires,
     faceShape,
@@ -225,7 +263,62 @@ def dropCutWires(
     dropTolerance,
     optimizeLines=False,
 ):
-    print(f"dropCutWires() dropTolerance: {dropTolerance}")
+    print(
+        f"NEW dropCutWires() dropTolerance: {dropTolerance};  MAX_DROPS: {MAX_DROPS};  optimizeLines: {optimizeLines}"
+    )
+    pointsLists = []
+    dropCnt = 0
+    startDepth = faceShape.BoundBox.ZMax + 1.0
+    wCnt = 0
+
+    # Part.show(faceShape, "GDC_FaceShape")
+
+    for w in pathWires:
+        wCnt += 1
+        # Must create new toolShape object for each wire, otherwise FreeCAD crash will occur
+        toolShp = toolShape.copy()
+        if w.Length >= sampleInterval:
+            dropPoints = w.discretize(Distance=sampleInterval)
+        else:
+            # Make sure wires less than sample interval are cut
+            dropPoints = [w.Edges[0].Vertexes[0].Point, w.Edges[-1].Vertexes[-1].Point]
+
+        (wirePoints, drops) = _dropCutAtPoints(
+            dropPoints,
+            toolShp,
+            faceShape,
+            startDepth,
+            dropTolerance,
+        )
+        dropCnt += drops
+        # Optimize points list
+        if len(wirePoints) > 0:
+            if optimizeLines:
+                pointsLists.append(
+                    PathUtils.simplify3dLine(wirePoints, LINEARDEFLECTION.Value)
+                )
+            else:
+                pointsLists.append(wirePoints)
+        else:
+            print(f"no drop cut wire points from wire {wCnt}")
+
+    # Part.show(toolShape, "ToolShape")
+    print(f"Total dropcut count: {dropCnt}")
+
+    return pointsLists
+
+
+###################################################
+# Public functions
+def dropCutWires_orig(
+    pathWires,
+    faceShape,
+    toolShape,
+    sampleInterval,
+    dropTolerance,
+    optimizeLines=False,
+):
+    print(f"dropCutWires() dropTolerance: {dropTolerance};  MAX_DROPS: {MAX_DROPS}")
     pointsLists = []
     dropCnt = 0
     startDepth = faceShape.BoundBox.ZMax + 1.0
@@ -237,19 +330,19 @@ def dropCutWires(
         toolShp = toolShape.copy()
         if w.Length > sampleInterval:
             # Cut regular, longer wires longer than sample interval
-            (wirePoints, drpCnt) = _dropCutEdges(
-                w.Edges, toolShp, faceShape, startDepth, sampleInterval, dropTolerance
-            )
+            interval = sampleInterval
         else:
             # Make sure wires less than sample interval are cut
-            (wirePoints, drpCnt) = _dropCutEdges(
-                w.Edges,
-                toolShp,
-                faceShape,
-                startDepth,
-                w.Length * 0.90,
-                dropTolerance,
-            )
+            interval = w.Length * 0.90
+
+        (wirePoints, drpCnt) = _dropCutEdges(
+            w.Edges,
+            toolShp,
+            faceShape,
+            startDepth,
+            interval,
+            dropTolerance,
+        )
         dropCnt += drpCnt
         # Optimize points list
         if len(wirePoints) > 0:
@@ -263,7 +356,7 @@ def dropCutWires(
             print(f"no drop cut wire points from wire {wCnt}")
 
     # Part.show(toolShape, "ToolShape")
-    print(f"Dropcut count: {dropCnt}")
+    print(f"Total dropcut count: {dropCnt}")
 
     return pointsLists
 
@@ -322,8 +415,8 @@ def pointsToLines(pointsLists, depthOffset=0.0):
     return wires
 
 
-def dropCutWire(
-    wire,
+def dropCutWireList(
+    wires,
     fusedFace,
     toolShape,
     depthOffset,
@@ -331,7 +424,7 @@ def dropCutWire(
     dropTolerance,
     optimizeLines=False,
 ):
-    projWires = getProjectedGeometry(fusedFace, [wire])
+    projWires = getProjectedGeometry(fusedFace, wires)
     # Apply drop cut to 3D projected wires to get point set
     pointsLists = dropCutWires(
         projWires,
@@ -366,7 +459,7 @@ def _getUserInput(Gui_Input):
 
 
 def executeAsMacro():
-    import Macros.Generator_Utilities as GenUtils
+    import Generator_Utilities as GenUtils
 
     job, tc = GenUtils.getJobAndToolController()
     if job is None:
@@ -387,11 +480,11 @@ def executeAsMacro():
         selectedFaces, saveOldHoles=True, saveNewHoles=True
     )
 
-    toolShape = GenUtils.getToolShape(tc)
+    toolShape = getToolShape(tc)
 
     for w in selectedWires:
-        dcWire = dropCutWire(
-            w,
+        dcWire = dropCutWireList(
+            [w],
             fusedFace,
             toolShape,
             depthOffset,
