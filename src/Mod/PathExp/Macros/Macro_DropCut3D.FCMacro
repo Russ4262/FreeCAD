@@ -81,13 +81,6 @@ def _getGeneratorModule(cutPattern):
     return module
 
 
-def _setCutSpeeds(module, toolController):
-    module.FEED_VERT = toolController.VertFeed.Value
-    module.FEED_HORIZ = toolController.HorizFeed.Value
-    module.RAPID_VERT = toolController.VertRapid.Value
-    module.RAPID_HORIZ = toolController.HorizRapid.Value
-
-
 def _identifyRegion(faces, offsetValue, cutPattern):
     # combine faces into horizontal regions
     region = Macro_CombineRegions.combineRegions(
@@ -166,7 +159,7 @@ def execute(
     # print(f"Tool radius: {toolRadius},  Step-over: {stepOver}")
 
     # Set cut speeds from tool controller
-    _setCutSpeeds(generatorModule, toolController)
+    GenUtils._setCutSpeeds(generatorModule, toolController)
 
     if cutPattern == "Adaptive":
         generatorModule.setAdaptiveAttributes(

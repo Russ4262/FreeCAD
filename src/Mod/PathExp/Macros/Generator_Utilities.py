@@ -412,6 +412,23 @@ def getToolShape(toolController):
     return full.cut(faceExt)
 
 
+def _setCutSpeeds(module, toolController):
+    module.FEED_VERT = toolController.VertFeed.Value
+    module.FEED_HORIZ = toolController.HorizFeed.Value
+    module.RAPID_VERT = toolController.VertRapid.Value
+    module.RAPID_HORIZ = toolController.HorizRapid.Value
+
+
+def _fuseShapes(shapes):
+    if len(shapes) == 1:
+        return shapes[0]
+    fusion = shapes[0]
+    for s in shapes[1:]:
+        f = fusion.fuse(s)
+        fusion = f
+    return fusion
+
+
 # Offset face function
 def _offsetFaceRegion(face, offsetValue):
     #  Apply simple radius shrinking offset for clearing pattern generation.
