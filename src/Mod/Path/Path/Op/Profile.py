@@ -1443,8 +1443,8 @@ class ObjectProfile(PathAreaOp.ObjectOp):
     def _findWireMidpoint(self, wire):
         midPnt = None
         dist = 0.0
-        wL = wire.Length
-        midW = wL / 2
+        wL = round(wire.Length, 10)
+        midW = round(wL / 2, 10)
 
         for e in range(0, len(wire.Edges)):
             E = wire.Edges[e]
