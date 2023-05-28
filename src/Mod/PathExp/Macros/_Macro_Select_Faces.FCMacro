@@ -1,0 +1,36 @@
+import FreeCAD
+import Part
+
+
+def execute():
+    if not FreeCAD.GuiUp:
+        return []
+
+    import FreeCADGui
+
+    faces = []
+    selection = FreeCADGui.Selection.getSelectionEx()
+    # process user selection
+    for sel in selection:
+        # print(f"Object.Name: {sel.Object.Name}")
+        if len(sel.SubElementNames) > 0:
+            print(f"sub element count: {len(sel.SubElementNames)}")
+            for feat in sel.SubElementNames:
+                # print(f"Processing: {sel.Object.Name}::{feat}")
+                if feat.startswith("Face"):
+                    # face = sel.Object.Shape.getElement(feat)
+                    faces.append(sel.Object.Shape.getElement(feat))
+        else:
+            print("no sub element names")
+            obj = sel.Object
+            for f in obj.Shape.Faces[1:]:
+                faces.append(f)
+                Part.show(f, "Face_")
+
+    return faces
+
+
+print("\n\n\n\n\n")
+print("Begin Select_Faces macro.")
+
+execute()

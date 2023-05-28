@@ -1,0 +1,203 @@
+# -*- coding: utf-8 -*-
+# ***************************************************************************
+# *   Copyright (c) 2022 Russell Johnson (russ4262) <russ4262@gmail.com>    *
+# *                                                                         *
+# *   This file is a supplement to the FreeCAD CAx development system.      *
+# *                                                                         *
+# *   This program is free software; you can redistribute it and/or modify  *
+# *   it under the terms of the GNU Lesser General Public License (LGPL)    *
+# *   as published by the Free Software Foundation; either version 2 of     *
+# *   the License, or (at your option) any later version.                   *
+# *   for detail see the LICENCE text file.                                 *
+# *                                                                         *
+# *   This program is distributed in the hope that it will be useful,       *
+# *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+# *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+# *   GNU Library General Public License for more details.                  *
+# *                                                                         *
+# *   You should have received a copy of the GNU Library General Public     *
+# *   License along with this program; if not, write to the Free Software   *
+# *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  *
+# *   USA                                                                   *
+# *                                                                         *
+# ***************************************************************************
+
+
+import FreeCAD
+import Part
+import Sketcher
+import FreeCADGui
+import Path.Op.Engrave as Engrave
+
+if FreeCAD.GuiUp:
+    import Path.Main.Gui.Job as Job
+    import Path.Op.Gui.Engrave as EngraveGui
+else:
+    import Path.Main.Job as Job
+
+
+__title__ = "Sketch Tools"
+__author__ = "Russell Johnson (russ4262) <russ4262@gmail.com>"
+__doc__ = "Macro utility assist with creating Body and Sketch objects."
+__url__ = ""
+__Wiki__ = ""
+__date__ = "2023.04.29"
+__version__ = 1.0
+
+
+def newSketchInBody(doc, body):
+    sketch = doc.addObject("Sketcher::SketchObject", "SketchPad")
+    sketch.Support = (doc.XY_Plane, [""])
+    sketch.MapMode = "FlatFace"
+    body.addObject(sketch)
+    return sketch
+
+
+def newSketch(doc):
+    sketch = doc.addObject("Sketcher::SketchObject", "SketchPad")
+    sketch.Support = (doc.XY_Plane, [""])
+    sketch.MapMode = "FlatFace"
+    return sketch
+
+
+def createSquareInSketch(sketch, iStart, side):
+    p1 = FreeCAD.Vector(0, 0, 0)
+    p2 = FreeCAD.Vector(side, 0, 0)
+    p3 = FreeCAD.Vector(side, side, 0)
+    p4 = FreeCAD.Vector(0, side, 0)
+
+    # Create four edges for square
+    sketch.addGeometry(Part.LineSegment(p1, p2))
+    sketch.addGeometry(Part.LineSegment(p2, p3))
+    sketch.addGeometry(Part.LineSegment(p3, p4))
+    sketch.addGeometry(Part.LineSegment(p4, p1))
+
+    # Contrain first vertex to origin
+    # sketch.addConstraint(Sketcher.Constraint("Coincident", 0, 1, -1, 1))
+
+    # Constrain all sides of square to horizontal and vertical, respectively
+    sketch.addConstraint(Sketcher.Constraint("Horizontal", iStart + 0))
+    sketch.addConstraint(Sketcher.Constraint("Vertical", iStart + 1))
+    sketch.addConstraint(Sketcher.Constraint("Horizontal", iStart + 2))
+    sketch.addConstraint(Sketcher.Constraint("Vertical", iStart + 3))
+
+    # Constrain coincidental vertexes of edges
+    sketch.addConstraint(
+        Sketcher.Constraint("Coincident", iStart + 0, 2, iStart + 1, 1)
+    )
+    sketch.addConstraint(
+        Sketcher.Constraint("Coincident", iStart + 1, 2, iStart + 2, 1)
+    )
+    sketch.addConstraint(
+        Sketcher.Constraint("Coincident", iStart + 2, 2, iStart + 3, 1)
+    )
+    # Contrain last vertex on last edge, to first vertex on first edge
+    sketch.addConstraint(
+        Sketcher.Constraint("Coincident", iStart + 3, 2, iStart + 0, 1)
+    )
+
+    # Constrain horizontal distance of first edge to side length
+    sketch.addConstraint(
+        Sketcher.Constraint("DistanceX", iStart + 0, 1, iStart + 0, 2, side)
+    )
+    # Constrain vertical distance of second edge to side length
+    sketch.addConstraint(
+        Sketcher.Constraint("DistanceY", iStart + 1, 1, iStart + 1, 2, side)
+    )
+    return 4
+
+
+def createSketches(doc, body=None):
+    idxStart = 0
+
+    if body:
+        sketch = newSketchInBody(doc, body)
+    else:
+        sketch = newSketch(doc)
+    iCnt = createSquareInSketch(sketch, idxStart, 10.0)
+    # Constrain horizontal and vertical distances of first vertex of first edge, from origin
+    x = 10.0
+    y = 10.0
+    sketch.addConstraint(Sketcher.Constraint("DistanceX", idxStart + 0, 1, -1, 1, -x))
+    sketch.addConstraint(Sketcher.Constraint("DistanceY", idxStart + 0, 1, -1, 1, -y))
+
+    if body:
+        sketch2 = newSketchInBody(doc, body)
+    else:
+        sketch2 = newSketch(doc)
+    iCnt2 = createSquareInSketch(sketch2, idxStart, 8.0)
+    # Constrain horizontal and vertical distances of first vertex of first edge, from origin
+    x = 11.0
+    y = 11.0
+    sketch2.addConstraint(Sketcher.Constraint("DistanceX", idxStart + 0, 1, -1, 1, -x))
+    sketch2.addConstraint(Sketcher.Constraint("DistanceY", idxStart + 0, 1, -1, 1, -y))
+
+    if body:
+        sketch3 = newSketchInBody(doc, body)
+    else:
+        sketch3 = newSketch(doc)
+    iCnt3 = createSquareInSketch(sketch3, idxStart, 6.0)
+    # Constrain horizontal and vertical distances of first vertex of first edge, from origin
+    x = 12.0
+    y = 12.0
+    sketch3.addConstraint(Sketcher.Constraint("DistanceX", idxStart + 0, 1, -1, 1, -x))
+    sketch3.addConstraint(Sketcher.Constraint("DistanceY", idxStart + 0, 1, -1, 1, -y))
+
+    return [sketch, sketch2, sketch3]
+
+
+def createJob(models):
+    if FreeCAD.GuiUp:
+        return Job.Create(models, openTaskPanel=False)
+    else:
+        return Job.Create("Job", models)
+
+
+def createEngrave(job=None):
+    op = Engrave.Create("Engrave", parentJob=job)
+    if FreeCAD.GuiUp:
+        # Add view provider
+        res = EngraveGui.Command.res
+        op.ViewObject.Proxy = EngraveGui.PathOpGui.ViewProvider(op.ViewObject, res)
+        op.ViewObject.Proxy.deleteOnReject = False
+        op.ViewObject.Visibility = True
+    return op
+
+
+# Primary component functions
+def execute():
+    # taken from PartDesign tests
+    doc = FreeCAD.newDocument("WIP_Sketches")
+
+    # Create Body object
+    body = doc.addObject("PartDesign::Body", "Body")
+
+    # Create sketches
+    sketches = createSketches(doc)
+
+    job = createJob(sketches)
+
+    op1 = createEngrave(job)
+    op2 = createEngrave(job)
+    for base, sub in [
+        (sketches[0], "Edge4"),
+        (sketches[1], "Edge4"),
+        (sketches[2], "Edge4"),
+    ]:
+        op2.Proxy.addBase(op2, base, sub)
+
+    # pad = doc.addObject("PartDesign::Pad", "Pad")
+    # pad.Profile = sketch
+    # body.addObject(pad)
+    doc.recompute()
+
+
+print("\n\n\n\n\n")
+print("Begin Sketches macro")
+
+execute()
+
+if FreeCAD.GuiUp:
+    # FreeCADGui.activeDocument().activeView().viewTop()
+    FreeCADGui.activeDocument().activeView().viewIsometric()
+    FreeCADGui.SendMsgToActiveView("ViewFit")

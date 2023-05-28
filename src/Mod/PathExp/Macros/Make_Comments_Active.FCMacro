@@ -1,0 +1,128 @@
+# -*- coding: utf-8 -*-
+
+__title__ = "Make Comments Active"
+__author__ = "Russell Johnson (Russ4262) <russ4262@gmail.com>"
+__url__ = ""
+__doc__ = "Helper script to add Active property to all Comment objects within all Job object Operations groups."
+__created__ = "2023"
+__updated__ = "2023-03-11"
+
+import FreeCAD
+import Path.Base.Util as PathUtil
+import PathScripts.PathUtilsGui as PathUtilsGui
+import Path
+
+translate = FreeCAD.Qt.translate
+PathUtils = PathUtilsGui.PathUtils
+
+
+###########################################
+class PathNoTCExistsException(Exception):
+    """PathNoECExistsException is raised when no TC exists at all, or when all
+    existing TCs are rejected by a given op.
+    This is typically an error because avery op requires a TC."""
+
+    def __init__(self):
+        super().__init__("No Tool Controllers exist")
+
+
+def findToolController(job, obj, proxy, name=None):
+    """returns a tool controller with a given name.
+    If no name is specified, returns the first controller.
+    if no controller is found, returns None"""
+
+    Path.Log.track("name: {}".format(name))
+    c = None
+    if PathUtils.UserInput:
+        c = PathUtils.UserInput.selectedToolController()
+    if c is not None:
+        return c
+
+    controllers = [tc for tc in job.Tools.Group]
+
+    if len(controllers) == 0:
+        raise PathNoTCExistsException()
+
+    # If there's only one in the job, use it.
+    if len(controllers) == 1:
+        if name is None or name == controllers[0].Label:
+            tc = controllers[0]
+        else:
+            tc = None
+    elif name is not None:
+        tc = [i for i in controllers if i.Label == name][0]
+    elif PathUtils.UserInput:  # More than one, make the user choose.
+        tc = PathUtils.UserInput.chooseToolController(controllers)
+    return tc
+
+
+###########################################
+
+
+class PathNoTCException(Exception):
+    """PathNoTCException is raised when no TC was selected or matches the input
+    criteria. This can happen intentionally by the user when they cancel the TC
+    selection dialog."""
+
+    def __init__(self):
+        super().__init__("No Tool Controller found")
+
+
+def addActiveProp(op):
+    if not hasattr(op, "Active"):
+        FreeCAD.Console.PrintMessage(
+            f"Adding 'Active' property to {op.Label} comment object.\n"
+        )
+        op.addProperty(
+            "App::PropertyBool",
+            "Active",
+            "Path",
+            translate(
+                "Path",
+                "Make False, to prevent operation from generating code",
+            ),
+        )
+        op.Active = True
+
+
+def addToolController(job, op):
+    if not hasattr(op, "ToolController"):
+        op.addProperty(
+            "App::PropertyLink",
+            "ToolController",
+            "Path",
+            translate(
+                "App::Property",
+                "The tool controller that will be used to calculate the path",
+            ),
+        )
+
+    if not hasattr(op, "OpToolDiameter"):
+        op.addProperty(
+            "App::PropertyDistance",
+            "OpToolDiameter",
+            "Op Values",
+            translate("App::Property", "Holds the diameter of the tool"),
+        )
+        op.setEditorMode("OpToolDiameter", 1)  # read-only
+
+    if 1 < len(job.Operations.Group):
+        op.ToolController = PathUtil.toolControllerForOp(job.Operations.Group[-2])
+    else:
+        op.ToolController = findToolController(job, op, None)
+    if not op.ToolController:
+        raise PathNoTCException()
+    op.OpToolDiameter = op.ToolController.Tool.Diameter
+
+
+doc = FreeCAD.ActiveDocument
+for o in doc.Objects:
+    if o.Name.startswith("Job"):
+        job = o
+        for op in o.Operations.Group:
+            if op.Name.startswith("Comment"):
+                addActiveProp(op)
+            if op.Name.startswith("PathShape"):
+                addActiveProp(op)
+                addToolController(job, op)
+# Efor

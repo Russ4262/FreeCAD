@@ -1,0 +1,292 @@
+# The macro provides a simple Gui window for making a combo box selection.
+#
+# (c) Russell Johnson <russ4262>
+
+__Name__ = "Gui Combo Box"
+__Comment__ = "Creates a Gui combo box and returns selection"
+__Author__ = "russ4262"
+__Version__ = "1.0"
+__Date__ = "2022-06-05"
+__License__ = ""
+__Web__ = ""
+__Wiki__ = ""
+__Icon__ = (
+    "https://www.freecadweb.org/wiki/images/0/0c/Macro_Airfoil_Import_%26_Scale.png"
+)
+__Help__ = ""
+__Status__ = "stable"
+__Requires__ = "Freecad >= 0.19"
+__Communication__ = ""
+__Files__ = ""
+
+
+import FreeCAD
+from PySide import QtCore, QtGui
+
+
+WINDOW_TITLE = "Window Title"
+LABEL_LINEEDIT_1 = "Label Line Edit 1"
+LABEL_COMBO_1 = "Label Combo 1"
+CHOICES_COMBO_1 = ["Cat", "Dog", "Zebra"]
+
+
+class POC_GuiComboBox:
+    def __init__(self):
+        self.dialog = None
+        self.lineEdit_1 = None
+        self.comboBox_1 = None
+        self.radio1 = None
+        self.radio2 = None
+
+        # Make dialog window and set layout type
+        self.dialog = QtGui.QDialog()
+        self.dialog.resize(350, 100)
+        self.dialog.setWindowTitle(WINDOW_TITLE)
+        self.windowLayout = QtGui.QVBoxLayout(self.dialog)
+
+        # Add QLineEdit
+        lineEdit_1_label = QtGui.QLabel(LABEL_LINEEDIT_1)
+        self.windowLayout.addWidget(lineEdit_1_label)
+        self.lineEdit_1 = QtGui.QLineEdit()
+        self.windowLayout.addWidget(self.lineEdit_1)
+
+        # Add QRadio buttons
+        self.radio1 = QtGui.QRadioButton("Radio 1")
+        self.radio2 = QtGui.QRadioButton("Radio 2")
+        self.radio1.setChecked(True)
+        self.windowLayout.addWidget(self.radio1)
+        self.windowLayout.addWidget(self.radio2)
+
+        # Add QRadio buttons
+        self.checkbox1 = QtGui.QCheckBox("Checkbox 1")
+        self.checkbox1.setCheckable(True)
+        self.checkbox1.setChecked(True)
+        self.windowLayout.addWidget(self.checkbox1)
+
+        # Add QComboBox
+        if len(CHOICES_COMBO_1) > 0:
+            comboBox_1_label = QtGui.QLabel(LABEL_COMBO_1)
+            self.windowLayout.addWidget(comboBox_1_label)
+            self.comboBox_1 = QtGui.QComboBox()
+            for c in CHOICES_COMBO_1:
+                self.comboBox_1.addItem(c)
+            self.windowLayout.addWidget(self.comboBox_1)
+
+    def appendStandardButtons(self):
+        # Add OK / Cancel buttons
+        self.standardButtons = QtGui.QDialogButtonBox(self.dialog)
+        self.standardButtons.setOrientation(QtCore.Qt.Horizontal)
+        self.standardButtons.setStandardButtons(
+            QtGui.QDialogButtonBox.Cancel | QtGui.QDialogButtonBox.Ok
+        )
+        self.windowLayout.addWidget(self.standardButtons)
+
+        # Connect slots
+        QtCore.QObject.connect(
+            self.standardButtons, QtCore.SIGNAL("accepted()"), self.proceed
+        )
+        QtCore.QObject.connect(
+            self.standardButtons, QtCore.SIGNAL("rejected()"), self.close
+        )
+        QtCore.QMetaObject.connectSlotsByName(self.dialog)
+
+    def execute(self):
+        self.appendStandardButtons()
+        self.dialog.show()
+        self.dialog.exec_()
+
+    def proceed(self):
+        if self.radio1.isChecked():
+            print("Radio 1 checked.")
+
+        if self.radio2.isChecked():
+            print("Radio 2 checked.")
+
+        print(f"Line Edit 1 text: {self.lineEdit_1.text()}")
+        print(f"Combo Box 1: {self.comboBox_1.currentText()}")
+
+        self.close()  # close the window
+
+    def close(self):
+        # self.dialog.hide()
+        self.dialog.done(0)
+
+
+class GuiInput:
+    def __init__(self):
+        self.dialog = None
+        self.comboBox_1 = None
+        self.returnValues = None
+        self.inputs = []
+
+        # Make dialog window and set layout type
+        self.dialog = QtGui.QDialog()
+        self.dialog.resize(350, 100)
+        self.dialog.setWindowTitle(WINDOW_TITLE)
+        self.windowLayout = QtGui.QVBoxLayout(self.dialog)
+
+    def addRadioButton(self, label, isChecked=False):
+        if label == "":
+            return
+        # Add QRadio buttons
+        radio = QtGui.QRadioButton(label)
+        radio.setChecked(isChecked)
+        self.inputs.append(("radio", radio))
+        self.windowLayout.addWidget(radio)
+
+    def addCheckBox(self, label, isChecked=False):
+        if label == "":
+            return
+        # Add QRadio buttons
+        checkbox = QtGui.QCheckBox(label)
+        checkbox.setCheckable(True)
+        checkbox.setChecked(isChecked)
+        self.inputs.append(("checkbox", checkbox))
+        self.windowLayout.addWidget(checkbox)
+
+    def addComboBox(self, label, choices):
+        if label == "" or len(choices) == 0:
+            return
+        # Add QComboBox
+        comboBox_label = QtGui.QLabel(label)
+        self.windowLayout.addWidget(comboBox_label)
+        combobox = QtGui.QComboBox()
+        for c in choices:
+            combobox.addItem(c)
+        self.inputs.append(("combobox", combobox))
+        self.windowLayout.addWidget(combobox)
+
+    def addStandardButtons(self):
+        # Add OK / Cancel buttons
+        self.standardButtons = QtGui.QDialogButtonBox(self.dialog)
+        self.standardButtons.setOrientation(QtCore.Qt.Horizontal)
+        self.standardButtons.setStandardButtons(
+            QtGui.QDialogButtonBox.Cancel | QtGui.QDialogButtonBox.Ok
+        )
+        self.windowLayout.addWidget(self.standardButtons)
+
+        # Connect slots
+        QtCore.QObject.connect(
+            self.standardButtons, QtCore.SIGNAL("accepted()"), self.proceed
+        )
+        QtCore.QObject.connect(
+            self.standardButtons, QtCore.SIGNAL("rejected()"), self.close
+        )
+        QtCore.QMetaObject.connectSlotsByName(self.dialog)
+
+    def getValues(self):
+        values = []
+        for (inputType, input) in self.inputs:
+            if inputType == "radio":
+                values.append(input.isChecked())
+            elif inputType == "checkbox":
+                values.append(input.isChecked())
+            elif inputType == "combobox":
+                values.append(input.currentText())
+        return values
+
+    def execute(self):
+        self.addStandardButtons()
+        self.dialog.show()
+        self.dialog.exec_()
+        return self.returnValues
+
+    def proceed(self):
+        # print(f"Combo Box 1: {self.comboBox_1.currentText()}")
+        self.returnValues = self.getValues()
+        self.close()  # close the window
+
+    def close(self):
+        # self.dialog.hide()
+        self.dialog.done(0)
+
+
+######################################################################
+"""
+WINDOW = None
+radio1 = None
+radio2 = None
+lineEdit_1 = None
+comboBox_1 = None
+
+
+def startWindow():
+    global WINDOW
+    global radio1
+    global radio2
+    global lineEdit_1
+    global comboBox_1
+
+    # Make dialog box and get the scale size
+    WINDOW = QtGui.QDialog()
+    WINDOW.resize(350, 100)
+    WINDOW.setWindowTitle(WINDOW_TITLE)
+    windowLayout = QtGui.QVBoxLayout(WINDOW)
+
+    # Add QLineEdit
+    lineEdit_1_label = QtGui.QLabel(LABEL_LINEEDIT_1)
+    windowLayout.addWidget(lineEdit_1_label)
+    lineEdit_1 = QtGui.QLineEdit()
+    windowLayout.addWidget(lineEdit_1)
+
+    # Add QRadio buttons
+    radio1 = QtGui.QRadioButton("Radio 1")
+    radio1.setChecked(True)
+    radio2 = QtGui.QRadioButton("Radio 2")
+    windowLayout.addWidget(radio1)
+    windowLayout.addWidget(radio2)
+
+    # Add QComboBox
+    if len(CHOICES_COMBO_1) > 0:
+        comboBox_1_label = QtGui.QLabel(LABEL_COMBO_1)
+        windowLayout.addWidget(comboBox_1_label)
+        comboBox_1 = QtGui.QComboBox()
+        for c in CHOICES_COMBO_1:
+            comboBox_1.addItem(c)
+        windowLayout.addWidget(comboBox_1)
+
+    # Add OK / Cancel buttons
+    okbox = QtGui.QDialogButtonBox(WINDOW)
+    okbox.setOrientation(QtCore.Qt.Horizontal)
+    okbox.setStandardButtons(QtGui.QDialogButtonBox.Cancel | QtGui.QDialogButtonBox.Ok)
+    windowLayout.addWidget(okbox)
+
+    # Connect slots
+    QtCore.QObject.connect(okbox, QtCore.SIGNAL("accepted()"), accept)
+    QtCore.QObject.connect(okbox, QtCore.SIGNAL("rejected()"), reject)
+    QtCore.QMetaObject.connectSlotsByName(WINDOW)
+
+    WINDOW.show()
+    WINDOW.exec_()
+
+
+def accept():
+    if radio1.isChecked():
+        print("Radio 1 checked.")
+
+    if radio2.isChecked():
+        print("Radio 2 checked.")
+
+    print(f"Line Edit 1 text: {lineEdit_1.text()}")
+    print(f"Combo Box 1: {comboBox_1.currentText()}")
+
+    reject()  # close the window
+
+
+def reject():
+    # WINDOW.hide()
+    WINDOW.done(0)
+"""
+
+######################################################################
+
+if FreeCAD.GuiUp:
+    gcb = GuiInput()
+    gcb.addComboBox(LABEL_COMBO_1, CHOICES_COMBO_1)
+    value = gcb.execute()
+    print(f"Value 1: {value}")
+    gcb = GuiInput()
+    gcb.addComboBox(LABEL_COMBO_1, CHOICES_COMBO_1)
+    value = gcb.execute()
+    print(f"Value 2: {value}")
+    # startWindow()

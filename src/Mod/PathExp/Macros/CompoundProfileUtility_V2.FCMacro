@@ -1,0 +1,587 @@
+# -*- coding: utf-8 -*-
+# ***************************************************************************
+# *   Copyright (c) 2021 Russell Johnson (russ4262) <russ4262@gmail.com>    *
+# *                                                                         *
+# *   This file is part of the FreeCAD CAx development system.              *
+# *                                                                         *
+# *   This program is free software; you can redistribute it and/or modify  *
+# *   it under the terms of the GNU Lesser General Public License (LGPL)    *
+# *   as published by the Free Software Foundation; either version 2 of     *
+# *   the License, or (at your option) any later version.                   *
+# *   for detail see the LICENCE text file.                                 *
+# *                                                                         *
+# *   FreeCAD is distributed in the hope that it will be useful,            *
+# *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+# *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+# *   GNU Lesser General Public License for more details.                   *
+# *                                                                         *
+# *   You should have received a copy of the GNU Library General Public     *
+# *   License along with FreeCAD; if not, write to the Free Software        *
+# *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  *
+# *   USA                                                                   *
+# *                                                                         *
+# ***************************************************************************
+
+__Title__ = "Compound Profile Utility"
+__Author__ = "Russell Johnson (russ4262)"
+__Version__ = "2.0"
+__Date__ = "2023-04-22"
+__Comment__ = "."
+__Usage__ = "."
+
+import time
+import FreeCAD
+import PySide
+import Path.Log as PathLog
+import Path.Op.Custom as PathCustom
+import Path.Op.Profile as PathProfile
+import PathScripts.PathUtils as PathUtils
+import Path.Op.Base as PathOp
+
+if FreeCAD.GuiUp:
+    import FreeCADGui
+    import Path.Op.Gui.Custom as PathCustomGui
+    import Path.Op.Gui.Base as PathOpGui
+
+
+if False:
+    PathLog.setLevel(PathLog.Level.DEBUG, PathLog.thisModule())
+    PathLog.trackModule(PathLog.thisModule())
+else:
+    PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
+
+
+translate = FreeCAD.Qt.translate
+
+
+class CompoundProfileGui:
+    """class CompoundProfileGui...
+    This class provides a GUI frontend to the primary 'CompoundProfile' class backend,
+    also located within this `CompoundProfileUtility` module.  This class contains a method
+    to create the popup window with user inputs.
+    """
+
+    def __init__(self):
+        self.opRes = None
+        self._initiateVariables()
+
+    # Private methods
+    def _initiateVariables(self):
+        """_initiateVariables() ...
+        This method initiates and resets instance variables."""
+        # Reset instance variables
+        self.dialog = None
+        self.profileLength = None
+        self.stepoverPercent = None
+        self.profileOps = list()
+        self.customOps = list()
+        self.compoundProfile = None
+        # Get user preferred unit of length
+        self.unitLength = FreeCAD.Units.Quantity(
+            100, FreeCAD.Units.Length
+        ).getUserPreferred()[2]
+
+    def _makePopupWindow(self):
+        """_makePopupWindow() ...
+        This method issues instructions to build and create the Qt popup window with user inputs."""
+
+        # Get user setting for precision
+        params = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Units")
+        precision = params.GetInt("Decimals")  # returns an int
+
+        # Make dialog box and get the scale size
+        winMsg = translate("CompoundProfileUtility", "Compound Profile Dressup")
+        self.dialog = PySide.QtGui.QDialog()
+        self.dialog.resize(350, 100)
+        self.dialog.setWindowTitle(winMsg)
+        mainLayout = PySide.QtGui.QVBoxLayout(self.dialog)
+        formLayout = PySide.QtGui.QFormLayout()
+        opMsg = translate("CompoundProfileUtility", "Base Profile Operation")
+        opSelect_label = PySide.QtGui.QLabel(opMsg + ": ")
+
+        # Make Profile Op selection combobox
+        self.profileSelect = PySide.QtGui.QComboBox()
+        profileName = ""
+        guiSelection = FreeCADGui.Selection.getSelectionEx()
+        if guiSelection:  #  Identify job selected by user
+            sel = guiSelection[0]
+            if hasattr(sel.Object, "Proxy") and isinstance(
+                sel.Object.Proxy, PathProfile.ObjectProfile
+            ):
+                profileName = sel.Object.Name
+                FreeCADGui.Selection.clearSelection()
+        setOpIdx = 0
+        jIdx = 0
+        jCnt = len(self.profileOps)
+        for j in self.profileOps:
+            if j.Name == profileName or jCnt == 1:
+                setOpIdx = jIdx
+            self.profileSelect.addItem(j.Label)
+            jIdx += 1
+        if profileName:
+            # Pre-select GUI-selected Profile op in the combobox
+            self.profileSelect.setCurrentIndex(setOpIdx)
+            if jCnt == 1:
+                # Disable combobox if only Profile op in ActiveDocument
+                self.profileSelect.setEnabled(False)
+        formLayout.addRow(opSelect_label, self.profileSelect)
+
+        # Add double spinbox input for profile extension length, beyond existing profile cut
+        xMsg = translate("CompoundProfileUtility", "Extend profile length")
+        xLen_label = PySide.QtGui.QLabel(xMsg + " ({}): ".format(self.unitLength))
+        self.profileLength = PySide.QtGui.QDoubleSpinBox()  # PySide.QtGui.QLineEdit()
+        self.profileLength.setDecimals(precision)
+        self.profileLength.setMinimum(0.0)
+        self.profileLength.setMaximum(1000000.0)
+        qnty = FreeCAD.Units.Quantity("10.0 mm")
+        self.profileLength.setValue(
+            qnty.getValueAs(self.unitLength)
+        )  # set value after declaring min and max values
+        formLayout.addRow(xLen_label, self.profileLength)
+
+        # Add double spinbox input for stepover percentage
+        yMsg = translate("CompoundProfileUtility", "Stepover percentage")
+        yLen_label = PySide.QtGui.QLabel(yMsg + " (%): ")
+        self.stepoverPercent = PySide.QtGui.QDoubleSpinBox()
+        self.stepoverPercent.setDecimals(precision)
+        self.stepoverPercent.setMinimum(0.0)
+        self.stepoverPercent.setMaximum(100.0)
+        self.stepoverPercent.setValue(50.0)
+        formLayout.addRow(yLen_label, self.stepoverPercent)
+
+        # Add cut direction change toggle
+        crtMsg = translate("CompoundProfileUtility", "Cut outside in")
+        self.cutOutsideIn = PySide.QtGui.QCheckBox(crtMsg)
+        self.cutOutsideIn.setCheckable(True)
+        self.cutOutsideIn.setChecked(True)
+        formLayout.addRow(self.cutOutsideIn)
+
+        # Add OK / Cancel buttons
+        okbox = PySide.QtGui.QDialogButtonBox(self.dialog)
+        okbox.setOrientation(PySide.QtCore.Qt.Horizontal)
+        okbox.setStandardButtons(
+            PySide.QtGui.QDialogButtonBox.Cancel | PySide.QtGui.QDialogButtonBox.Ok
+        )
+        mainLayout.addLayout(formLayout)
+        mainLayout.addWidget(okbox)
+
+        # Connect slot signals to internal methods
+        okbox.accepted.connect(self._proceed)
+        okbox.rejected.connect(self._closeWindow)
+        self.profileSelect.currentIndexChanged.connect(self._loadValues)
+        self.dialog.rejected.connect(self._closeWindow)
+
+    def _loadValues(self):
+        sameOp = None
+        opIdx = self.profileSelect.currentIndex()
+        op = self.profileOps[opIdx]
+        opName = op.Name
+        if self.customOps:
+            for o in self.customOps:
+                if hasattr(o, "BaseName") and o.BaseName == opName:
+                    sameOp = o
+                    break
+        if sameOp:
+            self.dialog.blockSignals(True)
+
+            qnty = FreeCAD.Units.Quantity("{} mm".format(sameOp.ProfileLength))
+            self.profileLength.setValue(qnty.getValueAs(self.unitLength))
+
+            self.stepoverPercent.setValue(sameOp.StepoverPercent)
+            self.cutOutsideIn.setChecked(sameOp.CutOutsideIn)
+
+            self.dialog.blockSignals(False)
+
+    def _setFields(self):
+        """Transfer values from compound profile operation to popup window inputs"""
+        PathLog.info("_setFields()")
+        opRes = self.opRes
+
+        self.dialog.blockSignals(True)
+        if opRes.profileOp:
+            idx = self.profileSelect.findText(opRes.profileOp.Label)
+            if idx != -1:
+                self.profileSelect.setCurrentIndex(idx)
+
+        qnty = FreeCAD.Units.Quantity("{} mm".format(opRes.profileLength))
+        self.profileLength.setValue(qnty.getValueAs(self.unitLength))
+
+        self.stepoverPercent.setValue(opRes.stepoverPercent)
+        self.cutOutsideIn.setChecked(opRes.cutOutsideIn)
+
+        self.dialog.blockSignals(False)
+
+    def _getFields(self):
+        """Transfer popup window values back to compound profile operation"""
+        PathLog.info("_getFields()")
+        obj = self.opRes.obj
+
+        # self._populateProfileOpList()
+        opIdx = self.profileSelect.currentIndex()
+        obj.Base = self.profileOps[opIdx]
+
+        plQty = FreeCAD.Units.Quantity(
+            "{} {}".format(self.profileLength.value(), self.unitLength)
+        )
+        obj.ProfileLength = plQty.getValueAs("mm").Value
+
+        obj.StepoverPercent = self.stepoverPercent.value()
+
+        obj.CutOutsideIn = self.cutOutsideIn.isChecked()
+
+    def _populateProfileOpList(self):
+        # Get current profile operations in active document
+        if FreeCAD.ActiveDocument:
+            for o in FreeCAD.ActiveDocument.Objects:
+                if o.Name[:7] == "Profile":
+                    self.profileOps.append(o)
+                elif o.Name[:6] == "Custom":
+                    self.customOps.append(o)
+
+    def _proceed(self):
+        """_proceed() ...
+        This method initiates the execution of the primary tiling operation. It is triggered
+        when the user clicks the OK button."""
+
+        plQty = FreeCAD.Units.Quantity(
+            "{} {}".format(self.profileLength.value(), self.unitLength)
+        )
+        profileLength = plQty.getValueAs("mm").Value
+        stepoverPercent = self.stepoverPercent.value()
+
+        # Get gob object per user input
+        # self._populateProfileOpList()
+        opIdx = self.profileSelect.currentIndex()
+        profileOp = self.profileOps[opIdx]
+
+        # msg = translate("CompoundProfileUtility", "Compound Profile")
+        # FreeCAD.ActiveDocument.openTransaction(msg)
+
+        self._closeWindow()  # close the window
+
+        # Perform the Compound Profile on the selected operation
+        cp = CompoundProfile(
+            profileOp, profileLength, stepoverPercent, self.cutOutsideIn.isChecked()
+        )
+        self.compoundProfile = cp.execute()
+
+    def _closeWindow(self):
+        """_closeWindow() ...
+        Close the popup window created and reset instance variables. It is triggered
+        when the user clicks the Cancel button."""
+        if self.dialog:
+            # self.dialog.hide()
+            self.dialog.close()
+        # self._initiateVariables()
+
+    # Public method
+    def execute(self):
+        """execute() ...
+        Public method called to begin GUI-based Compound Profile Utility."""
+        if not FreeCAD.GuiUp:
+            msg = translate(
+                "CompoundProfileUtility",
+                "FreeCAD GUI not active. Use command line access with `CompoundProfile` class.",
+            )
+            PathLog.error(msg)
+            return
+
+        if not FreeCADGui.ActiveDocument:
+            msg = translate("CompoundProfileUtility", "No active document.")
+            PathLog.error(msg)
+            return
+
+        # Reset instance variables
+        self._initiateVariables()
+        self._populateProfileOpList()
+
+        if not self.profileOps:
+            msg = translate(
+                "CompoundProfileUtility",
+                "No Profile operations available in active document.",
+            )
+            PathLog.error(msg)
+            return
+
+        self._makePopupWindow()
+        self._loadValues()
+
+        # display popup window
+        # self.dialog.show()
+        self.dialog.exec_()
+
+
+# Eclass
+
+
+class CompoundProfile:
+    """CompoundProfile() class...
+    This class creates a custom operation that contins a compound profile
+    gcode command set created from a base Profile operation.
+    The class is instantiated with four arguments:
+        profileOp ... base Profile operation
+        profileLength ... length to extend clearing beyound existing profile pass in base Profile operation
+        stepoverPercent ... stepover percentage for compound profile operation
+        cutOutsideIn ... OPTIONAL ... defaults to True, set to False to cut inside to out
+    Execute the utility by calling `execute()` method. As part of the execution, the base
+    Profile operation will be set inactive and visibility toggled off.
+    """
+
+    def __init__(self, profileOp, profileLength, stepoverPercent, cutOutsideIn=True):
+        self.profileLength = profileLength
+        self.profileOp = profileOp
+        self.stepoverPercent = stepoverPercent
+        self.cutOutsideIn = cutOutsideIn
+        self.toolDiameter = profileOp.ToolController.Tool.Diameter.Value
+        self.toolRadius = self.toolDiameter / 2.0
+        self.cutOut = self.toolDiameter * (self.stepoverPercent / 100.0)
+        self.depthParams = self._getDepthParams()
+        self.materialAllowance = self.profileOp.OffsetExtra.Value
+        self.compoundProfile = None
+        self.success = False
+        self.offsetValues = list()
+
+    # Private methods
+    def _getDepthParams(self):
+        """_getDepthParams() ... Calculate matching set of depth parameters from base operation."""
+        op = self.profileOp
+        finish_step = op.FinishDepth.Value if hasattr(op, "FinishDepth") else 0.0
+        cdp = PathUtils.depth_params(
+            clearance_height=op.ClearanceHeight.Value,
+            safe_height=op.SafeHeight.Value,
+            start_depth=op.StartDepth.Value,
+            step_down=op.StepDown.Value,
+            z_finish_step=finish_step,
+            final_depth=op.FinalDepth.Value,
+            user_depths=None,
+        )
+        return [v for v in cdp]
+
+    def _loadExistingOp(self):
+        opName = self.profileOp.Name
+
+        # Locate existing companion Custom operation in active document, if exists
+        if FreeCAD.ActiveDocument:
+            for o in FreeCAD.ActiveDocument.Objects:
+                if (
+                    o.Name[:6] == "Custom"
+                    and hasattr(o, "BaseName")
+                    and o.BaseName == opName
+                ):
+                    self.compoundProfile = o
+                    self.compoundProfile.Gcode = list()
+                    break
+
+    def _createCustomOperation(self, useGui=True):
+        """_createCustomOperation(parentJob=None) ...
+        This method returns a PathCustom operation with additional properties
+        to contain details about compound profile operation."""
+        PathLog.debug("_createCustomOperation()")
+
+        if FreeCAD.GuiUp and useGui:
+            res = PathOpGui.CommandResources(
+                "Custom",
+                PathCustom.Create,
+                PathCustomGui.TaskPanelOpPage,
+                "Path_Custom",
+                PySide.QtCore.QT_TRANSLATE_NOOP("Path_Custom", "Custom"),
+                None,
+                PySide.QtCore.QT_TRANSLATE_NOOP(
+                    "Path_Custom", "Create custom gcode snippet"
+                ),
+            )
+            op = PathOpGui.Create(res)
+        else:
+            op = PathCustom.Create("Custom", obj=None)
+
+        op.addProperty(
+            "App::PropertyString",
+            "BaseName",
+            "CompoundProfile",
+            PySide.QtCore.QT_TRANSLATE_NOOP(
+                "App::Property", "Name of base Profile operation."
+            ),
+        )
+        op.addProperty(
+            "App::PropertyFloat",
+            "ProfileLength",
+            "CompoundProfile",
+            PySide.QtCore.QT_TRANSLATE_NOOP(
+                "App::Property", "Length to clear beyound existing base Profile's cut."
+            ),
+        )
+        op.addProperty(
+            "App::PropertyLength",
+            "StepoverPercent",
+            "CompoundProfile",
+            PySide.QtCore.QT_TRANSLATE_NOOP(
+                "App::Property", "Stepover percent for clearing compound profile area."
+            ),
+        )
+        op.addProperty(
+            "App::PropertyBool",
+            "CutOutsideIn",
+            "CompoundProfile",
+            PySide.QtCore.QT_TRANSLATE_NOOP(
+                "App::Property",
+                "Default of True cuts outside inward. Set to False to cut inside outward.",
+            ),
+        )
+        # op.addProperty("App::PropertyLink", "Base", "CompoundProfile",
+        #        PySide.QtCore.QT_TRANSLATE_NOOP("App::Property", "The base Profile operation for this Compound Profile operation."))
+
+        return op
+
+    def _setCustomOpPropertyValues(self):
+        """_setCustomOpPropertyValues() ... Set property values for new Compound Profile object."""
+        op = self.compoundProfile
+        op.BaseName = self.profileOp.Name
+        op.ProfileLength = self.profileLength
+        op.StepoverPercent = self.stepoverPercent
+        op.CutOutsideIn = self.cutOutsideIn
+        op.Label = "Compound_" + self.profileOp.Label
+        op.ToolController = self.profileOp.ToolController
+        op.CoolantMode = self.profileOp.CoolantMode
+        # op.Base = self.profileOp
+        op.recompute()
+
+    def _calculateOffsetValues(self):
+        """_calculateOffsetValues() ... Calculate list of offset values for path generation."""
+        self.offsetValues = list()
+        profilePass = (
+            self.materialAllowance
+        )  # closest pass to stock, regarless of removal direction
+        profilePassRemoval = self.materialAllowance + self.toolDiameter
+        removalLimit = profilePassRemoval + self.profileLength
+        lastPass = removalLimit - self.toolDiameter
+
+        if self.cutOutsideIn:
+            self.offsetValues.append(lastPass)
+
+            while lastPass > profilePass:
+                cutPass = lastPass - self.cutOut
+                if cutPass > profilePass:
+                    self.offsetValues.append(cutPass)
+                    lastPass -= self.cutOut
+                else:
+                    break
+            self.offsetValues.append(profilePass)
+        else:
+            self.offsetValues.append(profilePass)  # first pass
+            offset = self.materialAllowance
+            cutDist = offset + self.toolDiameter
+
+            while cutDist < removalLimit:
+                nextDist = cutDist + self.cutOut
+                if nextDist < removalLimit:
+                    self.offsetValues.append(offset + self.cutOut)
+                    cutDist += self.cutOut
+                    offset += self.cutOut
+                else:
+                    break
+            self.offsetValues.append(lastPass)
+
+        # PathLog.info("self.offsetValues: {}".format(self.offsetValues))
+
+    def _generateCompoundProfile(self):
+        """_generateCompoundProfile() ... Primary fuction to create compound profile commands and gcode."""
+        commands = list()
+        op = self.profileOp
+        op.Active = True
+        stepDown = self.profileOp.StepDown.Value * 0.9
+
+        # Save current profile op settings for restoration
+        startDep = op.StartDepth.Value
+        finalDep = op.FinalDepth.Value
+        offsetExtra = op.OffsetExtra.Value
+
+        # Loop through depths and offsets to create Compound Profile commands
+        for depth in self.depthParams:
+            op.StartDepth.Value = depth + stepDown
+            op.FinalDepth.Value = depth
+            for offset in self.offsetValues:
+                op.OffsetExtra.Value = offset
+                op.recompute()
+                commands.extend(op.Path.Commands)
+
+        # Restore current profile op settings
+        op.StartDepth.Value = startDep
+        op.FinalDepth.Value = finalDep
+        op.OffsetExtra.Value = offsetExtra
+        op.Active = False
+        op.recompute()
+        op.purgeTouched()
+        if FreeCAD.GuiUp:
+            FreeCADGui.ActiveDocument.getObject(op.Name).Visibility = False
+        # Save commands generated
+        self.compoundProfile.Gcode = [c.toGCode() for c in commands]
+        self.success = True
+
+    # Public method
+    def execute(self):
+        """execute() ...
+        This is the public method to be called to create a CompoundProfile object,
+        using a modified Path Custom object in the active document."""
+        PathLog.debug("CompoundProfile.execute()")
+
+        startTime = time.time()
+
+        if not self.profileOp:
+            msg = translate("CompoundProfileUtility", "Operation not provided.")
+            PathLog.error(msg)
+            return None
+
+        if not isinstance(self.profileOp.Proxy, PathProfile.ObjectProfile):
+            msg = translate(
+                "CompoundProfileUtility", "Operation is not a Profile operation."
+            )
+            PathLog.error(msg)
+            return None
+
+        # initialize variables
+        self._loadExistingOp()
+        if not self.compoundProfile:
+            self.compoundProfile = self._createCustomOperation()
+            job = PathUtils.findParentJob(self.profileOp)
+            job.Proxy.addOperation(self.compoundProfile)
+
+        self._setCustomOpPropertyValues()
+        self._calculateOffsetValues()
+        self._generateCompoundProfile()
+
+        secs = time.time() - startTime
+        timeStr = time.strftime("%H:%M:%S", time.gmtime(secs))
+        PathLog.info("Processing time: " + timeStr + "\n")
+
+        if self.success:
+            # PathLog.info("Success !")
+            self.compoundProfile.recompute()
+            return self.compoundProfile
+
+        PathLog.info("No success. Aborting transaction")
+        return None
+
+
+# Eclass
+
+
+# The  `Transaction` instructions are commented out as they seem to cause crashes.
+if FreeCAD.GuiUp:
+    CompoundProfileUtility = CompoundProfileGui()
+
+    # msg = translate("CompoundProfileUtility", "Compound Profile")
+    # FreeCAD.ActiveDocument.openTransaction(msg)
+
+    compoundProfile = None
+    try:
+        compoundProfile = CompoundProfileUtility.execute()  # Uncomment for GUI macro
+    except Exception as ee:
+        PathLog.error("error:\n{}".format(ee))
+
+    if compoundProfile:
+        # FreeCAD.ActiveDocument.commitTransaction()
+        # compoundProfile.recompute()
+        pass
+    else:
+        # FreeCAD.ActiveDocument.abortTransaction()
+        pass

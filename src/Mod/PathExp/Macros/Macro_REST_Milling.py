@@ -21,8 +21,8 @@
 # ***************************************************************************
 
 import FreeCAD
-import Path.Log as PathLog
-import Path.Geom as PathGeom
+import PathScripts.PathLog as PathLog
+import PathScripts.PathGeom as PathGeom
 import Part
 import math
 
@@ -38,7 +38,7 @@ __doc__ = "Path macro to create a REST face based upon path geometry provided."
 PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 # PathLog.trackModule(PathLog.thisModule())
 
-IS_MACRO = False
+IS_MACRO = True
 
 
 # REST milling functions
@@ -217,9 +217,7 @@ def wiresToPathFace_orig(wires, toolDiameter):
 
 
 def wiresToPathFace(wires, toolDiameter):
-    """wiresToPathFace(wires, toolDiameter)...
-    All `wires` should be at same `Z` height"""
-    td = round(toolDiameter * 0.9996, 6)
+    td = round(toolDiameter * 0.9995, 6)
     toolRadius = td / 2.0
     # print("wiresToPathFace() toolRadius: {}".format(toolRadius))
     allFaces = []
@@ -230,7 +228,11 @@ def wiresToPathFace(wires, toolDiameter):
             elif e.Curve.TypeId.endswith("Circle"):
                 allFaces.append(makeArcFace(e, toolRadius))
             else:
-                print(f"  ERROR ... Cannot make face from edge type: {e.Curve.TypeId}")
+                print(
+                    "  ERROR ... Cannot make face from edge type: {}".format(
+                        e.Curve.TypeId
+                    )
+                )
 
     if len(allFaces) == 0:
         return None

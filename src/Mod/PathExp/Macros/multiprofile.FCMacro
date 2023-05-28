@@ -1,0 +1,56 @@
+# -*- coding: utf-8 -*-
+# ***************************************************************************
+# *   Copyright (c) 2023 Russell Johnson (russ4262) <russ4262@gmail.com>    *
+# *                                                                         *
+# *   This program is free software; you can redistribute it and/or modify  *
+# *   it under the terms of the GNU Lesser General Public License (LGPL)    *
+# *   as published by the Free Software Foundation; either version 2 of     *
+# *   the License, or (at your option) any later version.                   *
+# *   for detail see the LICENCE text file.                                 *
+# *                                                                         *
+# *   This program is distributed in the hope that it will be useful,       *
+# *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+# *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+# *   GNU Library General Public License for more details.                  *
+# *                                                                         *
+# *   You should have received a copy of the GNU Library General Public     *
+# *   License along with this program; if not, write to the Free Software   *
+# *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  *
+# *   USA                                                                   *
+# *                                                                         *
+# ***************************************************************************
+
+import FreeCAD
+import FreeCADGui
+import Path
+import multiprofile.MultiProfileGui as MPG
+
+__title__ = "Multi-profile Operation Macro"
+__author__ = "Russell Johnson (russ4262) <russ4262@gmail.com>"
+__doc__ = (
+    "Macro utility to create a Multi-profile dressup on a selected Profile operation."
+)
+__usage__ = "Select a Profile operation in the object tree, then run this macro. \
+Double clicking on the new dressup created will allow the user to edit via the GUI."
+__url__ = ""
+__Wiki__ = ""
+__date__ = "2023.04.22"
+__version__ = 1.0
+
+
+translate = FreeCAD.Qt.translate
+
+# check that the selection contains exactly what we want
+selection = FreeCADGui.Selection.getSelection()
+if len(selection) != 1:
+    Path.Log.error(
+        translate("Path_DressupMultiProfile", "Please select one path object") + "\n"
+    )
+    exit()
+
+baseObject = selection[0]
+
+FreeCAD.ActiveDocument.openTransaction("Create Path Multi-profile Dress-up")
+MPG.Create(baseObject)
+# FreeCAD.ActiveDocument.commitTransaction()  # Final `commitTransaction()` called via TaskPanel.accept()
+FreeCAD.ActiveDocument.recompute()

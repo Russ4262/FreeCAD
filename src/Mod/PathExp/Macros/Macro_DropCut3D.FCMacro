@@ -21,16 +21,17 @@
 # ***************************************************************************
 
 import FreeCAD
-import Part
+
+# import Part
 import Path.Geom as PathGeom
 import Path.Log as PathLog
 import time
 import Macro_CombineRegions
 import Gui_Input
 import Tool_Controller
-import Generator_Utilities as GenUtils
+import generators.Utilities as GenUtils
 import PathScripts.PathUtils as PathUtils
-import Generator_DropCut as DropCut
+import generators.DropCut as DropCut
 
 __title__ = "Path Clearing Generator Utilities"
 __author__ = "russ4262 (Russell Johnson)"
@@ -43,7 +44,7 @@ if False:
 else:
     PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 
-isDebug = True if PathLog.getLevel(PathLog.thisModule()) == 4 else False
+isDebug = True  # True if PathLog.getLevel(PathLog.thisModule()) == 4 else False
 showDebugShapes = False
 
 
@@ -55,21 +56,21 @@ moveCnt = 0
 def _getGeneratorModule(cutPattern):
     module = None
     if cutPattern == "Adaptive":
-        import Generator_Adaptive as module
+        import generators.Adaptive as module
     elif cutPattern == "Line":
-        import Generator_Line as module
+        import generators.Line as module
     elif cutPattern == "Circle":
-        import Generator_Circle as module
+        import generators.Circle as module
     elif cutPattern == "CircleZigZag":
-        import Generator_CircleZigZag as module
+        import generators.CircleZigZag as module
     elif cutPattern == "ZigZag":
-        import Generator_ZigZag as module
+        import generators.ZigZag as module
     elif cutPattern == "Offset":
-        import Generator_Offset as module
+        import generators.Offset as module
     elif cutPattern == "Profile":
-        import Generator_Profile as module
+        import generators.Profile as module
     elif cutPattern == "Spiral":
-        import Generator_Spiral as module
+        import generators.Spiral as module
     else:
         FreeCAD.Console.PrintError(
             f"Did not find selected cut pattern, {cutPattern}.\n"
@@ -89,13 +90,7 @@ def _identifyRegion(faces, offsetValue, cutPattern):
     # Part.show(region, "Region")
 
     # fuse faces together for projection of path geometry
-    if len(faces) == 1:
-        faceShape = faces[0]
-    else:
-        faceShape = faces[0]
-        for f in faces:
-            fused = faceShape.fuse(f)
-            faceShape = fused
+    faceShape = fuseShapes(faces)
 
     if cutPattern in ["Adaptive", "Offset", "Profile"]:
         return region, faceShape
@@ -109,6 +104,19 @@ def _identifyRegion(faces, offsetValue, cutPattern):
         return None, faceShape
 
     return offsetWF, faceShape
+
+
+def fuseShapes(shapes):
+    size = len(shapes)
+    if size == 0:
+        return None
+    if size == 1:
+        return shapes[0].copy()
+    fusion = shapes[0]
+    for s in shapes[1:]:
+        f = fusion.fuse(s)
+        fusion = f
+    return fusion
 
 
 def execute(
@@ -138,7 +146,6 @@ def execute(
         GenUtils._debugMsg(MODULE_NAME, "No faces for target region(s).")
         return [], []
 
-    # Process faces for path geometry
     toolDiameter = (
         toolController.Tool.Diameter.Value
         if hasattr(toolController.Tool.Diameter, "Value")
@@ -153,6 +160,7 @@ def execute(
     # offsetValue = _offsetDirection * (toolRadius - (jobTolerance / 10.0))
     offsetValue = _offsetDirection * toolRadius
 
+    # Process faces for path geometry
     region, faceShape = _identifyRegion(faces, offsetValue, cutPattern)
     fBB = faceShape.BoundBox
 
@@ -261,11 +269,18 @@ def getFacesFromSelection():
     # process user selection
     for sel in selection:
         # print(f"Object.Name: {sel.Object.Name}")
-        for feat in sel.SubElementNames:
-            # print(f"Processing: {sel.Object.Name}::{feat}")
-            if feat.startswith("Face"):
-                # face = sel.Object.Shape.getElement(feat)
-                faces.append(sel.Object.Shape.getElement(feat))
+        if len(sel.SubElementNames) > 0:
+            for feat in sel.SubElementNames:
+                # print(f"Processing: {sel.Object.Name}::{feat}")
+                if feat.startswith("Face"):
+                    # face = sel.Object.Shape.getElement(feat)
+                    faces.append(sel.Object.Shape.getElement(feat))
+        else:
+            obj = sel.Object
+            # fcs = [f.copy() for f in obj.Shape.Faces[1:]]
+            # faces.append(fuseShapes(fcs))
+            for f in obj.Shape.Faces[1:]:
+                faces.append(f)
 
     return faces
 
@@ -314,6 +329,7 @@ def runMacro():
     if len(targetFaces) == 0:
         return
 
+    # Part.show(Part.makeCompound(targetFaces), "TargetFaces")
     values = getUserInput()
     if not values:
         return

@@ -66,9 +66,10 @@ def getToolController(job=None):
     if job:
         tools = job.Tools.Group
         if len(tools) > 1:
-            toolLabels = [t.Label for t in tools]
+            toolLabels = [(t.Label, t.Name) for t in tools]
+            names = [tl[1] for tl in toolLabels]
             toolLabel = getToolFromUser(toolLabels)
-            tcIdx = toolLabels.index(toolLabel)
+            tcIdx = names.index(toolLabel)
         return tools[tcIdx], job
 
     allTools = []
@@ -78,9 +79,14 @@ def getToolController(job=None):
                 [(tc, obj) for tc in FreeCAD.ActiveDocument.Job.Tools.Group]
             )
     if len(allTools) > 1:
-        toolLabels = [t.Label + f"_{j.Name}" for t, j in allTools]
+        toolLabels = [
+            # (t.Label + f"_{j.Name}", t.Label + f"_{j.Name}") for t, j in allTools
+            (t.Label, t.Name)
+            for t, j in allTools
+        ]
+        names = [tl[1] for tl in toolLabels]
         toolLabel = getToolFromUser(toolLabels)
-        tcIdx = toolLabels.index(toolLabel)
+        tcIdx = names.index(toolLabel)
         return allTools[tcIdx]
 
     return ToolController(), None

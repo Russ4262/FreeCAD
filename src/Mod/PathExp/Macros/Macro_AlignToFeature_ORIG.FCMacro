@@ -1,0 +1,1376 @@
+import FreeCAD
+import Part
+import math
+import PathScripts.PathGeom as PathGeom
+import Generator_Utilities as GenUtils
+import Generators.rotation_generator
+
+IS_MACRO = True  # Set to True to use as macro
+IS_DEBUG = True
+CENTER_OF_ROTATION = FreeCAD.Vector(0.0, 0.0, 0.0)
+AVAILABLE_AXES = {"X": True, "Y": True, "Z": False}
+AXES_OF_ROTATION = {
+    "X": FreeCAD.Vector(1.0, 0.0, 0.0),
+    "Y": FreeCAD.Vector(0.0, 1.0, 0.0),
+    "Z": FreeCAD.Vector(0.0, 0.0, 1.0),
+}
+
+
+# Support functions
+def _getFirstAxisAvailable():
+    for a in AVAILABLE_AXES.keys():
+        if AVAILABLE_AXES[a]:
+            return a
+
+
+def _invertRotationsVector(rotVect):
+    changed = 0
+
+    def invert(d):
+        if d > 0.0:
+            return d - 180.0, True
+            changed += 1
+        elif d < 0.0:
+            return d + 180.0, True
+            changed += 1
+        else:
+            return 0.0, False
+
+    x, xd = invert(rotVect.x)
+    y, yd = invert(rotVect.y)
+    # Check if normalAt for Z=1 needs inverted
+    if not xd and not yd:
+        x = 180.0
+    return FreeCAD.Vector(x, y, 0.0)
+
+
+def _normalizeDegrees(degree):
+    if degree > 180.0:
+        return degree - 360.0
+    elif degree < -180.0:
+        return degree + 360.0
+    else:
+        return degree
+
+
+def _normalizeRadians(radian):
+    if radian > math.pi:
+        return radian - 2.0 * math.pi
+    elif radian < -1.0 * math.pi:
+        return radian + 2.0 * math.pi
+    else:
+        return radian
+
+
+def getRotationsForObject(obj):
+    if obj.Face == "None" and obj.Edge == "None":
+        FreeCAD.Console.PrintWarning("Feature name is None.\n")
+        return (
+            FreeCAD.Vector(0.0, 0.0, 0.0),
+            False,
+        )
+
+    # for m in obj.Proxy.job.Model.Group:
+    #    m.Placement.Rotation.setYawPitchRoll(0.0, 0.0, 0.0)
+    # obj.Proxy.job.Stock.Placement.Rotation.setYawPitchRoll(0.0, 0.0, 0.0)
+
+    if obj.Edge != "None":
+        rotVect, isPlanar = getRotationToLineByName(obj.Model, obj.Edge)
+        if obj.InvertDirection:
+            rotVect = _invertRotationsVector(rotVect)
+    else:
+        rotVect, isPlanar = getRotationToFaceByName(obj.Model, obj.Face)
+    # print(f"getRotations() final rotations: {rotations}")
+    return rotVect, isPlanar
+
+
+def getRotationsByName(modelName, featureName, invert):
+    if featureName == "None":
+        FreeCAD.Console.PrintWarning("Feature name is None.\n")
+        return [], False
+    if featureName.startswith("Edge"):
+        rotVect, isPlanar = getRotationToLineByName(modelName, featureName)
+        if invert:
+            rotVect = _invertRotationsVector(rotVect)
+    else:
+        rotVect, isPlanar = getRotationToFaceByName(modelName, featureName)
+    # print(f"rotations to apply full: {rotations}")
+    return rotVect, isPlanar
+
+
+def rotateShapeWithList(shape, rotations):
+    rotVects = {
+        "X": FreeCAD.Vector(1.0, 0.0, 0.0),
+        "Y": FreeCAD.Vector(0.0, 1.0, 0.0),
+        "Z": FreeCAD.Vector(0.0, 0.0, 1.0),
+    }
+    rotated = shape.copy()
+    for axis, angle in rotations:
+        rotated.rotate(CENTER_OF_ROTATION, rotVects[axis], angle)
+    return rotated
+
+
+def rotateShapeWithVector(shape, rotVect):
+    rotated = shape.copy()
+    if not PathGeom.isRoughly(rotVect.x, 0.0):
+        rotated.rotate(CENTER_OF_ROTATION, FreeCAD.Vector(1.0, 0.0, 0.0), rotVect.x)
+    if not PathGeom.isRoughly(rotVect.y, 0.0):
+        rotated.rotate(CENTER_OF_ROTATION, FreeCAD.Vector(0.0, 1.0, 0.0), rotVect.y)
+    if not PathGeom.isRoughly(rotVect.z, 0.0):
+        rotated.rotate(CENTER_OF_ROTATION, FreeCAD.Vector(0.0, 0.0, 1.0), rotVect.z)
+    return rotated
+
+
+def getRotationToLineByName(modelName, edgeName):
+    """getRotationToLineByName(modelName, faceName)
+    Return necessary degree rotations to align given line with Z=1, in vector form x, y, and z.
+    Note: The rotation values may need to be inverted in order to orient model correctly."""
+    # rotations = []
+    rotVect = FreeCAD.Vector(0.0, 0.0, 0.0)
+    cycles = 4
+    malAligned = True
+
+    model = FreeCAD.ActiveDocument.getObject(modelName)
+    edge = model.Shape.getElement(edgeName)  # 1, 6, 4
+    if edge.Curve.TypeId not in ["Part::GeomLine", "Part::GeomLineSegment"]:
+        FreeCAD.Console.PrintWarning("Edge must be line.\n")
+        return FreeCAD.Vector(0.0, 0.0, 0.0), False
+
+    e = edge.copy()
+    com = e.valueAt(e.FirstParameter)
+    trans = com.add(FreeCAD.Vector(0.0, 0.0, 0.0)).multiply(-1.0)
+    e.translate(trans)
+
+    while malAligned:
+        cycles -= 1
+        norm = e.valueAt(e.LastParameter).sub(e.valueAt(e.FirstParameter)).normalize()
+        # print(f"--NORM: {norm}")
+        x0 = PathGeom.isRoughly(norm.x, 0.0)
+        y0 = PathGeom.isRoughly(norm.y, 0.0)
+        z1 = PathGeom.isRoughly(norm.z, 1.0)
+        z_1 = PathGeom.isRoughly(norm.z, -1.0)
+        if not (z1 or z_1):
+            if not x0:
+                ang = math.degrees(math.atan2(norm.x, norm.z))
+                if ang < 0.0:
+                    ang = 0.0 - ang
+                elif ang > 0.0:
+                    ang = 180.0 - ang
+                e.rotate(CENTER_OF_ROTATION, FreeCAD.Vector(0.0, 1.0, 0.0), ang)
+                # rotations.append(("Y", _normalizeDegrees(ang)))
+                rotVect.y = _normalizeDegrees(ang)
+                # print(f"  ang: {ang}")
+                continue
+            elif not y0:
+                ang = math.degrees(math.atan2(norm.z, norm.y))
+                ang = 90.0 - ang
+                e.rotate(CENTER_OF_ROTATION, FreeCAD.Vector(1.0, 0.0, 0.0), ang)
+                # rotations.append(("X", _normalizeDegrees(ang)))
+                rotVect.x = _normalizeDegrees(ang)
+                # print(f"  ang: {ang}")
+                continue
+        elif x0 and y0 and z_1:
+            e.rotate(CENTER_OF_ROTATION, FreeCAD.Vector(1.0, 0.0, 0.0), 180.0)
+            continue
+
+        malAligned = False
+        if cycles < 1:
+            print("Break for cycles")
+            break
+
+    # norm = e.valueAt(e.LastParameter).sub(e.valueAt(e.FirstParameter)).normalize()
+    # print(f"  {edgeName} norm: {norm}\n  rotations: {rotations}")
+    # Part.show(e, edgeName)
+
+    return (rotVect, True)
+
+
+def getRotationToFaceByName(modelName, faceName):
+    """getRotationToFaceByName(modelName, faceName)
+    Return necessary degree rotations to align given face with Z=1, in vector form x, y, and z."""
+    # rotations = []
+    rotVect = FreeCAD.Vector(0.0, 0.0, 0.0)
+    cycles = 0
+    malAligned = True
+
+    model = FreeCAD.ActiveDocument.getObject(modelName)
+    face = model.Shape.getElement(faceName)
+    f = face.copy()
+    com = face.CenterOfMass
+    trans = com.add(FreeCAD.Vector(0.0, 0.0, 0.0)).multiply(-1.0)
+    f.translate(trans)
+
+    while malAligned:
+        cycles += 1
+        u, v = f.ParameterRange[:2]
+        norm = f.normalAt(u, v)
+        if IS_DEBUG:
+            print(f"{faceName}: cycle {cycles},   norm {norm}")
+        # print(f"--NORM: {norm}")
+        x0 = PathGeom.isRoughly(norm.x, 0.0)
+        y0 = PathGeom.isRoughly(norm.y, 0.0)
+        z0 = PathGeom.isRoughly(norm.z, 0.0)
+        z1 = PathGeom.isRoughly(norm.z, 1.0)
+        z_1 = PathGeom.isRoughly(norm.z, -1.0)
+        if z0:
+            f.rotate(CENTER_OF_ROTATION, FreeCAD.Vector(1.0, 0.0, 0.0), 90.0)
+            # rotations.append(("Y", _normalizeDegrees(ang)))
+            rotVect.x += _normalizeDegrees(90.0)
+            # print(f"  ang: {ang}")
+            continue
+        if z1:
+            if IS_DEBUG:
+                print("Breaking rotation scan loop for Z=1")
+            break
+        if not (z1 or z_1):
+            if not x0:
+                ang = math.degrees(math.atan2(norm.x, norm.z))
+                if ang < 0.0:
+                    ang = 0.0 - ang
+                elif ang > 0.0:
+                    ang = 180.0 - ang
+                f.rotate(CENTER_OF_ROTATION, FreeCAD.Vector(0.0, 1.0, 0.0), ang)
+                # rotations.append(("Y", _normalizeDegrees(ang)))
+                rotVect.y += _normalizeDegrees(ang)
+                # print(f"  ang: {ang}")
+                continue
+            elif not y0:
+                ang = math.degrees(math.atan2(norm.z, norm.y))
+                ang = 90.0 - ang
+                f.rotate(CENTER_OF_ROTATION, FreeCAD.Vector(1.0, 0.0, 0.0), ang)
+                # rotations.append(("X", _normalizeDegrees(ang)))
+                rotVect.x += _normalizeDegrees(ang)
+                # print(f"  ang: {ang}")
+                continue
+        elif x0 and y0 and z_1:
+            f.rotate(CENTER_OF_ROTATION, FreeCAD.Vector(1.0, 0.0, 0.0), 180.0)
+            rotVect.x += _normalizeDegrees(180.0)
+            continue
+
+        malAligned = False
+        if cycles > 5:
+            break
+
+    # norm = f.normalAt(0, 0)
+    # print(f"  {faceName} norm: {norm}\n  rotations: {rotations}")
+    # print(f"  center of mass: {com}")
+    # Part.show(f, faceName)
+
+    isFlat = PathGeom.isRoughly(f.BoundBox.ZLength, 0.0)
+
+    # Verify rotation data
+    shp = model.Shape.copy()
+    # rotated = rotateShapeWithList(shp, rotations)
+    rotated = rotateShapeWithVector(shp, rotVect)
+    rf = rotated.getElement(faceName)
+    extPos = rf.extrude(FreeCAD.Vector(0.0, 0.0, 5.0))
+    extNeg = rf.extrude(FreeCAD.Vector(0.0, 0.0, -5.0))
+    if rotated.common(extPos).Area < rotated.common(extNeg).Area:
+        pass
+    else:
+        # print(f"Auto-inverting '{faceName}'")
+        rotVect = _invertRotationsVector(rotVect)
+    if IS_DEBUG:
+        print(f"{faceName} rotVect, isFlat:  {rotVect},  {isFlat}")
+    return rotVect, isFlat
+
+
+def getRotationToFaceByShape(modelShape, face):
+    modelHash = modelShape.hashCode()
+    modelName = ""
+    for o in FreeCAD.ActiveDocument.Objects:
+        if hasattr(o, "Shape") and hasattr(o.Shape, "hashCode"):
+            if o.Shape.hashCode() == modelHash:
+                modelName = o.Name
+                break
+    if not modelName:
+        FreeCAD.Console.PrintError("No model name found.\n")
+        return None
+
+    faceHash = face.hashCode()
+    faceName = ""
+    for i in range(len(modelShape.Faces)):
+        f = modelShape.Faces[i]
+        if f.hashCode() == faceHash:
+            rf = f
+            faceName = f"Face{i+1}"
+            break
+    if not faceName:
+        FreeCAD.Console.PrintError("No face name found.\n")
+        return None
+
+    return getRotationToFaceByName(modelName, faceName)
+
+
+def getRotationToFace(face, label):
+    """getRotationToFaceByName(modelName, faceName)
+    Return necessary degree rotations to align given face with Z=1, in vector form x, y, and z."""
+    # rotations = []
+    rotVect = FreeCAD.Vector(0.0, 0.0, 0.0)
+    cycles = 0
+    malAligned = True
+
+    f = face.copy()
+    com = face.CenterOfMass
+    trans = com.add(FreeCAD.Vector(0.0, 0.0, 0.0)).multiply(-1.0)
+    f.translate(trans)
+    # Part.show(f.copy(), label + "_trans")
+
+    while malAligned:
+        cycles += 1
+        u, v = f.ParameterRange[:2]
+        norm = f.normalAt(u, v)
+        if IS_DEBUG:
+            print(f"FACE: cycle {cycles},   norm {norm}")
+        # print(f"--NORM: {norm}")
+        x0 = PathGeom.isRoughly(norm.x, 0.0)
+        y0 = PathGeom.isRoughly(norm.y, 0.0)
+        z0 = PathGeom.isRoughly(norm.z, 0.0)
+        z1 = PathGeom.isRoughly(norm.z, 1.0)
+        z_1 = PathGeom.isRoughly(norm.z, -1.0)
+        if z0:
+            f.rotate(CENTER_OF_ROTATION, FreeCAD.Vector(1.0, 0.0, 0.0), 90.0)
+            # rotations.append(("Y", _normalizeDegrees(ang)))
+            rotVect.x += _normalizeDegrees(90.0)
+            # print(f"  ang: {ang}")
+            continue
+        if z1:
+            if IS_DEBUG:
+                print("Breaking rotation scan loop for Z=1")
+            break
+        if not (z1 or z_1):
+            if not x0:
+                ang = math.degrees(math.atan2(norm.x, norm.z))
+                if ang < 0.0:
+                    ang = 0.0 - ang
+                elif ang > 0.0:
+                    ang = 180.0 - ang
+                f.rotate(CENTER_OF_ROTATION, FreeCAD.Vector(0.0, 1.0, 0.0), ang)
+                # rotations.append(("Y", _normalizeDegrees(ang)))
+                rotVect.y += _normalizeDegrees(ang)
+                # print(f"  ang: {ang}")
+                continue
+            elif not y0:
+                ang = math.degrees(math.atan2(norm.z, norm.y))
+                ang = 90.0 - ang
+                f.rotate(CENTER_OF_ROTATION, FreeCAD.Vector(1.0, 0.0, 0.0), ang)
+                # rotations.append(("X", _normalizeDegrees(ang)))
+                rotVect.x += _normalizeDegrees(ang)
+                # print(f"  ang: {ang}")
+                continue
+        elif x0 and y0 and z_1:
+            f.rotate(CENTER_OF_ROTATION, FreeCAD.Vector(1.0, 0.0, 0.0), 180.0)
+            rotVect.x += _normalizeDegrees(180.0)
+            continue
+
+        malAligned = False
+        if cycles > 5:
+            break
+
+    # norm = f.normalAt(0, 0)
+    # print(f"  {faceName} norm: {norm}\n  rotations: {rotations}")
+    # print(f"  center of mass: {com}")
+    # Part.show(f, faceName)
+
+    isFlat = PathGeom.isRoughly(f.BoundBox.ZLength, 0.0)
+
+    # Verify rotation data
+    """shp = model.Shape.copy()
+    # rotated = rotateShapeWithList(shp, rotations)
+    rotated = rotateShapeWithVector(shp, rotVect)
+    rf = rotated.getElement(faceName)
+    extPos = rf.extrude(FreeCAD.Vector(0.0, 0.0, 5.0))
+    extNeg = rf.extrude(FreeCAD.Vector(0.0, 0.0, -5.0))
+    if rotated.common(extPos).Area < rotated.common(extNeg).Area:
+        pass
+    else:
+        # print(f"Auto-inverting '{faceName}'")
+        rotVect = _invertRotationsVector(rotVect)
+    if IS_DEBUG:
+        print(f"{faceName} rotVect, isFlat:  {rotVect},  {isFlat}")"""
+    return rotVect, isFlat
+
+
+def getRotationToFace2_A(face, label):
+    """getRotationToFaceByName(modelName, faceName)
+    Return necessary degree rotations to align given face with Z=1, in vector form x, y, and z."""
+    global GROUP
+    # print(f"com: {face.CenterOfMass}")
+
+    comLen0 = face.CenterOfMass.Length
+    comRotations = _alignVector(face.CenterOfMass)
+    comFace = rotateShapeWithVector(face, comRotations)
+    # cf = Part.show(comFace, "ComFace")
+    # GROUP.addObject(cf)
+    # norm = face.normalAt(0.0, 0.0)
+    u, v = comFace.ParameterRange[:2]
+    norm = comFace.normalAt(u, v)
+    normRotations = _alignVector(norm)
+    normFace = rotateShapeWithVector(comFace, normRotations)
+    # print(f"normFace com: {normFace.CenterOfMass}")
+
+    comLen1 = normFace.CenterOfMass.Length
+    print(f"com diff: {comLen1-comLen0}")
+    nf = Part.show(normFace, f"Norm{label}")
+    GROUP.addObject(nf)
+    sumVect = comRotations.add(normRotations)
+
+    print(f"-{label}:")
+    print(f"....comRotations: {comRotations}")
+    print(f"...normRotations: {normRotations}")
+    print(f".........sumVect: {sumVect}")
+
+    comDiff = normFace.CenterOfMass.sub(face.CenterOfMass)
+    # print(f"com difference: {comDiff}")
+    # comDiffRotations = _alignVector(comDiff)
+    # sumVect = _alignVector(comDiff)
+    # print(f"comDiffRotations: {sumVect}")
+
+    rotVect = FreeCAD.Vector(
+        _normalizeDegrees(sumVect.x),
+        _normalizeDegrees(sumVect.y),
+        _normalizeDegrees(sumVect.z),
+    )
+
+    rotFace = rotateShapeWithVector(face, rotVect)
+    isFlat = PathGeom.isRoughly(rotFace.BoundBox.ZLength, 0.0)
+    return rotVect, isFlat, rotFace
+
+
+def getRotationToFace2_B(face, label):
+    """getRotationToFaceByName(modelName, faceName)
+    Return necessary degree rotations to align given face with Z=1, in vector form x, y, and z."""
+    comRotations = _alignVector(face.CenterOfMass)
+    comFace = rotateShapeWithVector(face, comRotations)
+    cf = Part.show(comFace, "ComFace")
+    # norm = face.normalAt(0.0, 0.0)
+    u, v = face.ParameterRange[:2]
+    norm = face.normalAt(u, v)
+    print(f"...norm: {norm}")
+    normRotations = _alignVector(norm)
+    normFace = rotateShapeWithVector(comFace, normRotations)
+    nf = Part.show(normFace, "NormFace")
+
+    sumVect = comRotations.add(normRotations)
+
+    rotVect = FreeCAD.Vector(
+        _normalizeDegrees(sumVect.x),
+        _normalizeDegrees(sumVect.y),
+        _normalizeDegrees(sumVect.z),
+    )
+    rotFace = rotateShapeWithVector(face, rotVect)
+    isFlat = PathGeom.isRoughly(rotFace.BoundBox.ZLength, 0.0)
+    return rotVect, isFlat, rotFace
+
+
+def _getRotationsBetweenPoints(start, end):
+    rotations = FreeCAD.Vector(0.0, 0.0, 0.0)
+    xRotStart = math.degrees(math.atan2(start.z, start.y))
+    xRotEnd = math.degrees(math.atan2(end.z, end.y))
+    print(f"xRotEnd, xRotStart: {xRotEnd}, {xRotStart}")
+    rotations.x = xRotEnd - xRotStart
+    yRotStart = math.degrees(math.atan2(start.z, start.x))
+    yRotEnd = math.degrees(math.atan2(end.z, end.x))
+    print(f"yRotEnd, yRotStart: {yRotEnd}, {yRotStart}")
+    # rotations.y = yRotEnd - yRotStart
+    rotations.y = yRotStart - yRotEnd
+    return rotations
+
+
+def getRotationToFace2_C(face, label):
+    """getRotationToFaceByName(modelName, faceName)
+    Return necessary degree rotations to align given face with Z=1, in vector form x, y, and z."""
+    global GROUP
+    # print(f"com: {face.CenterOfMass}")
+
+    r = Part.show(face, "OrigFace")
+    GROUP.addObject(r)
+    triFace = _makeTriangleFromFaceWire(face)
+    com = face.CenterOfMass
+    faceComLen = com.Length
+    comRotations = _alignVector(com)
+    comFace = rotateShapeWithVector(face, comRotations)
+
+    u, v = comFace.ParameterRange[:2]
+    norm = comFace.normalAt(u, v)
+    normRotations = _alignVector(norm)
+    normFace = rotateShapeWithVector(comFace, normRotations)
+    nf = Part.show(normFace, f"Norm-{label}")
+    GROUP.addObject(nf)
+
+    normTriFace = _makeTriangleFromFaceWire(normFace)
+    normComLen = normFace.CenterOfMass.Length
+    print(f"com: {com}")
+    print(f"norm: {norm}")
+    # print(f"face com length: {faceComLen}")
+    # print(f"normFace com length: {normComLen}")
+    print(f"com length diff: {normComLen - faceComLen}")
+    rotations = _getRotationsBetweenPoints(face.CenterOfMass, normFace.CenterOfMass)
+    print(f"suggested rotations: {rotations}")
+    # rotations.y = 0.0
+    rotFace = rotateShapeWithVector(face, rotations)
+    # rf = Part.show(rotFace, f"Rot-{label}")
+    # GROUP.addObject(rf)
+
+    isFlat = PathGeom.isRoughly(rotFace.BoundBox.ZLength, 0.0)
+    return rotations, isFlat, rotFace
+
+
+def getRotationToFace2_D(face, label):
+    """getRotationToFaceByName(modelName, faceName)
+    Return necessary degree rotations to align given face with Z=1, in vector form x, y, and z."""
+    global GROUP
+    # print(f"com: {face.CenterOfMass}")
+
+    r = Part.show(face, "OrigFace")
+    GROUP.addObject(r)
+    triFace = _makeNormTriangle(face)
+    triFace2 = _makeNormTriangle_2(face)
+    com = face.CenterOfMass
+    faceComLen = com.Length
+    comRotations = _alignVector(com)
+    comFace = rotateShapeWithVector(face, comRotations)
+
+    u, v = comFace.ParameterRange[:2]
+    norm = comFace.normalAt(u, v)
+    normRotations = _alignVector(norm)
+    normFace = rotateShapeWithVector(comFace, normRotations)
+    nf = Part.show(normFace, f"Norm-{label}")
+    GROUP.addObject(nf)
+
+
+def getRotationToFace2_E(face, label, invert=False):
+    """getRotationToFaceByName(modelName, faceName)
+    Return necessary degree rotations to align given face with Z=1, in vector form x, y, and z."""
+    global GROUP
+    # print(f"com: {face.CenterOfMass}")
+
+    com = face.CenterOfMass
+    comRotVect = _alignVector(com)
+    u, v = face.ParameterRange[:2]
+    norm = face.normalAt(u, v)
+    # norm = face.normalAt(0.0, 0.0)
+    if invert:
+        normInv = norm
+    else:
+        normInv = FreeCAD.Vector(-1.0 * norm.x, -1.0 * norm.y, norm.z)
+    normRotVect = _alignVector(normInv)
+    alignVectDiff = normRotVect.sub(comRotVect).negative()
+
+    if not invert:
+        line = Part.makeLine(FreeCAD.Vector(0.0, 0.0, 0.0), com)
+        l = Part.show(line, f"{label}_COM_Line")
+        GROUP.addObject(l)
+
+        sltn = Part.makeLine(FreeCAD.Vector(0.0, 0.0, 0.0), com)
+        solution = rotateShapeWithVector(sltn, normRotVect)
+        sl = Part.show(solution, f"{label}_Solution")
+        GROUP.addObject(sl)
+
+    # rotFace = rotateShapeWithVector(face, normRotVect)
+    # return normRotVect, isFlat, rotFace
+    rotFace = rotateShapeWithVector(face, alignVectDiff)
+    isFlat = PathGeom.isRoughly(rotFace.BoundBox.ZLength, 0.0)
+    return alignVectDiff, isFlat, rotFace
+
+
+def getRotationToFace2_G(base, face, label):
+    """getRotationToFace2_G(base, face, label)
+    Return necessary degree rotations to align given face with Z=1, in vector form x, y, and z."""
+    global GROUP
+
+    r = Part.show(face, f"{label}")
+    GROUP.addObject(r)
+    """
+    triFace = _makeNormTriangle(face)
+    triFace2 = _makeNormTriangle_2(face)
+    com = face.CenterOfMass
+    faceComLen = com.Length
+    comRotations = _alignVector(com)
+    comFace = rotateShapeWithVector(face, comRotations)
+    """
+
+    u, v = face.ParameterRange[:2]
+    norm = face.normalAt(u, v)
+    globPlace = base.getGlobalPlacement()
+    globRotation = globPlace.Rotation
+    normalVector = globRotation.multVec(norm)
+    print(f"global normalVector: {normalVector}")
+
+    rotVect, rotations = _getRotationToFace(face)
+    # rotBase = rotateShapeWithVector(base.Shape, rotVect)
+    # rb = Part.show(rotBase, f"RotBase_{label}")
+    # GROUP.addObject(rb)
+    rotBase2 = rotateShapeWithList(base.Shape, rotations)
+    rb2 = Part.show(rotBase2, f"RotBase2_{label}")
+    GROUP.addObject(rb2)
+
+
+def _getTwoSolutions(face, norm):
+    yRotAng1 = -90.0
+    xRotAng1 = math.degrees(math.atan2(norm.y, norm.x))
+    sltn1 = FreeCAD.Vector(xRotAng1, yRotAng1, 0.0)
+    yRotAng2 = math.degrees(math.atan2(norm.x, norm.y))
+    xRotAng2 = -90.0
+    sltn2 = FreeCAD.Vector(xRotAng2, yRotAng2, 0.0)
+    return (sltn1, sltn2)
+
+
+def _getRotationToFace(face):
+    """getRotationToFaceByName(modelName, faceName)
+    Return necessary degree rotations to align given face with Z=1, in vector form x, y, and z."""
+    # rotations = []
+    rotVect = FreeCAD.Vector(0.0, 0.0, 0.0)
+    rotations = []  # Preferred because rotation order is important
+    cycles = 0
+    malAligned = True
+    com = face.CenterOfMass
+
+    faa = _getFirstAxisAvailable()
+    if faa not in ["X", "Y"]:
+        print("--ERROR: X and Y not available for rotation where norm.z = 0.0")
+        return rotVect, rotations
+
+    f = face.copy()
+    trans = com.add(FreeCAD.Vector(0.0, 0.0, 0.0)).multiply(-1.0)
+    f.translate(trans)
+
+    while malAligned:
+        cycles += 1
+        u, v = f.ParameterRange[:2]
+        norm = f.normalAt(u, v)
+        if IS_DEBUG:
+            print(f"cycle {cycles},   norm {norm}")
+        # print(f"--NORM: {norm}")
+        x0 = PathGeom.isRoughly(norm.x, 0.0)
+        x1 = PathGeom.isRoughly(norm.x, 1.0)
+        x_1 = PathGeom.isRoughly(norm.x, -1.0)
+        y0 = PathGeom.isRoughly(norm.y, 0.0)
+        y1 = PathGeom.isRoughly(norm.y, 1.0)
+        y_1 = PathGeom.isRoughly(norm.y, -1.0)
+        z0 = PathGeom.isRoughly(norm.z, 0.0)
+        z1 = PathGeom.isRoughly(norm.z, 1.0)
+        z_1 = PathGeom.isRoughly(norm.z, -1.0)
+        if z0:
+            # Vertical face
+            if x1 or x_1:
+                # Facing along X axis
+                if AVAILABLE_AXES["Y"]:
+                    rotAng = -90.0
+                    if x_1:
+                        rotAng = 90.0
+                    f.rotate(CENTER_OF_ROTATION, AXES_OF_ROTATION["Y"], rotAng)
+                    print("Rotating for Z=0 around Y axis.")
+                    rotVect.y += rotAng
+                    rotations.append(("Y", rotAng))
+                    # continue
+                    return rotVect, rotations
+            elif y1 or y_1:
+                # Facing along Y axis
+                if AVAILABLE_AXES["X"]:
+                    rotAng = 90.0
+                    if y_1:
+                        rotAng = -90.0
+                    f.rotate(CENTER_OF_ROTATION, AXES_OF_ROTATION["X"], rotAng)
+                    print("Rotating for Z=0 around X axis.")
+                    rotVect.x += rotAng
+                    rotations.append(("X", rotAng))
+                    # continue
+                    return rotVect, rotations
+            else:
+                aSol, bSol = _getTwoSolutions(face, norm)
+                f.rotate(CENTER_OF_ROTATION, FreeCAD.Vector(0.0, 1.0, 0.0), aSol.y)
+                f.rotate(CENTER_OF_ROTATION, FreeCAD.Vector(1.0, 0.0, 0.0), aSol.x)
+                print(f"Dual rotation for Z=0. Using solution A. {aSol}")
+                rotVect.y += aSol.y
+                rotVect.x += aSol.x
+                rotations.append(("Y", aSol.y))
+                rotations.append(("X", aSol.x))
+                # continue
+                return rotVect, rotations
+        elif z_1 and x0 and y0:
+            if AVAILABLE_AXES["Y"]:
+                rotAng = 180.0
+                f.rotate(CENTER_OF_ROTATION, AXES_OF_ROTATION["Y"], rotAng)
+                print("Flipping object for Z=-1.0 around Y axis.")
+                rotVect.y += rotAng
+                rotations.append(("Y", rotAng))
+                # continue
+                return rotVect, rotations
+            elif AVAILABLE_AXES["X"]:
+                rotAng = 180.0
+                f.rotate(CENTER_OF_ROTATION, AXES_OF_ROTATION["X"], rotAng)
+                print("Flipping object for Z=-1.0 around X axis.")
+                rotVect.x += rotAng
+                rotations.append(("X", rotAng))
+                # continue
+                return rotVect, rotations
+            else:
+                print("Unable to flip Z=-1.0 object around Y or X axes.")
+                return rotVect, rotations
+        elif z1:
+            if IS_DEBUG:
+                print("Breaking rotation scan loop for Z=1")
+            break
+        else:
+            if not x0:
+                ang = math.degrees(math.atan2(norm.x, norm.z))
+                if ang < 0.0:
+                    ang = 0.0 - ang
+                elif ang > 0.0:
+                    ang = 180.0 - ang
+                f.rotate(CENTER_OF_ROTATION, FreeCAD.Vector(0.0, 1.0, 0.0), ang)
+                # rotations.append(("Y", _normalizeDegrees(ang)))
+                rotAng = _normalizeDegrees(ang)
+                rotVect.y += rotAng
+                rotations.append(("Y", rotAng))
+                # print(f"  ang: {ang}")
+                continue
+            elif not y0:
+                ang = math.degrees(math.atan2(norm.z, norm.y))
+                ang = 90.0 - ang
+                f.rotate(CENTER_OF_ROTATION, FreeCAD.Vector(1.0, 0.0, 0.0), ang)
+                # rotations.append(("X", _normalizeDegrees(ang)))
+                rotAng = _normalizeDegrees(ang)
+                rotVect.x += rotAng
+                rotations.append(("X", rotAng))
+                # print(f"  ang: {ang}")
+                continue
+
+        malAligned = False
+        if cycles > 5:
+            break
+
+    # norm = f.normalAt(0, 0)
+    # print(f"  {faceName} norm: {norm}\n  rotations: {rotations}")
+    # print(f"  center of mass: {com}")
+    # Part.show(f, faceName)
+
+    isFlat = PathGeom.isRoughly(f.BoundBox.ZLength, 0.0)
+
+    if IS_DEBUG:
+        print(f"rotVect, isFlat:  {rotVect},  {isFlat}")
+    return rotVect, rotations
+
+
+# Auxillary functions
+def _edgeValueAtLength(edge, length):
+    edgeLen = edge.Length
+    typeId = edge.Curve.TypeId
+    if typeId == "Part::GeomBSplineCurve":
+        return edge.valueAt(length / edgeLen)
+    elif typeId == "Part::GeomCircle":
+        return edge.valueAt(
+            edge.FirstParameter
+            + length / edgeLen * (edge.LastParameter - edge.FirstParameter)
+        )
+    elif typeId == "Part::GeomLine":
+        return edge.valueAt(edge.FirstParameter + length)
+    elif typeId == "Part::GeomEllipse":
+        return edge.valueAt(
+            edge.FirstParameter
+            + length / edgeLen * (edge.LastParameter - edge.FirstParameter)
+        )
+    else:
+        print(f"_edgeValueAtLength() edge.Curve.TypeId, {typeId}, is not available.")
+        return None
+
+
+def _pointOnWireAtPercent(wire, percent):
+    wireLength = wire.Length
+    length = wireLength * percent
+    if len(wire.Edges) == 1:
+        return _edgeValueAtLength(wire.Edges[0], length)
+
+    dist = 0.0
+    for e in wire.Edges:
+        eLen = e.Length
+        newDist = dist + eLen
+        if PathGeom.isRoughly(newDist, length):
+            return e.valueAt(e.LastParameter)
+        elif newDist > length:
+            return _edgeValueAtLength(e, length - dist)
+        dist = newDist
+
+
+def _makeTriangleFromFaceWire(face):
+    global GROUP
+    wire = face.Wires[0]
+    p0 = _pointOnWireAtPercent(wire, 0.0)
+    p1 = _pointOnWireAtPercent(wire, 0.33)
+    p2 = _pointOnWireAtPercent(wire, 0.67)
+    # print(f"p0, p1, p2: {p0}, {p1}, {p2}")
+    seg1 = Part.makeLine(p0, p1)
+    seg2 = Part.makeLine(p1, p2)
+    seg3 = Part.makeLine(p2, p0)
+
+    line = Part.makeLine(FreeCAD.Vector(0, 0, 0), face.CenterOfMass)
+    l = Part.show(line, "COM_Line")
+    GROUP.addObject(l)
+
+    u, v = face.ParameterRange[:2]
+    norm = face.normalAt(u, v)
+    norm.multiply(10.0)
+    comLine = Part.makeLine(face.CenterOfMass, norm.add(face.CenterOfMass))
+    nl = Part.show(comLine, "Norm_Line")
+    GROUP.addObject(nl)
+    return Part.Face(Part.Wire([seg1, seg2, seg3]))
+
+
+def _makeNormTriangle(face):
+    global GROUP
+
+    com = face.CenterOfMass
+    comRotVect = _alignVector(com)
+    u, v = face.ParameterRange[:2]
+    norm = face.normalAt(u, v)
+    normInv = FreeCAD.Vector(-1.0 * norm.x, -1.0 * norm.y, norm.z)
+    normRotVect = _alignVector(normInv)
+    print(f"com: {com}")
+    print(f"comRotVect: {comRotVect}")
+    print(f"normRotVect: {normRotVect}")
+
+    # alignVectDiff = normRotVect.sub(comRotVect).negative()
+    # print(f"alignVectDiff: {alignVectDiff}")
+
+    # comComps = _xyRotationComponents(com)
+    # print(f"comComps: {comComps}")
+
+    """
+    line = Part.makeLine(FreeCAD.Vector(0.0, 0.0, 0.0), com)
+    l = Part.show(line, "COM_Line")
+    GROUP.addObject(l)
+
+    sltn = Part.makeLine(FreeCAD.Vector(0.0, 0.0, 0.0), com)
+    solution = rotateShapeWithVector(sltn, normRotVect)
+    sl = Part.show(solution, "Solution")
+    GROUP.addObject(sl)
+
+    sltn.rotate(
+        FreeCAD.Vector(0.0, 0.0, 0.0), FreeCAD.Vector(-1.0, 0.0, 0.0), normRotVect.x
+    )
+    sltn.rotate(
+        FreeCAD.Vector(0.0, 0.0, 0.0),
+        FreeCAD.Vector(0.0, -1.0, 0.0),
+        normRotVect.y,
+    )
+
+    nLine = Part.makeLine(FreeCAD.Vector(0.0, 0.0, 0.0), com)
+    nLine.rotate(
+        FreeCAD.Vector(0.0, 0.0, 0.0), FreeCAD.Vector(1.0, 0.0, 0.0), comRotVect.x
+    )
+    nLine.rotate(
+        FreeCAD.Vector(0.0, 0.0, 0.0),
+        FreeCAD.Vector(0.0, 1.0, 0.0),
+        comRotVect.y,
+    )
+    nln = Part.show(nLine, "Com_return")
+    GROUP.addObject(nln)
+
+    normInvLen = FreeCAD.Vector(normInv.x, normInv.y, normInv.z)
+    normInvLen.multiply(com.Length)
+    normSegInv = Part.makeLine(FreeCAD.Vector(0, 0, 0), normInvLen)
+    nsi = Part.show(normSegInv, "normInvLen")
+    GROUP.addObject(nsi)
+
+    normLen = FreeCAD.Vector(norm.x, norm.y, norm.z)
+    normLen.multiply(com.Length)
+    normSeg = Part.makeLine(FreeCAD.Vector(0, 0, 0), normLen)
+    ns = Part.show(normSeg, "NormLen")
+    GROUP.addObject(ns)
+
+    norm1 = face.normalAt(u, v)
+    norm1.multiply(10.0)
+    comLine = Part.makeLine(com, com.add(norm1))
+    nl = Part.show(comLine, "Norm_Seg")
+    GROUP.addObject(nl)
+
+    normSegTop = Part.makeLine(com, com.add(normLen))
+    nst = Part.show(normSegTop, "NormLenTop")
+    GROUP.addObject(nst)
+
+    xAngle = math.degrees(math.atan2(normInv.y, normInv.z))
+    yAngle = math.degrees(math.atan2(normInv.x, normInv.z))
+    normInvComps = _xyRotationComponents(normInv)
+    print(f"xAngle: {xAngle};  yAngle: {yAngle}")
+    print(f"normInvComps: {normInvComps}")
+
+    nLine = Part.makeLine(FreeCAD.Vector(0, 0, 0), face.CenterOfMass)
+    nLine.rotate(
+        FreeCAD.Vector(0, 0, 0), FreeCAD.Vector(1.0, 0.0, 0.0), -1.0 * normInvComps.x
+    )
+    nLine.rotate(
+        FreeCAD.Vector(0, 0, 0), FreeCAD.Vector(0.0, 1.0, 0.0), -1.0 * normInvComps.y
+    )
+    nln = Part.show(nLine, "N_Line")
+    GROUP.addObject(nln)
+    """
+    return comRotVect
+
+
+def _makeNormTriangle_2(face):
+    global GROUP
+    origin = FreeCAD.Vector(0.0, 0.0, 0.0)
+    faceCom = face.CenterOfMass
+    line = Part.makeLine(origin, faceCom)
+    l = Part.show(line, "COM_Line")
+    GROUP.addObject(l)
+
+    u, v = face.ParameterRange[:2]
+    norm = face.normalAt(u, v)
+    normLine = Part.makeLine(origin, norm)
+    nl = Part.show(normLine, "Norm")
+    GROUP.addObject(nl)
+
+    norm1 = face.normalAt(u, v)
+    norm1.multiply(10.0)
+    normSeg = Part.makeLine(faceCom, faceCom.add(norm1))
+    ns = Part.show(normSeg, "Norm_Seg")
+    GROUP.addObject(ns)
+
+    print(f"Norm Z-diff: {norm.z}")
+
+    vertRise = norm.z
+    vertRun = FreeCAD.Vector(norm.x, norm.y, 0.0).Length
+    perpRise = -1.0 * vertRun
+    perpRun = vertRise
+    zAng = math.degrees(math.atan2(vertRun, vertRise))
+    xyAng = math.atan2(norm.y, norm.x)
+    x = math.cos(xyAng) * perpRun
+    y = math.sin(xyAng) * perpRun
+    perpEndPnt = FreeCAD.Vector(x, y, perpRise)
+    perpEndPnt.multiply(10.0)
+    print(f"vertRise: {vertRise}")
+    print(f"vertRun: {vertRun}")
+    print(f"zAng: {zAng}")
+    # comPerpLine = Part.makeLine(origin, perpEndPnt)
+    # comPerpLine = Part.makeLine(norm, norm.add(perpEndPnt))
+    comPerpLine1 = Part.makeLine(faceCom, faceCom.add(perpEndPnt))
+    np = Part.show(comPerpLine1, "Norm_Perp1")
+    GROUP.addObject(np)
+    comPerpLine2 = Part.makeLine(faceCom, faceCom.add(perpEndPnt))
+    comPerpLine2.rotate(faceCom, norm, 90.0)
+    np2 = Part.show(comPerpLine2, "Norm_Perp2")
+    GROUP.addObject(np2)
+
+
+def _alignNormal(face):
+    global GROUP
+    origin = FreeCAD.Vector(0.0, 0.0, 0.0)
+    faceCom = face.CenterOfMass
+    line = Part.makeLine(origin, faceCom)
+    l = Part.show(line, "COM_Line")
+    GROUP.addObject(l)
+
+    u, v = face.ParameterRange[:2]
+    norm = face.normalAt(u, v)
+    normLine = Part.makeLine(origin, norm)
+    nl = Part.show(normLine, "Norm")
+    GROUP.addObject(nl)
+
+    norm1 = face.normalAt(u, v)
+    norm1.multiply(10.0)
+    normSeg = Part.makeLine(faceCom, faceCom.add(norm1))
+    ns = Part.show(normSeg, "Norm_Seg")
+    GROUP.addObject(ns)
+
+    print(f"Norm Z-diff: {norm.z}")
+
+    vertRise = norm.z
+    vertRun = FreeCAD.Vector(norm.x, norm.y, 0.0).Length
+    perpRise = -1.0 * vertRun
+    perpRun = vertRise
+    zAng = math.degrees(math.atan2(vertRun, vertRise))
+    xyAng = math.atan2(norm.y, norm.x)
+    x = math.cos(xyAng) * perpRun
+    y = math.sin(xyAng) * perpRun
+    perpEndPnt = FreeCAD.Vector(x, y, perpRise)
+    perpEndPnt.multiply(10.0)
+    print(f"vertRise: {vertRise}")
+    print(f"vertRun: {vertRun}")
+    print(f"zAng: {zAng}")
+    # comPerpLine = Part.makeLine(origin, perpEndPnt)
+    # comPerpLine = Part.makeLine(norm, norm.add(perpEndPnt))
+    comPerpLine1 = Part.makeLine(faceCom, faceCom.add(perpEndPnt))
+    np = Part.show(comPerpLine1, "Norm_Perp1")
+    GROUP.addObject(np)
+    comPerpLine2 = Part.makeLine(faceCom, faceCom.add(perpEndPnt))
+    comPerpLine2.rotate(faceCom, norm, 90.0)
+    np2 = Part.show(comPerpLine2, "Norm_Perp2")
+    GROUP.addObject(np2)
+
+
+def _xyRotationComponents(vect):
+    global GROUP
+    origin = FreeCAD.Vector(0.0, 0.0, 0.0)
+    line = Part.makeLine(origin, vect)
+    # print(f"_xyRotationComponents(vect): {vect}")
+    x = math.degrees(math.atan2(vect.y, vect.z))
+    newVect = line.Edges[0].valueAt(line.Edges[0].LastParameter)
+    y = -1.0 * math.degrees(math.atan2(newVect.x, newVect.z))
+    return FreeCAD.Vector(x, y, 0.0)
+
+
+def _alignVector(vector):
+    rotations = FreeCAD.Vector(0.0, 0.0, 0.0)
+    origin = FreeCAD.Vector(0.0, 0.0, 0.0)
+    line = Part.makeLine(origin, vector)
+    xRotAng = math.degrees(math.atan2(vector.y, vector.z))
+    rotations.x += xRotAng
+
+    line.rotate(origin, FreeCAD.Vector(1.0, 0.0, 0.0), xRotAng)
+    newZ = line.Edges[0].Vertexes[1].Point.z
+    yRotAng = -1.0 * math.degrees(math.atan2(vector.x, newZ))
+    rotations.y += yRotAng
+    line.rotate(origin, FreeCAD.Vector(0.0, 1.0, 0.0), yRotAng)
+    # Part.show(line, "COM_Vert")
+    return rotations
+
+
+def _getAnglesBetweenCOMs(com, com2):
+    lineLen = com.Length
+    x1 = _normalizeRadians(math.atan2(com.z, com.y))
+    x2 = _normalizeRadians(math.atan2(com2.z, com2.y))
+    y1 = _normalizeRadians(math.atan2(com.z, com.x))
+    y2 = _normalizeRadians(math.atan2(com2.z, com2.x))
+    x = x2 - x1
+    y = y2 - y1
+    return FreeCAD.Vector(math.degrees(x), math.degrees(y), 0.0)
+
+
+def _getCombinedRotations(rotVect, com):
+    origin = FreeCAD.Vector(0.0, 0.0, 0.0)
+    line = Part.makeLine(origin, com)
+    line.rotate(origin, FreeCAD.Vector(1.0, 0.0, 0.0), rotVect.x)
+    line.rotate(origin, FreeCAD.Vector(0.0, 1.0, 0.0), rotVect.y)
+
+    return _xyRotationComponents(line.valueAt(line.LastParameter))
+
+
+# Regular functions
+def _executeAsMacro():
+    global GROUP
+    base = []
+    selection = FreeCADGui.Selection.getSelectionEx()
+    # process user selection
+    for sel in selection:
+        # print(f"Object.Name: {sel.Object.Name}")
+        base.append((sel.Object.Name, [n for n in sel.SubElementNames]))
+
+    for baseName, featList in base:
+        baseShape = FreeCAD.ActiveDocument.getObject(baseName).Shape
+        for feat in featList:
+            # Make triangle at face, hopefully in global space
+            featShape = baseShape.getElement(feat)
+            # triangleFace = _makeTriangleFromFaceWire(featShape)
+            # Part.show(triangleFace, feat + "_tri")
+            # triRotVect, triIsPlanar = getRotationToFace(triangleFace, feat)
+            # triRotated = rotateShapeWithVector(triangleFace, triRotVect)
+
+            # rotVect, isPlanar = getRotationsByName(baseName, feat, False)
+            rotVect, isPlanar, rotFace = getRotationToFace2_C(featShape, feat)
+            rotated = rotateShapeWithVector(baseShape, rotVect)
+            r = Part.show(rotated, f"Rotated_{feat}")
+            GROUP.addObject(r)
+
+            if IS_DEBUG:
+                print(f"{feat} rotation vector is {rotVect}\n")
+                pass
+            f = Part.show(rotated.getElement(feat), feat)
+            GROUP.addObject(f)
+            # t = Part.show(triRotated, feat + "_trirot")
+            # GROUP.addObject(t)
+
+
+def _executeAsMacro2():
+    global GROUP
+    base = []
+    baseName = "Body001"
+    feat = "Face18"  # "Face41"
+    baseShape = FreeCAD.ActiveDocument.getObject(baseName).Shape
+
+    # Make triangle at face, hopefully in global space
+    featShape = baseShape.getElement(feat)
+    f = Part.show(featShape, feat)
+    GROUP.addObject(f)
+
+    triangleFace = _makeTriangleFromFaceWire(featShape)
+    # Part.show(triangleFace, feat + "_tri")
+    triRotVect, triIsPlanar, triRotated = getRotationToFace2_C(featShape, feat)
+
+    # rotVect, isPlanar = getRotationsByName(baseName, feat, False)
+    # rotated = rotateShapeWithVector(baseShape, rotVect)
+    if IS_DEBUG:
+        # print(f"{feat} rotation vector is {rotVect}\n")
+        pass
+    # f = Part.show(rotated.getElement(feat), feat)
+    # GROUP.addObject(f)
+    # t = Part.show(triRotated, feat + "_trirot")
+    # GROUP.addObject(t)
+
+
+def _executeAsMacro3():
+    global GROUP
+    base = []
+    baseName = "Body001"
+    # feats = ["Face18", "Face41"]
+    feats = ["Face41"]
+
+    base = [(FreeCAD.ActiveDocument.getObject(baseName), feats)]
+
+    for base, featList in base:
+        baseShape = base.Shape
+        for feat in featList:
+            print(f"Working... {feat}")
+            # Make triangle at face, hopefully in global space
+            featShape = baseShape.getElement(feat)
+            # triangleFace = _makeTriangleFromFaceWire(featShape)
+            # Part.show(triangleFace, feat + "_tri")
+            # triRotVect, triIsPlanar = getRotationToFace(triangleFace, feat)
+            # triRotated = rotateShapeWithVector(triangleFace, triRotVect)
+
+            # rotVect, isPlanar = getRotationsByName(baseName, feat, False)
+            rotVect, isPlanar, rotFace = getRotationToFace2_C(featShape, feat)
+            rotated = rotateShapeWithVector(baseShape, rotVect)
+            # r = Part.show(rotated, f"Rotated_{feat}")
+            # GROUP.addObject(r)
+
+            if IS_DEBUG:
+                print(f"{feat} rotation vector is {rotVect}\n")
+                pass
+            f = Part.show(rotated.getElement(feat), feat + "-Rot")
+            GROUP.addObject(f)
+            # t = Part.show(triRotated, feat + "_trirot")
+            # GROUP.addObject(t)
+
+
+def _executeAsMacro4():
+    global GROUP
+    base = []
+    baseName = "Body001"
+    # feats = ["Face14", "Face18", "Face41", "Face28", "Face36"]
+    feats = ["Face36"]
+
+    base = [(FreeCAD.ActiveDocument.getObject(baseName), feats)]
+
+    for base, featList in base:
+        baseShape = base.Shape
+        for feat in featList:
+            print(f"Working... {feat}")
+            # Make triangle at face, hopefully in global space
+            featShape = baseShape.getElement(feat)
+            getRotationToFace2_D(featShape, feat)
+
+            if IS_DEBUG:
+                # print(f"{feat} rotation vector is {rotVect}\n")
+                pass
+
+
+def _executeAsMacro5():
+    global GROUP
+    base = []
+    baseName = "Body001"
+    # faceNames = ["Face14", "Face41"]
+    faceNames = ["Face41"]
+
+    print("\n")
+
+    FreeCADGui.Selection.addSelection(
+        FreeCAD.ActiveDocument.getObject(baseName), faceNames
+    )
+    selection = FreeCADGui.Selection.getSelectionEx()
+    # process user selection
+    for sel in selection:
+        # print(f"Object.Name: {sel.Object.Name}")
+        base.append((sel.Object.Name, [n for n in sel.SubElementNames]))
+
+    for baseName, featList in base:
+        baseShape = FreeCAD.ActiveDocument.getObject(baseName).Shape
+        baseCom = baseShape.CenterOfMass
+        print(f"baseCom: {baseCom}")
+        for feat in featList:
+
+            # Make triangle at face, hopefully in global space
+            featShape = baseShape.getElement(feat)
+            com = featShape.CenterOfMass
+            comRotVect = _xyRotationComponents(com)
+            print(f"comRotVect: {comRotVect}")
+            rotated_1 = rotateShapeWithVector(baseShape, comRotVect)
+
+            u, v = featShape.ParameterRange[:2]
+            norm = featShape.normalAt(u, v)
+            normRotVect = _xyRotationComponents(norm)
+            print(f"normRotVect: {normRotVect}")
+
+            featShape_1 = rotated_1.getElement(feat)
+            u1, v1 = featShape_1.ParameterRange[:2]
+            norm1 = featShape_1.normalAt(u1, v1)
+            normRotVect1 = _xyRotationComponents(norm1)
+            print(f"normRotVect1: {normRotVect1}")
+            rotated = rotateShapeWithVector(rotated_1, normRotVect1)
+            r = Part.show(rotated, f"BaseRotated_{feat}")
+            GROUP.addObject(r)
+
+            baseRotCom = rotated.CenterOfMass
+            print(f"baseRotCom: {baseRotCom}")
+
+            sumVect = normRotVect1.add(comRotVect)
+            print(f"sumVect: {sumVect}")
+            # rotFace = rotated.getElement(feat)
+            # rotFaceCom = rotFace.CenterOfMass
+            # rotDiffVect = _getAnglesBetweenCOMs(com, rotFaceCom)
+            combinedVects = _getCombinedRotations(normRotVect1, com)
+            print(f"combinedVects for COM: {combinedVects}")
+            normRotVect1Inv = _invertRotationsVector(normRotVect1)
+            rotDiffVectInv = _getCombinedRotations(normRotVect1Inv, com)
+            print(f"combinedVects inv for COM: {rotDiffVectInv}")
+            # rotDiffVectInv = _invertRotationsVector(combinedVects)
+            sumRotated = rotateShapeWithVector(baseShape, combinedVects)
+            sr = Part.show(sumRotated, f"BaseSumRotated_{feat}")
+            GROUP.addObject(sr)
+
+            """
+            rotVect, isPlanar, rotFace = getRotationToFace2_E(featShape, feat)
+
+            # Verify rotation data
+            shp = baseShape.copy()
+            # rotated = rotateShapeWithList(shp, rotations)
+            rotated = rotateShapeWithVector(shp, rotVect)
+            rf = rotated.getElement(feat)
+            extPos = rf.extrude(FreeCAD.Vector(0.0, 0.0, 5.0))
+            extNeg = rf.extrude(FreeCAD.Vector(0.0, 0.0, -5.0))
+            if rotated.common(extPos).Area < rotated.common(extNeg).Area:
+                pass
+            else:
+                print(f"Auto-inverting '{feat}'")
+                # rotVect = _invertRotationsVector(rotVect)
+                rotVect, isPlanar, rotFace = getRotationToFace2_E(
+                    featShape, feat, invert=True
+                )
+                rotated = rotateShapeWithVector(baseShape, rotVect)
+
+            r = Part.show(rotated, f"Rotated_{feat}")
+            GROUP.addObject(r)
+
+            if IS_DEBUG:
+                print(f"{feat} rotation vector is {rotVect}\n")
+                pass
+            """
+            f = Part.show(rotated.getElement(feat), "Rot_" + feat)
+            GROUP.addObject(f)
+            FreeCADGui.Selection.addSelection(f, [feat])
+            # t = Part.show(triRotated, feat + "_trirot")
+            # GROUP.addObject(t)
+
+
+def _executeAsMacro6():
+    global GROUP
+    base = []
+    baseName = "Body001"
+    # feats = ["Face14", "Face18", "Face41", "Face28", "Face36"]
+    feats = ["Face36"]
+
+    base = [(FreeCAD.ActiveDocument.getObject(baseName), feats)]
+
+    for base, featList in base:
+        baseShape = base.Shape
+        for feat in featList:
+            print(f"Working... {feat}")
+            # Make triangle at face, hopefully in global space
+            featShape = baseShape.getElement(feat)
+
+            u, v = featShape.ParameterRange[:2]
+            norm = featShape.normalAt(u, v)
+            globPlace = base.getGlobalPlacement()
+            globRotation = globPlace.Rotation
+            normalVector = globRotation.multVec(norm)
+            print(f"global normalVector: {normalVector}")
+            rotationsAsVector = _xyRotationComponents(normalVector)
+            print(f"global rotationsAsVector: {rotationsAsVector}")
+            alignedBase = rotateShapeWithVector(baseShape, rotationsAsVector)
+            ab = Part.show(alignedBase, f"Aligned_to_{feat}_")
+            GROUP.addObject(ab)
+
+            # getRotationToFace2_D(featShape, feat)
+
+            if IS_DEBUG:
+                # print(f"{feat} rotation vector is {rotVect}\n")
+                pass
+
+
+def _executeAsMacro7():
+    global GROUP
+    base = []
+    baseName = "Shape"
+    # feats = ["Face14", "Face18", "Face41", "Face28", "Face36"]
+    # feats = ["Face1", "Face2", "Face3", "Face14"]
+    # feats = ["Face14", "Face17"]
+    feats = ["Face14"]
+    print("--| _executeAsMacro7()")
+
+    base = [(FreeCAD.ActiveDocument.getObject(baseName), feats)]
+
+    for base, featList in base:
+        baseShape = base.Shape
+        for feat in featList:
+            print(f"Working... {feat}")
+            # Make triangle at face, hopefully in global space
+            featShape = baseShape.getElement(feat)
+
+            u, v = featShape.ParameterRange[:2]
+            norm = featShape.normalAt(u, v)
+            print(f"{feat} norm: {norm}")
+
+            getRotationToFace2_G(base, featShape, feat)
+
+
+def _executeAsMacro8():
+    global GROUP
+    baseObj = []
+
+    print("\n")
+
+    selection = FreeCADGui.Selection.getSelectionEx()
+    # process user selection
+    for sel in selection:
+        # print(f"Object.Name: {sel.Object.Name}")
+        baseObj.append((sel.Object, [n for n in sel.SubElementNames]))
+
+    for base, featList in baseObj:
+        for feat in featList:
+            print(f"Working... {feat}")
+            featShape = base.Shape.getElement(feat)
+
+            u, v = featShape.ParameterRange[:2]
+            norm = featShape.normalAt(u, v)
+            print(f"{feat} norm: {norm}")
+
+            getRotationToFace2_G(base, featShape, feat)
+
+
+def test01():
+    rotationVectors = [
+        FreeCAD.Vector(0.0, 90, 0),
+        FreeCAD.Vector(45, -45, 0),
+        FreeCAD.Vector(-100, 20, 0),
+        FreeCAD.Vector(0, 0, 0),
+    ]
+    for v in rotationVectors:
+        inverted = _invertRotationsVector(v)
+        print(f"{v}\n{inverted}\n")
+
+
+# Primary function
+
+# print("Imported Macro_AlignToFeature")
+
+
+if IS_MACRO and FreeCAD.GuiUp:
+    import FreeCADGui
+
+    GROUP = FreeCAD.ActiveDocument.addObject("App::DocumentObjectGroup", "Group")
+    _executeAsMacro8()
+    # CENTER_OF_ROTATION = FreeCAD.Vector(100, 50, 0)
+    # _executeAsMacro()
+    # test01()
+    FreeCAD.ActiveDocument.recompute()

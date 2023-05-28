@@ -1,0 +1,68 @@
+{
+  "Fixtures": [
+    {
+      "G54": true
+    }
+  ],
+  "OrderOutputBy": "Fixture",
+  "Output": "%D/%d.gcode",
+  "Post": "grbl",
+  "PostArgs": "",
+  "SetupSheet": {
+    "CoolantMode": "None",
+    "HorizRapid": "0.000 mm/s",
+    "VertRapid": "0.000 mm/s"
+  },
+  "SplitOutput": false,
+  "Stock": {
+    "create": "FromBase",
+    "version": 1,
+    "xneg": "5.0 mm",
+    "xpos": "5.0 mm",
+    "yneg": "5.0 mm",
+    "ypos": "5.0 mm",
+    "zneg": "0.0 mm",
+    "zpos": "5.0 mm"
+  },
+  "Tolerance": "0.01",
+  "ToolController": [
+    {
+      "dir": "Forward",
+      "hfeed": "0.0 mm/s",
+      "hrapid": "0.0 mm/s",
+      "label": "TC: Default Tool",
+      "name": "TC__Default_Tool",
+      "nr": 1,
+      "speed": 0.0,
+      "tool": {
+        "attribute": {},
+        "name": "Endmill",
+        "parameter": {
+          "Chipload": "0.000 mm",
+          "CuttingEdgeHeight": "30.000 mm",
+          "Diameter": "5.000 mm",
+          "Flutes": "0",
+          "Length": "50.000 mm",
+          "Material": "HSS",
+          "ShankDiameter": "3.000 mm"
+        },
+        "shape": "endmill.fcstd",
+        "version": 2
+      },
+      "version": 1,
+      "vfeed": "0.0 mm/s",
+      "vrapid": "0.0 mm/s",
+      "xengine": [
+        {
+          "expr": "${SetupSheet}.VertRapid",
+          "prop": "VertRapid"
+        },
+        {
+          "expr": "${SetupSheet}.HorizRapid",
+          "prop": "HorizRapid"
+        }
+      ]
+    }
+  ],
+  "Version": 1
+}

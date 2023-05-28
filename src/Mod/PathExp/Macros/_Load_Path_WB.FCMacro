@@ -1,0 +1,3 @@
+import Path
+
+Gui.activateWorkbench("PathWorkbench")

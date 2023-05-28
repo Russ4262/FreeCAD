@@ -1,0 +1,100 @@
+# -*- coding: utf-8 -*-
+# ***************************************************************************
+# *   Copyright (c) 2022 Russell Johnson (russ4262) <russ4262@gmail.com>    *
+# *                                                                         *
+# *   This file is a supplement to the FreeCAD CAx development system.      *
+# *                                                                         *
+# *   This program is free software; you can redistribute it and/or modify  *
+# *   it under the terms of the GNU Lesser General Public License (LGPL)    *
+# *   as published by the Free Software Foundation; either version 2 of     *
+# *   the License, or (at your option) any later version.                   *
+# *   for detail see the LICENCE text file.                                 *
+# *                                                                         *
+# *   This program is distributed in the hope that it will be useful,       *
+# *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+# *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+# *   GNU Library General Public License for more details.                  *
+# *                                                                         *
+# *   You should have received a copy of the GNU Library General Public     *
+# *   License along with this program; if not, write to the Free Software   *
+# *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  *
+# *   USA                                                                   *
+# *                                                                         *
+# ***************************************************************************
+
+import FreeCAD
+import Part
+import FreeCADGui
+
+__title__ = "Edges to Wire Macro"
+__author__ = "Russell Johnson (russ4262) <russ4262@gmail.com>"
+__doc__ = "Macro utility join selected edges into wire."
+__url__ = ""
+__Wiki__ = ""
+__date__ = "2023.04.22"
+__version__ = 1.0
+
+IS_MACRO = True
+DEBUG = False
+
+
+def logText(txt, force=False):
+    if DEBUG or force:
+        print(txt)
+
+
+# Selection processing functions for macro
+def getFeatureNames(base, subs):
+    # Identify input
+    edgeNames = []
+    faceNames = []
+    if len(subs) > 0:
+        for s in subs:
+            if s.startswith("Face"):
+                faceNames.append(s)
+            elif s.startswith("Edge"):
+                edgeNames.append(s)
+            else:
+                FreeCAD.Console.PrintError(f"{base.Name}:{s} is unusable.\n")
+    else:
+        faceNames = [f"Face{i+1}" for i in range(len(base.Shape.Faces))]
+
+    return edgeNames, faceNames
+
+
+def getSelectedEdgesAndFaces():
+    # Get GUI face selection
+    # base = FreeCADGui.Selection.getSelection()[0]
+    # baseName = base.Name
+    sel = FreeCADGui.Selection.getSelectionEx()
+    base = sel[0].Object
+    # baseName = base.Name
+    subs = sel[0].SubElementNames
+
+    logText("Base Name: {}".format(base.Name))
+    logText("len(subs): {}".format(len(subs)))
+    logText("subs: {}".format(subs))
+
+    edgeNames, faceNames = getFeatureNames(base, subs)
+    # print(f"{edgeNames}")
+    # print(f"{faceNames}")
+
+    return [base.Shape.getElement(n).copy() for n in edgeNames], [
+        base.Shape.getElement(n).copy() for n in faceNames
+    ]
+
+
+# Primary component functions
+def execute():
+    edges, faces = getSelectedEdgesAndFaces()
+    wire = Part.Wire(Part.__sortEdges__(edges))
+    Part.show(wire, "Wire")
+
+
+if IS_MACRO:
+    print("\n\n\n\n\n")
+    print("Begin EdgesAndFaces_To_Regions macro")
+
+    execute()
+else:
+    print("Importe EdgesAndFaces_To_Regions module")

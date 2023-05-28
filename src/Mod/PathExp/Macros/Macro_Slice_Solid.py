@@ -21,8 +21,8 @@
 # ***************************************************************************
 
 import FreeCAD
-import Path.Log as PathLog
-import Path.Geom as PathGeom
+import PathScripts.PathLog as PathLog
+import PathScripts.PathGeom as PathGeom
 import Part
 
 
@@ -35,7 +35,7 @@ __doc__ = "Path slicing macro for 3D shapes with regional efficiency included."
 PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
 # PathLog.trackModule(PathLog.thisModule())
 
-IS_MACRO = False
+IS_MACRO = True
 
 
 # Support functions
@@ -119,13 +119,7 @@ def _sliceSolid(solid, depths, region=None):
 def _slicesToCrossSections(slices):
     faces = []
     for s in slices:
-        faces.extend(
-            [
-                f.copy()
-                for f in _getBottomFaces(s)
-                if PathGeom.isRoughly(f.BoundBox.ZLength, 0.0)
-            ]
-        )
+        faces.extend([f.copy() for f in _getBottomFaces(s)])
     return faces
 
 

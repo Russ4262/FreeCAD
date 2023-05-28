@@ -2,7 +2,7 @@ import FreeCAD
 import Part
 import DraftGeomUtils
 import Path.Geom as PathGeom
-import Macros.Generator_Utilities as GenUtils
+import generators.Utilities as GenUtils
 
 IS_MACRO = False  # False  # Set to True to use as macro
 SET_SELECTION = False
@@ -92,32 +92,17 @@ def _getXYMinVertex(edge):
 def _flattenWires(wires):
     flattened = []
     for w in wires:
-        if not w.isClosed():
-            continue
-        wBB = w.BoundBox
-        if PathGeom.isRoughly(wBB.ZLength, 0.0):
-            # flat = Part.Wire([e.copy() for e in w.Edges])
-            flat = w.copy()
-            flat.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - flat.BoundBox.ZMin))
-            flattened.append(flat)
-        else:
-            # Part.show(w, "WireToFlatten")
-            face = PathGeom.makeBoundBoxFace(wBB, 2.0, wBB.ZMin - 2.0)
-            flat = face.makeParallelProjection(w, FreeCAD.Vector(0.0, 0.0, 1.0))
-            if len(flat.Edges) == 0:
-                continue
-            flat.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - flat.BoundBox.ZMin))
-            wire = Part.Wire(flat.Edges)
-            if wire.isClosed():
-                flattened.append(wire)
+        if w.isClosed():
+            wBB = w.BoundBox
+            if PathGeom.isRoughly(wBB.ZLength, 0.0):
+                flat = Part.Wire([e.copy() for e in w.Edges])
+                flat.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - flat.BoundBox.ZMin))
+                flattened.append(flat)
             else:
-                FreeCAD.Console.PrintError(
-                    "Closed wire loop broken during flattening.\n"
-                )
-                # Part.show(wire, "FlatOpen")
-                return []
-        # Eif
-    # Efor
+                face = PathGeom.makeBoundBoxFace(wBB, 2.0, wBB.ZMin - 2.0)
+                flat = face.makeParallelProjection(w, FreeCAD.Vector(0.0, 0.0, 1.0))
+                flat.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - flat.BoundBox.ZMin))
+                flattened.append(Part.Wire(flat.Edges))
     return flattened
 
 
@@ -226,7 +211,6 @@ def _consolidateAreas(closedWires, saveHoles=True):
             result.append(small)
     # Ewhile
     faces = [t[1] for t in result]
-    # Part.show(Part.makeCompound(faces), "FacesConsolidate")
     outerFaces = [Part.Face(f.Wires[0]) for f in faces]
     innerFaces = []
     for f in faces:
@@ -239,9 +223,6 @@ def _consolidateAreas(closedWires, saveHoles=True):
 def _fuseFlatWireAreas(flatWires):
     openEdges = []
     closedWires = []
-
-    if len(flatWires) < 2:
-        return flatWires
 
     # separate edges from open wires
     for w in flatWires:
@@ -272,21 +253,16 @@ def _fuseFlatWireAreas(flatWires):
 
 
 def _makeWireText(w):
-    """_makeWireText(wire)
-    The powers fo 10 used will likely need adjustment depending on face sizes.
-    If the values are too restrictive, they may cause the combining of regions
-    algorithm to not work correctly."""
     f = Part.Face(w)
-    centOfMass = _pointToText(f.CenterOfMass, 3)
-    wireLength = "_" + str(int(w.Length * 1000))
-    area = "_" + str(int(f.Area / 10.0))
+    centOfMass = _pointToText(f.CenterOfMass)
+    wireLength = "_" + str(int(w.Length * 10000))
+    area = "_" + str(int(f.Area * 100))
     return centOfMass + wireLength + area
 
 
-def _removeSelectedInternals(outerWires, innerWires):
+def _removeSelectedInternals(outerWires, InnerWires):
     """_removeSelectedInternals(outerWires, InnerWires)
-    Check if any inners are identical to selected outers, and remove both if true.
-    Need to save those removed so they can be removed from the inners"""
+    Check if any inners are identical to selected outers, and remove both if true."""
     outers = []
     inners = []
     data = []
@@ -295,13 +271,10 @@ def _removeSelectedInternals(outerWires, innerWires):
     for i in range(len(outerWires)):
         w = outerWires[i]
         data.append((_makeWireText(w), w, 0))
-    for i in range(len(innerWires)):
-        w = innerWires[i]
+    for i in range(len(InnerWires)):
+        w = InnerWires[i]
         data.append((_makeWireText(w), w, 1))
     data.sort(key=lambda tup: tup[0])
-
-    if len(data) == 0:
-        return outers, inners
 
     # Identify unique wire detail tuples
     unique = [data[0]]
@@ -318,88 +291,13 @@ def _removeSelectedInternals(outerWires, innerWires):
                 unique.append(d)
 
     # Separate wires from tuples into outer and inner
-    for __, w, typ in unique:
+    for txt, w, typ in unique:
         if typ == 0:
             outers.append(w)
         else:
             inners.append(w)
 
     return outers, inners
-
-
-def _removeSelectedInternals_debug(outerWires, innerWires):
-    """_removeSelectedInternals(outerWires, InnerWires)
-    Check if any inners are identical to selected outers, and remove both if true.
-    Need to save those removed so they can be removed from the inners"""
-    outers = []
-    inners = []
-    data = []
-
-    # Create wire detail tuples for outer and inner wires
-    for i in range(len(outerWires)):
-        w = outerWires[i]
-        data.append((_makeWireText(w), w, 0))
-    for i in range(len(innerWires)):
-        w = innerWires[i]
-        data.append((_makeWireText(w), w, 1))
-    data.sort(key=lambda tup: tup[0])
-
-    # Identify unique wire detail tuples
-    unique = [data[0]]
-    for d in data[1:]:
-        if len(unique) == 0:
-            # re-seed unique if empty list
-            unique.append(d)
-        else:
-            if d[0] == unique[-1][0]:
-                # remove selected duplicate inner and outer wires
-                rem = unique.pop()
-                cat = ["outer", "inner"][rem[2]]
-                print(f"Removed: {rem[0]}, as {cat}")
-                if False and rem[2] == 0:
-                    print("Swapping removed wire")
-                    # make sure inner is removed
-                    unique.pop()
-                    unique.append(rem)
-            else:
-                # Add unique outer and inner tuples
-                unique.append(d)
-
-    # Separate wires from tuples into outer and inner
-    out = []
-    for txt, w, typ in unique:
-        if typ == 0:
-            out.append(w)
-        else:
-            inners.append(w)
-
-    # Remove small wires nested in larger ones
-    if len(out) > 1:
-        fused = Part.Face(out[0])
-        for w in out[1:]:
-            fusion = fused.fuse(Part.Face(w))
-            fused = fusion
-        clean = fused.removeSplitter()
-        outers = [w.copy() for w in clean.Wires]
-    else:
-        outers = out
-
-    return outers, inners
-
-
-def getSettings():
-    # Get hole settings from user
-    guiInput = GenUtils.Gui_Input.GuiInput()
-    guiInput.setWindowTitle("Combine Region Details")
-    seh = guiInput.addCheckBox("Save Existing Holes")
-    seh.setChecked(True)
-    shfm = guiInput.addCheckBox("Save Holes From Merge")
-    shfm.setChecked(True)
-    values = guiInput.execute()
-    if values is None:
-        return None, None
-    # (saveExisting, saveMerged) = values
-    return values
 
 
 def _executeAsMacro():
@@ -421,38 +319,6 @@ def _executeAsMacro():
     if len(selectedFaces) == 0:
         return None
 
-    # combine faces into horizontal regions
-    region = combineRegions(selectedFaces, saveExisting, saveMerged)
-
-    # fuse faces together for projection of path geometry
-    fusedFace = selectedFaces[0]
-    if len(selectedFaces) > 1:
-        fusedFace = selectedFaces[0]
-        for f in selectedFaces[1:]:
-            fused = fusedFace.fuse(f)
-            fusedFace = fused
-
-    return region, fusedFace
-
-
-def _executeAsMacro2(selectedFaces):
-    (saveExisting, saveMerged) = getSettings()
-
-    # combine faces into horizontal regions
-    region = combineRegions(selectedFaces, saveExisting, saveMerged)
-
-    # fuse faces together for projection of path geometry
-    fusedFace = selectedFaces[0]
-    if len(selectedFaces) > 1:
-        fusedFace = selectedFaces[0]
-        for f in selectedFaces[1:]:
-            fused = fusedFace.fuse(f)
-            fusedFace = fused
-
-    return region, fusedFace
-
-
-def _executeAsMacro3(selectedFaces, saveExisting, saveMerged):
     # combine faces into horizontal regions
     region = combineRegions(selectedFaces, saveExisting, saveMerged)
 
@@ -495,13 +361,11 @@ def identifyRegions(faceShapes, saveExistingHoles=True, saveMergedHoles=True):
         # Flatten inner wires and remove duplicates of outer selections
         # print(f"Found inner {len(innerWiresRaw)} wires")
         flatInnerWiresRaw = _flattenWires(innerWiresRaw)
-        returnedOuterWires, rawInnerWires = _removeSelectedInternals(
+        flatOuterWires, rawInnerWires = _removeSelectedInternals(
             flatOuterWiresRaw, flatInnerWiresRaw
         )
         if saveExistingHoles and rawInnerWires:
-            # print("Saving rawInnerWires as faces")
             internalFaces.extend([Part.Face(w) for w in rawInnerWires])
-        flatOuterWires = returnedOuterWires
     else:
         flatOuterWires = flatOuterWiresRaw
 
@@ -509,8 +373,8 @@ def identifyRegions(faceShapes, saveExistingHoles=True, saveMergedHoles=True):
 
     fusedFlatOuterWires = _fuseFlatWireAreas(flatOuterWires)
     if len(fusedFlatOuterWires) == 0:
-        FreeCAD.Console.PrintError("identifyRegions() No fused flat outer wires\n")
-        # Part.show(Part.makeCompound(flatOuterWires), "FlatOuterWires")
+        print("No fused flat outer wires")
+        Part.show(Part.makeCompound(flatOuterWires), "FlatOuterWires")
         return [], []
 
     ########################################################################################
@@ -573,7 +437,7 @@ def combineRegions(faces, saveExistingHoles=True, saveMergedHoles=True):
     return None
 
 
-# print("Imported Macro_CombineRegions")
+print("Imported Macro_CombineRegions")
 
 
 if IS_MACRO and FreeCAD.GuiUp:

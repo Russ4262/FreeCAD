@@ -1,0 +1,99 @@
+import FreeCAD
+import Part
+import Path.Geom as PathGeom
+import generators.Utilities as genUtils
+
+doc = FreeCAD.ActiveDocument
+obj1 = doc.HyperbolaEdge
+e1 = obj1.Shape.Edges[0]
+
+obj2 = doc.HyperbolaEdge002
+e2 = obj2.Shape.Edges[0]
+
+
+def _flipHyperbola_1(e):
+    """_flipHyperbola_1(e)
+    Flips given edge around so the new Vertexes[0] was the old Vertexes[-1] and vice versa, without changing the shape."""
+    print("_flipHyperbola_1()")
+    if not type(e.Curve) == Part.Hyperbola:
+        return None
+
+    center = e.Curve.Center
+    majRad = e.Curve.MajorRadius
+    minRad = e.Curve.MinorRadius
+    # flipped = Part.Hyperbola(center, majRad, minRad)
+    f1 = FreeCAD.Vector(e.Curve.Focus1.x, e.Curve.Focus1.y, e.Curve.Focus1.z)
+    f2 = FreeCAD.Vector(e.Curve.Focus2.x, e.Curve.Focus2.y, e.Curve.Focus2.z)
+    flipped = Part.Hyperbola(center, f1, f2)
+    flipped = Part.Hyperbola(e.Curve.reverse())
+
+    """if e.Curve.AngleXU < 0.0:
+        flipped.Axis = FreeCAD.Vector(e.Curve.Axis.x, e.Curve.Axis.y, e.Curve.Axis.z)
+    else:
+        flipped.Axis = FreeCAD.Vector(e.Curve.Axis.x, e.Curve.Axis.y, e.Curve.Axis.z)"""
+
+    """
+    firstParam = PathGeom.math.pi
+    lastParam = -1.0 * PathGeom.math.pi
+    if not PathGeom.isRoughly(e.LastParameter, 1.0):
+        firstParam = 1.0 - e.LastParameter
+    if not PathGeom.isRoughly(e.FirstParameter, 0.0):
+        lastParam = 1.0 - e.FirstParameter
+
+    return Part.Edge(flipped, firstParam, lastParam)
+    """
+    # return Part.Edge(flipped, e.LastParameter, e.FirstParameter)
+    return Part.Edge(flipped, e.FirstParameter, e.LastParameter)
+
+
+def _flipHyperbola_2(e):
+    """_flipHyperbola_2(e)
+    Flips given edge around so the new Vertexes[0] was the old Vertexes[-1] and vice versa, without changing the shape."""
+    print("_flipHyperbola_2()")
+    if not type(e.Curve) == Part.Hyperbola:
+        return None
+
+    center = e.Curve.Center
+    majRad = e.Curve.MajorRadius
+    minRad = e.Curve.MinorRadius
+    flipped = Part.Hyperbola(center, majRad, minRad)
+
+    return Part.Edge(flipped, e.FirstParameter, e.LastParameter)
+
+
+def _flipHyperbola(e):
+    """_flipHyperbola(e)
+    Flips given edge around so the new Vertexes[0] was the old Vertexes[-1] and vice versa, without changing the shape."""
+    print("_flipHyperbola()")
+    if not type(e.Curve) == Part.Hyperbola:
+        return None
+
+    rev = e.Curve.reverse()
+
+    flipped = Part.Hyperbola(rev)
+
+    """if e.Curve.AngleXU < 0.0:
+        flipped.Axis = FreeCAD.Vector(e.Curve.Axis.x, e.Curve.Axis.y, e.Curve.Axis.z)
+    else:
+        flipped.Axis = FreeCAD.Vector(e.Curve.Axis.x, e.Curve.Axis.y, e.Curve.Axis.z)"""
+
+    """
+    firstParam = PathGeom.math.pi
+    lastParam = -1.0 * PathGeom.math.pi
+    if not PathGeom.isRoughly(e.LastParameter, 1.0):
+        firstParam = 1.0 - e.LastParameter
+    if not PathGeom.isRoughly(e.FirstParameter, 0.0):
+        lastParam = 1.0 - e.FirstParameter
+
+    return Part.Edge(flipped, firstParam, lastParam)
+    """
+    return Part.Edge(flipped, e.LastParameter, e.FirstParameter)
+
+
+"""flip1 = _flipHyperbola_2(e1)
+Part.show(flip1, "Flip_1_")
+flip2 = _flipHyperbola_2(e2)
+Part.show(flip2, "Flip_2_")
+"""
+flip3 = genUtils._flipHyperbola(e1)
+Part.show(flip3, "Flip_3_")

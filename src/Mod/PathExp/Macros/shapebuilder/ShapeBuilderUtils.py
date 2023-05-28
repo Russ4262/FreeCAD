@@ -1,0 +1,602 @@
+# -*- coding: utf-8 -*-
+# ***************************************************************************
+# *   Copyright (c) 2022 Russell Johnson (russ4262) <russ4262@gmail.com>    *
+# *                                                                         *
+# *   This file is a supplement to the FreeCAD CAx development system.      *
+# *                                                                         *
+# *   This program is free software; you can redistribute it and/or modify  *
+# *   it under the terms of the GNU Lesser General Public License (LGPL)    *
+# *   as published by the Free Software Foundation; either version 2 of     *
+# *   the License, or (at your option) any later version.                   *
+# *   for detail see the LICENCE text file.                                 *
+# *                                                                         *
+# *   This program is distributed in the hope that it will be useful,       *
+# *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+# *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+# *   GNU Library General Public License for more details.                  *
+# *                                                                         *
+# *   You should have received a copy of the GNU Library General Public     *
+# *   License along with this program; if not, write to the Free Software   *
+# *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  *
+# *   USA                                                                   *
+# *                                                                         *
+# ***************************************************************************
+
+import FreeCAD
+import Part
+import FreeCADGui
+import Path.Geom as PathGeom
+import Path.Log as PathLog
+import math
+
+__title__ = "Edges and Faces to Regions Macro"
+__author__ = "Russell Johnson (russ4262) <russ4262@gmail.com>"
+__doc__ = "Macro utility to combine selected edges and faces into wires or regions."
+__url__ = ""
+__Wiki__ = ""
+__date__ = "2023.04.22"
+__version__ = 1.0
+
+IS_MACRO = False
+DEBUG = False
+
+
+def logText(txt, force=False):
+    if DEBUG or force:
+        print(txt)
+
+
+def _edgeValueAtLength(edge, length):
+    edgeLen = edge.Length
+    # if PathGeom.isRoughly(edgeLen, 0.0):
+    if edgeLen == 0.0:
+        pnt = edge.Vertexes[0].Point
+        return FreeCAD.Vector(pnt.x, pnt.y, pnt.z)
+
+    if hasattr(edge, "Curve"):
+        typeId = edge.Curve.TypeId
+    elif hasattr(edge, "TypeId"):
+        typeId = edge.TypeId
+
+    if typeId == "Part::GeomBSplineCurve":
+        return edge.valueAt(length / edgeLen)
+    elif typeId == "Part::GeomCircle":
+        return edge.valueAt(
+            edge.FirstParameter
+            + length / edgeLen * (edge.LastParameter - edge.FirstParameter)
+        )
+    elif typeId == "Part::GeomLine":
+        return edge.valueAt(edge.FirstParameter + length)
+    elif typeId == "Part::GeomEllipse":
+        return edge.valueAt(
+            edge.FirstParameter
+            + length / edgeLen * (edge.LastParameter - edge.FirstParameter)
+        )
+    elif typeId == "Part::GeomParabola":
+        return edge.valueAt(
+            edge.FirstParameter
+            + length / edgeLen * (edge.LastParameter - edge.FirstParameter)
+        )
+    elif typeId == "Part::GeomHyperbola":
+        return edge.valueAt(
+            edge.FirstParameter
+            + length / edgeLen * (edge.LastParameter - edge.FirstParameter)
+        )
+    else:
+        print(f"_edgeValueAtLength() edge.Curve.TypeId, {typeId}, is not available.")
+        return None
+
+
+def makeBoundBoxFace(bBox, offset=0.0, zHeight=0.0):
+    """PathGeom.makeBoundBoxFace(bBox, offset=0.0, zHeight=0.0)...
+    Function to create boundbox face, with possible extra offset and custom Z-height."""
+    p1 = FreeCAD.Vector(bBox.XMin - offset, bBox.YMin - offset, zHeight)
+    p2 = FreeCAD.Vector(bBox.XMax + offset, bBox.YMin - offset, zHeight)
+    p3 = FreeCAD.Vector(bBox.XMax + offset, bBox.YMax + offset, zHeight)
+    p4 = FreeCAD.Vector(bBox.XMin - offset, bBox.YMax + offset, zHeight)
+
+    L1 = Part.makeLine(p1, p2)
+    L2 = Part.makeLine(p2, p3)
+    L3 = Part.makeLine(p3, p4)
+    L4 = Part.makeLine(p4, p1)
+
+    return Part.Face(Part.Wire([L1, L2, L3, L4]))
+
+
+def makeProjection(shape):
+    bfbb = shape.BoundBox
+    targetFace = PathGeom.makeBoundBoxFace(
+        bfbb, offset=5.0, zHeight=math.floor(bfbb.ZMin - 5.0)
+    )
+
+    direction = FreeCAD.Vector(0.0, 0.0, -1.0)
+    #      receiver_face.makeParallelProjection(project_shape, direction)
+    proj = targetFace.makeParallelProjection(shape.Wires[0], direction)
+    proj.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - proj.BoundBox.ZMin))
+    return proj
+
+
+def flattenEdges(edges):
+    flatEdges = []
+    comp = Part.makeCompound(edges)
+    bfbb = comp.BoundBox
+    targetFace = PathGeom.makeBoundBoxFace(
+        bfbb, offset=5.0, zHeight=math.floor(bfbb.ZMin - 5.0)
+    )
+
+    direction = FreeCAD.Vector(0.0, 0.0, -1.0)
+    #      receiver_face.makeParallelProjection(project_shape, direction)
+    for e in edges:
+        proj = targetFace.makeParallelProjection(e, direction)
+        proj.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - proj.BoundBox.ZMin))
+        flatEdges.extend(proj.Edges)
+
+    return flatEdges
+
+
+# Filtering functions
+def fuseShapes(shapes):
+    if len(shapes) == 0:
+        return None
+    if len(shapes) == 1:
+        return shapes[0]
+    f = shapes[0]
+    for fc in shapes[1:]:
+        fused = f.fuse(fc)
+        f = fused
+    return f
+
+
+def pointToText(p):
+    """vertexToText(p) Return text reference string from point or vector object."""
+    x = round(p.x, 4)
+    y = round(p.y, 4)
+    z = round(p.z, 4)
+    txt = f"{z},{y},{x},"
+    return txt.replace("-0.0,", "0.0,")
+
+
+def makeEdgeMidpointTups(edges):
+    tups = []
+    for ei in range(0, len(edges)):
+        e = edges[ei].copy()
+        eLen = e.Length / 2.0
+        txt = f"L{round(eLen,5)}_" + pointToText(_edgeValueAtLength(e, eLen))
+        tups.append((txt, ei, e))
+    # Sort tups by xyz_length text, so same edges find each other
+    tups.sort(key=lambda t: t[0])
+    return tups
+
+
+def makeEdgeMidpointTups_new(edges):
+    tups = []
+    for ei in range(0, len(edges)):
+        e = edges[ei].copy()
+        # Part.show(e, "Edge")
+        # print(f"{e.Curve.TypeId}")
+        try:
+            eLen = e.Length / 2.0
+        except Exception as ee:
+            print(f"Edge.Length error: \n{ee}")
+        else:
+            txt = f"L{round(eLen,5)}_" + pointToText(_edgeValueAtLength(e, eLen))
+            tups.append((txt, ei, e))
+    # Sort tups by xyz_length text, so same edges find each other
+    tups.sort(key=lambda t: t[0])
+    return tups
+
+
+def isolateUniqueEdges(edges):
+    # Filter out duplicate edges
+    # logText("isolateUniqueEdges()")
+
+    tups = makeEdgeMidpointTups(edges)
+    if len(tups) == 0:
+        return tups
+
+    # Remove duplicates
+    unique = [tups[0]]
+    deleted = []
+    multi = False
+    for t in tups[1:]:
+        if t[0] == unique[-1][0]:
+            deleted.append(t)
+            multi = True
+        else:
+            if multi == True:
+                unique.pop()
+                multi = False
+            unique.append(t)
+    if multi == True:
+        unique.pop()
+
+    return [u[2] for u in unique]
+
+
+# Path generation functions
+def makeEdgeRefTups(edges, touchesZ=None):
+    tups = []
+    if touchesZ is None:
+        # Use all vertexes
+        for ei in range(0, len(edges)):
+            e = edges[ei]
+            for vi in range(0, len(e.Vertexes)):
+                v = e.Vertexes[vi]
+                txt = pointToText(v.Point)
+                tups.append((txt, ei, vi, e.BoundBox.ZMax))
+    else:
+        # Use all vertexes
+        for ei in range(0, len(edges)):
+            e = edges[ei]
+            for vi in range(0, len(e.Vertexes)):
+                v = e.Vertexes[vi]
+                if PathGeom.isRoughly(v.Z, touchesZ):
+                    txt = pointToText(v.Point)
+                    # tups.append((txt, ei, vi, e.BoundBox.ZMax))
+                    tups.append((txt, ei, vi))
+
+    # Sort tups by xyz text, so same vertexes find each other
+    tups.sort(key=lambda t: t[0])
+    return tups
+
+
+def findClosedWireRegions(edgeList):
+    edgeGroups = Part.sortEdges(edgeList)
+    wires = []
+    for g in edgeGroups:
+        w = Part.Wire(g)
+        if w.isClosed():
+            wires.append(w)
+            # Part.show(w, "ClosedWire")
+    return wires
+
+
+def combineAllEdges_ByName(base, faceNames):
+    edgeList = []
+    for n in faceNames:
+        f = base.Shape.getElement(n)
+        for e in f.Edges:
+            edgeList.append(e.copy())
+
+    unique = isolateUniqueEdges(edgeList)
+    return findClosedWireRegions(unique)
+
+
+def combineOuterEdges_ByName(base, faceNames):
+    edgeList = []
+    for n in faceNames:
+        f = base.Shape.getElement(n)
+        for e in f.Wires[0].Edges:
+            edgeList.append(e.copy())
+
+    unique = isolateUniqueEdges(edgeList)
+    return findClosedWireRegions(unique)
+
+
+def combineInnerEdges_ByName(base, faceNames):
+    edgeList = []
+    for n in faceNames:
+        f = base.Shape.getElement(n)
+        if len(f.Wires) > 1:
+            for w in f.Wires[1:]:
+                for e in w.Edges:
+                    edgeList.append(e.copy())
+
+    unique = isolateUniqueEdges(edgeList)
+    return findClosedWireRegions(unique)
+
+
+def combineAllEdges(faces):
+    edgeList = []
+    for f in faces:
+        for e in f.Edges:
+            edgeList.append(e.copy())
+
+    unique = isolateUniqueEdges(edgeList)
+    return findClosedWireRegions(unique)
+
+
+def combineOuterEdges(faces):
+    edgeList = []
+    for f in faces:
+        for e in f.Wires[0].Edges:
+            edgeList.append(e.copy())
+
+    unique = isolateUniqueEdges(edgeList)
+    return findClosedWireRegions(unique)
+
+
+def combineInnerEdges(faces):
+    edgeList = []
+    for f in faces:
+        if len(f.Wires) > 1:
+            for w in f.Wires[1:]:
+                for e in w.Edges:
+                    edgeList.append(e.copy())
+
+    unique = isolateUniqueEdges(edgeList)
+    return findClosedWireRegions(unique)
+
+
+def facesFromClosedWires(wires):
+    fcs = []
+    open = []
+    for cw in wires:
+        try:
+            f = Part.Face(cw)
+        except:
+            w = Part.Wire(makeProjection(cw).Edges)
+            if w.isClosed():
+                f = Part.Face(w)
+                fcs.append(f)
+            else:
+                open.append(w)
+        else:
+            # ensure face is horizontal
+            if PathGeom.isRoughly(f.BoundBox.ZLength, 0.0):
+                fcs.append(f)
+            else:
+                w = Part.Wire(makeProjection(cw).Edges)
+                if w.isClosed():
+                    f = Part.Face(w)
+                    fcs.append(f)
+                else:
+                    open.append(w)
+
+    return fcs, open
+
+
+def removeInnerVoids(innerVoids, innerHoleFaces):
+    voids = []
+    for v in innerVoids:
+        vArea = v.Area
+        vCmass = v.CenterOfMass
+        isSame = False
+        for h in innerHoleFaces:
+            hArea = h.Area
+            hCmass = h.CenterOfMass
+            if PathGeom.isRoughly(vArea, hArea) and PathGeom.isRoughly(
+                vCmass.sub(hCmass).Length, 0.0
+            ):
+                isSame = True
+                break
+        if not isSame:
+            voids.append(v)
+
+    return voids
+
+
+def identifiedMergedHoles(faces):
+    """identifiedMergedHoles(faces)()
+    Identify independent outer faces and artificial inner holes created by connected outer faces.
+    Example: Two halves of donut touch, creating a hole in middle, and artificial inner hole.
+    """
+    fCnt = len(faces)
+    if fCnt == 0:
+        return [], []
+    if fCnt == 1:
+        return [faces[0]], []
+
+    # Sort faces by area, largest to smallest
+    faces.sort(key=lambda f: f.Area, reverse=True)
+    # print(f"len(faces): {len(faces)}")
+
+    outer = [faces.pop(0)]
+    inner = []
+    outCnt = 0
+    for i in range(0, len(faces)):
+        f = faces[i]
+        area = f.Area
+        outs = []
+        for o in range(0, len(outer) - outCnt):
+            out = outer[o]
+            if PathGeom.isRoughly(out.common(f).Area, area):
+                # smaller face entirely in outer face
+                inner.append(f)
+            else:
+                outs.append(f)
+                outCnt += 1
+        outer.extend(outs)
+    return outer, inner
+
+
+def combineFacesIntoRegions(faceList):
+    openWires = []
+    # closedWires = combineAllEdges(faceList)
+    outerWires = combineOuterEdges(faceList)
+    innerWires = combineInnerEdges(faceList)
+    Part.show(Part.makeCompound(outerWires), "OuterWires")
+
+    rawOuterFaces, outerOpen = facesFromClosedWires(outerWires)
+    # Part.show(Part.makeCompound(rawOuterFaces), "RawOuterFaces")
+    outerFaces, innerVoids = identifiedMergedHoles(rawOuterFaces)
+    innerHoleFaces, innerOpen = facesFromClosedWires(innerWires)
+
+    openWires.extend(outerOpen)
+    openWires.extend(innerOpen)
+    if openWires:
+        Part.show(Part.makeCompound(openWires), "OpenWires")
+
+    if innerVoids and innerHoleFaces:
+        artificialHoles = removeInnerVoids(innerVoids, innerHoleFaces)
+    else:
+        artificialHoles = innerVoids
+
+    return outerFaces, artificialHoles, innerHoleFaces, openWires
+
+
+def getCombinedRegions(faceList):
+    allFaces = fuseShapes(faceList)
+
+    outerFaces, artificialHoles, innerHoleFaces, openWires = combineFacesIntoRegions(
+        allFaces.Faces
+    )
+
+    if len(outerFaces) == 0:
+        print("getCombinedRegions() no outerFaces")
+        return [], [], [], openWires
+
+    """for f in outerFaces:
+        Part.show(f, "O_Faces")
+    for f in artificialHoles:
+        Part.show(f, "A_Holes")
+    for f in innerHoleFaces:
+        Part.show(f, "I_Holes")"""
+
+    # fuse all outers and move to Z=0.0
+    outFaces = [f.copy() for f in outerFaces]
+    for f in outFaces:
+        f.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - f.BoundBox.ZMin))
+    outs = fuseShapes(outFaces)
+
+    # fuse all inners and move to Z=0.0
+    inFaces = []
+    for f in artificialHoles:
+        inFaces.append(f.copy())
+    for f in innerHoleFaces:
+        inFaces.append(f.copy())
+
+    # Cut inner holes from outer faces
+    if len(inFaces) > 0:
+        print("processing inFaces")
+        for f in inFaces:
+            f.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - f.BoundBox.ZMin))
+        ins = fuseShapes(inFaces)
+        # Cut outers with inners
+        flat = outs.cut(ins)
+    else:
+        print("NO inFaces")
+        flat = outs
+
+    if hasattr(flat, "Faces"):
+        return combineFacesIntoRegions(flat.Faces)
+
+    # Part.show(flat, "Flat")
+    print("getCombinedRegions() no shape returned")
+
+    return None, None, None, openWires
+
+
+def combineFaces(faces, zHeight, keepArtificial=True, keepHoles=True):
+    outerFaces, artificialHoles, innerHoleFaces, openWires = getCombinedRegions(faces)
+
+    """for f in outerFaces:
+        Part.show(f, "O_F")
+    for f in artificialHoles:
+        Part.show(f, "A_H")
+    for f in innerHoleFaces:
+        Part.show(f, "I_H")"""
+
+    if openWires:
+        for ow in openWires:
+            ow.translate(FreeCAD.Vector(0.0, 0.0, zHeight))
+
+    if keepArtificial and keepHoles:
+        if artificialHoles and innerHoleFaces:
+            return fuseShapes(outerFaces).cut(
+                fuseShapes(artificialHoles + innerHoleFaces)
+            )
+        if artificialHoles:
+            return fuseShapes(outerFaces).cut(fuseShapes(artificialHoles))
+        if innerHoleFaces:
+            return fuseShapes(outerFaces).cut(fuseShapes(innerHoleFaces))
+    elif keepArtificial:
+        if artificialHoles:
+            return fuseShapes(outerFaces).cut(fuseShapes(artificialHoles))
+    elif keepHoles:
+        if innerHoleFaces:
+            return fuseShapes(outerFaces).cut(fuseShapes(innerHoleFaces))
+
+    if zHeight == 0.0:
+        return fuseShapes(outerFaces)
+
+    if outerFaces:
+        region = fuseShapes(outerFaces)
+        region.translate(FreeCAD.Vector(0.0, 0.0, zHeight))
+        return region
+    return None
+
+
+def edgesToFaces(edges):
+    faces = []
+    openWires = []
+    if len(edges) == 0:
+        return faces, openWires
+    projEdges = flattenEdges(edges)  # makeProjection(fuseShapes(edges))
+    groups = Part.sortEdges(projEdges)
+    for g in groups:
+        w = Part.Wire(g)
+        if w.isClosed():
+            faces.append(Part.Face(w))
+        else:
+            comp = Part.makeCompound(edges)
+            w.translate(FreeCAD.Vector(0.0, 0.0, comp.BoundBox.ZMax - w.BoundBox.ZMin))
+            Part.show(w, "Open_Wire")
+            print("Some or all selected edges are not closed.")
+            openWires.append(w)
+    # Part.show(Part.makeCompound(faces), "Comp_Edges")
+    return faces, openWires
+
+
+# Selection processing functions for macro
+def getFeatureNames(base, subs):
+    # Identify input
+    edgeNames = []
+    faceNames = []
+    if len(subs) > 0:
+        for s in subs:
+            if s.startswith("Face"):
+                faceNames.append(s)
+            elif s.startswith("Edge"):
+                edgeNames.append(s)
+            else:
+                FreeCAD.Console.PrintError(f"{base.Name}:{s} is unusable.\n")
+    else:
+        faceNames = [f"Face{i+1}" for i in range(len(base.Shape.Faces))]
+
+    return edgeNames, faceNames
+
+
+def getSelectedEdgesAndFaces():
+    # Get GUI face selection
+    # base = FreeCADGui.Selection.getSelection()[0]
+    # baseName = base.Name
+    sel = FreeCADGui.Selection.getSelectionEx()
+    base = sel[0].Object
+    # baseName = base.Name
+    subs = sel[0].SubElementNames
+    # logText("Base Name: {}".format(baseName))
+    logText("len(subs): {}".format(len(subs)))
+    logText("subs: {}".format(subs))
+
+    edgeNames, faceNames = getFeatureNames(base, subs)
+    # print(f"{edgeNames}")
+    # print(f"{faceNames}")
+
+    return [base.Shape.getElement(n).copy() for n in edgeNames], [
+        base.Shape.getElement(n).copy() for n in faceNames
+    ]
+
+
+# Primary component functions
+def execute():
+    edges, faces = getSelectedEdgesAndFaces()
+    comp = Part.makeCompound(edges + faces)
+    zHeight = comp.BoundBox.ZMax
+    # zHeight = comp.BoundBox.ZMin
+    print(f"zHeight: {zHeight}")
+
+    edgeFaces, openWires = edgesToFaces(edges)
+    allFaces = faces + edgeFaces
+    region = combineFaces(allFaces, zHeight)
+    if region:
+        Part.show(region, "Region")
+
+
+if IS_MACRO:
+    print("\n\n\n\n\n")
+    print("Begin EdgesAndFaces_To_Regions macro")
+
+    execute()
+else:
+    print("Importe EdgesAndFaces_To_Regions module")

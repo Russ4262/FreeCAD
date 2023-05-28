@@ -1,0 +1,492 @@
+# -*- coding: utf-8 -*-
+# ***************************************************************************
+# *   Copyright (c) 2021 Russell Johnson (russ4262) <russ4262@gmail.com>    *
+# *                                                                         *
+# *   This program is free software; you can redistribute it and/or modify  *
+# *   it under the terms of the GNU Lesser General Public License (LGPL)    *
+# *   as published by the Free Software Foundation; either version 2 of     *
+# *   the License, or (at your option) any later version.                   *
+# *   for detail see the LICENCE text file.                                 *
+# *                                                                         *
+# *   This program is distributed in the hope that it will be useful,       *
+# *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+# *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+# *   GNU Library General Public License for more details.                  *
+# *                                                                         *
+# *   You should have received a copy of the GNU Library General Public     *
+# *   License along with this program; if not, write to the Free Software   *
+# *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  *
+# *   USA                                                                   *
+# *                                                                         *
+# ***************************************************************************
+
+
+import FreeCAD
+import Path.Log as PathLog
+import PathScripts.PathUtils as PathUtils
+import generators.Utilities as GenUtils
+import Path
+import Part
+import Path.Geom as PathGeom
+import math
+
+
+__title__ = "Spiral Path Generator"
+__author__ = "russ4262 (Russell Johnson)"
+__url__ = ""
+__doc__ = "."
+
+
+if False:
+    PathLog.setLevel(PathLog.Level.DEBUG, PathLog.thisModule())
+    PathLog.trackModule(PathLog.thisModule())
+else:
+    PathLog.setLevel(PathLog.Level.INFO, PathLog.thisModule())
+
+
+isDebug = True if PathLog.getLevel(PathLog.thisModule()) == 4 else False
+showDebugShapes = False
+
+MODULE_NAME = "Generator_Spiral"
+FEED_VERT = 0.0
+FEED_HORIZ = 0.0
+RAPID_VERT = 0.0
+RAPID_HORIZ = 0.0
+
+_face = None
+_centerOfMass = None
+_centerOfPattern = None
+_halfDiag = None
+_halfPasses = None
+_isCenterSet = False
+_startPoint = None
+_toolRadius = None
+# patternCenterAtChoices = ("CenterOfMass", "CenterOfBoundBox", "XminYmin", "Custom")
+
+_useStaticCenter = True  # Set True to use static center for all faces created by offsets and step downs.  Set False for dynamic centers based on PatternCenterAt
+_targetFace = None
+_retractHeight = None
+_finalDepth = None
+_patternCenterAt = None
+_patternCenterCustom = None
+_cutPatternReversed = None
+_cutPatternAngle = None
+_cutDirection = None
+_stepOver = None
+_minTravel = None  # Inactive feature
+_keepToolDown = None
+_jobTolerance = None
+_cutOut = None
+
+
+# Raw cut pattern geometry generation methods
+def _Spiral():
+    """_Spiral()... Returns raw set of Spiral wires at Z=0.0."""
+    geomList = []
+    allEdges = []
+    draw = True
+    loopRadians = 0.0  # Used to keep track of complete loops/cycles
+    sumRadians = 0.0
+    loopCnt = 0
+    segCnt = 0
+    twoPi = 2.0 * math.pi
+    maxDist = math.ceil(_cutOut * _halfPasses)
+    move = _centerOfPattern  # Use to translate the center of the spiral
+    # FreeCAD.Console.PrintWarning(f"_Spiral() center of pattern: {_centerOfPattern}\n")
+    lastPoint = _centerOfPattern
+
+    # Set tool properties and calculate cutout
+    cutOut = _cutOut / twoPi
+    segLen = _cutOut / 2.0  # _sampleInterval
+    stepAng = segLen / ((loopCnt + 1) * _cutOut)
+    stopRadians = maxDist / cutOut
+
+    if _cutPatternReversed:
+        GenUtils._debugMsg(MODULE_NAME, "_Spiral() regular pattern")
+        if _cutDirection == "Climb":
+            getPoint = _makeRegSpiralPnt
+        else:
+            getPoint = _makeOppSpiralPnt
+
+        while draw:
+            radAng = sumRadians + stepAng
+            p1 = lastPoint
+            p2 = getPoint(
+                move, cutOut, radAng
+            )  # cutOut is 'b' in the equation r = b * radAng
+            sumRadians += stepAng  # Increment sumRadians
+            loopRadians += stepAng  # Increment loopRadians
+            if loopRadians > twoPi:
+                loopCnt += 1
+                loopRadians -= twoPi
+                stepAng = segLen / (
+                    (loopCnt + 1) * _cutOut
+                )  # adjust stepAng with each loop/cycle
+            # Create line and show in Object tree
+            lineSeg = Part.makeLine(p1, p2)
+            allEdges.append(lineSeg)
+            # increment loop items
+            segCnt += 1
+            lastPoint = p2
+            if sumRadians > stopRadians:
+                draw = False
+        # Ewhile
+    else:
+        GenUtils._debugMsg(MODULE_NAME, "_Spiral() REVERSED pattern")
+        if _cutDirection == "Conventional":
+            getPoint = _makeOppSpiralPnt
+        else:
+            getPoint = _makeRegSpiralPnt
+
+        while draw:
+            radAng = sumRadians + stepAng
+            p1 = lastPoint
+            p2 = getPoint(
+                move, cutOut, radAng
+            )  # cutOut is 'b' in the equation r = b * radAng
+            sumRadians += stepAng  # Increment sumRadians
+            loopRadians += stepAng  # Increment loopRadians
+            if loopRadians > twoPi:
+                loopCnt += 1
+                loopRadians -= twoPi
+                stepAng = segLen / (
+                    (loopCnt + 1) * _cutOut
+                )  # adjust stepAng with each loop/cycle
+            segCnt += 1
+            lastPoint = p2
+            if sumRadians > stopRadians:
+                draw = False
+            # Create line and show in Object tree
+            lineSeg = Part.makeLine(p2, p1)
+            allEdges.append(lineSeg)
+        # Ewhile
+        allEdges.reverse()
+    # Eif
+
+    spiral = Part.Wire(allEdges)
+    geomList.append(spiral)
+
+    return geomList
+
+
+def _makeRegSpiralPnt(move, b, radAng):
+    """_makeRegSpiralPnt(move, b, radAng)... Return next point on regular spiral pattern."""
+    x = b * radAng * math.cos(radAng)
+    y = b * radAng * math.sin(radAng)
+    return FreeCAD.Vector(x, y, 0.0).add(move)
+
+
+def _makeOppSpiralPnt(move, b, radAng):
+    """_makeOppSpiralPnt(move, b, radAng)... Return next point on opposite(reversed) spiral pattern."""
+    x = b * radAng * math.cos(radAng)
+    y = b * radAng * math.sin(radAng)
+    return FreeCAD.Vector(-1 * x, y, 0.0).add(move)
+
+
+def _generatePathGeometry():
+    """_generatePathGeometry()... Control function that generates path geometry wire sets."""
+    GenUtils._debugMsg(MODULE_NAME, "_generatePathGeometry()")
+    global _rawPathGeometry
+
+    rawGeoList = _Spiral()
+
+    # Create compound object to bind all geometry
+    # geomShape = Part.makeCompound(_rawGeoList)
+
+    # GenUtils._addDebugShape(geomShape, "rawPathGeomShape")  # Debugging
+
+    # Identify intersection of cross-section face and lineset
+    # rawWireSet = Part.makeCompound(geomShape.Wires)
+    rawWireSet = Part.makeCompound(rawGeoList)
+    _rawPathGeometry = _face.common(rawWireSet)
+
+    GenUtils._addDebugShape(_rawPathGeometry, "rawPathGeometry")  # Debugging
+
+    return _Link_Regular(_rawPathGeometry)
+
+
+# Path linking function
+def _Link_Regular(rawPathGeometry):
+    """_Link_Regular()... Apply necessary linking to resulting wire set after common between target face and raw wire set."""
+
+    def sortWires0(wire):
+        return wire.Edges[0].Vertexes[0].Point.sub(_centerOfPattern).Length
+
+    def sortWires1(wire):
+        eIdx = len(wire.Edges) - 1
+        return wire.Edges[eIdx].Vertexes[1].Point.sub(_centerOfPattern).Length
+
+    if _cutPatternReversed:
+        # Center outward
+        return sorted(rawPathGeometry.Wires, key=sortWires0)
+    else:
+        # Outside inward
+        return sorted(rawPathGeometry.Wires, key=sortWires1, reverse=True)
+
+
+# 3D projected wire linking functions
+def _Link_Projected(wireList, cutDirection, cutReversed=False):
+    """_Link_Projected(wireList, cutDirection, cutReversed=False)... Apply necessary linking and orientation to 3D wires."""
+    FreeCAD.Console.PrintError("_Link_Projected() `cutReversed` flag not active.\n")
+    if cutDirection == "Clockwise":
+        return _link_spiral_projected_clockwise(wireList)
+    else:
+        return _link_spiral_projected_counterclockwise(wireList)
+
+
+def _link_spiral_projected_clockwise(projectionWires):
+    sortedWires = []
+    # return sortedWires
+    return projectionWires
+
+
+def _link_spiral_projected_counterclockwise(projectionWires):
+    sortedWires = []
+    # return sortedWires
+    return projectionWires
+
+
+# Geometry to paths methods
+def _buildStartPath():
+    """_buildStartPath() ... Convert Offset pattern wires to paths."""
+    GenUtils._debugMsg(MODULE_NAME, "_buildStartPath()")
+
+    useStart = False
+    if _startPoint:
+        useStart = True
+
+    paths = [Path.Command("G0", {"Z": _retractHeight, "F": RAPID_VERT})]
+    if useStart:
+        paths.append(
+            Path.Command(
+                "G0",
+                {
+                    "X": _startPoint.x,
+                    "Y": _startPoint.y,
+                    "F": RAPID_HORIZ,
+                },
+            )
+        )
+
+    return paths
+
+
+def _buildSpiralPaths(pathGeometry):
+    """_buildSpiralPaths(pathGeometry) ... Convert Line-based wires to paths."""
+    GenUtils._debugMsg(MODULE_NAME, "_buildSpiralPaths()")
+
+    paths = []
+    wireList = pathGeometry
+
+    for wire in wireList:
+        if _finalDepth is not None:
+            wire.translate(FreeCAD.Vector(0, 0, _finalDepth))
+
+        e0 = wire.Edges[0]
+
+        if _finalDepth is None:
+            finalDepth = e0.Vertexes[0].Z
+        else:
+            finalDepth = _finalDepth
+
+        paths.append(
+            Path.Command(
+                "G0",
+                {
+                    "X": e0.Vertexes[0].X,
+                    "Y": e0.Vertexes[0].Y,
+                    "F": RAPID_HORIZ,
+                },
+            )
+        )
+        paths.append(
+            # Path.Command("G0", {"Z": self.prevDepth + 0.1, "F": self.vertRapid})
+            Path.Command("G0", {"Z": _retractHeight, "F": RAPID_VERT})
+        )
+        paths.append(Path.Command("G1", {"Z": finalDepth, "F": FEED_VERT}))
+
+        for e in wire.Edges:
+            paths.extend(PathGeom.cmdsForEdge(e, hSpeed=FEED_HORIZ, vSpeed=FEED_VERT))
+
+        paths.append(
+            # Path.Command("G0", {"Z": self.safeHeight, "F": self.vertRapid})
+            Path.Command("G0", {"Z": _retractHeight, "F": RAPID_VERT})
+        )
+
+    GenUtils._debugMsg(
+        MODULE_NAME, "_buildSpiralPaths() path count: {}".format(len(paths))
+    )
+    return paths
+
+
+def geometryToGcode(
+    lineGeometry,
+    retractHeight,
+    finalDepth,
+    keepToolDown,
+    keepToolDownThreshold,
+    startPoint,
+    toolRadius,
+):
+    """geometryToGcode(lineGeometry) Return line geometry converted to Gcode"""
+    GenUtils._debugMsg(MODULE_NAME, "geometryToGcode()")
+    global _retractHeight
+    global _finalDepth
+
+    # Argument validation
+    if not type(retractHeight) is float:
+        raise ValueError("Retract height must be a float")
+
+    if not type(finalDepth) is float and finalDepth is not None:
+        raise ValueError("Final depth must be a float")
+
+    if finalDepth is not None and finalDepth > retractHeight:
+        raise ValueError(
+            "Retract height must be greater than or equal to final depth\n"
+        )
+
+    _retractHeight = retractHeight
+    _finalDepth = finalDepth
+
+    commandList = _buildSpiralPaths(lineGeometry)
+    if len(commandList) > 0:
+        commands = _buildStartPath()
+        commands.extend(commandList)
+        return commands
+    else:
+        GenUtils._debugMsg(MODULE_NAME, "No commands in commandList")
+    return []
+
+
+def generatePathGeometry(
+    targetFace,
+    toolRadius,
+    stepOver,
+    cutDirection,
+    patternCenterAt,
+    patternCenterCustom,
+    cutPatternAngle,
+    cutPatternReversed,
+    minTravel,
+    keepToolDown,
+    jobTolerance,
+):
+    """_init_(
+                targetFace,
+                patternCenterAt,
+                patternCenterCustom,
+                cutPatternReversed,
+                cutPatternAngle,
+                cutPattern,
+                cutDirection,
+                stepOver,
+                materialAllowance,
+                minTravel,
+                keepToolDown,
+                toolController,
+                jobTolerance)...
+    PathGeometryGenerator class constructor method.
+    """
+    """PathGeometryGenerator() class...
+    Generates a path geometry shape from an assigned pattern for conversion to tool paths.
+    Arguments:
+        targetFace:         face shape to serve as base for path geometry generation
+        toolRadius:         tool radius used for calculations
+        stepOver:           step over percentage
+        patternCenterAt:    choice of centering options
+        patternCenterCustom: custom (x, y, 0.0) center point
+        cutPatternReversed: boolean to reverse cut pattern from inside-out to outside-in
+        cutPatternAngle:    rotation angle applied to rotatable patterns
+        cutPattern:         cut pattern choice
+        cutDirection:       conventional or climb
+        minTravel:          boolean to enable minimum travel (feature not enabled at this time)
+        keepToolDown:       boolean to enable keeping tool down (feature not enabled at this time)
+        jobTolerance:       job tolerance value
+    Usage:
+        - Instantiate this class.
+        - Call the `execute()` method to generate the path geometry. The path geometry has correctional linking applied.
+        - The path geometry in now available in the `pathGeometry` attribute.
+    """
+    GenUtils._debugMsg(MODULE_NAME, "generatePathGeometry()")
+
+    global _targetFace
+    global _patternCenterAt
+    global _patternCenterCustom
+    global _cutPatternReversed
+    global _cutPatternAngle
+    global _cutDirection
+    global _stepOver
+    global _minTravel
+    global _keepToolDown
+    global _jobTolerance
+    global _cutOut
+    global _isCenterSet
+    global _toolRadius
+    global _face
+    global _centerOfPattern
+    global _halfDiag
+    global _cutPasses
+    global _halfPasses
+    global _centerOfMass
+
+    _face = None
+    _centerOfMass = None
+    _centerOfPattern = None
+    _halfDiag = None
+    _halfPasses = None
+    _isCenterSet = False
+
+    # Save argument values to class instance
+    _targetFace = targetFace.copy()
+    _patternCenterAt = patternCenterAt
+    _patternCenterCustom = patternCenterCustom
+    _cutPatternReversed = cutPatternReversed
+    _cutPatternAngle = cutPatternAngle
+    _cutDirection = cutDirection
+    _stepOver = stepOver
+    _minTravel = minTravel
+    _keepToolDown = keepToolDown
+    _jobTolerance = jobTolerance
+    _toolRadius = toolRadius
+    _cutOut = 2.0 * toolRadius * (_stepOver / 100.0)
+
+    pathGeometry = []
+
+    if hasattr(_targetFace, "Area") and PathGeom.isRoughly(_targetFace.Area, 0.0):
+        GenUtils._debugMsg(
+            MODULE_NAME, "PathGeometryGenerator: No area in working shape."
+        )
+        return pathGeometry
+
+    if _targetFace.BoundBox.ZMin != 0.0:
+        _targetFace.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - _targetFace.BoundBox.ZMin))
+
+    for fc in _targetFace.Faces:
+        if fc.Faces:
+            for f in fc.Faces:
+                f.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - f.BoundBox.ZMin))
+                _face = f
+                (
+                    _centerOfPattern,
+                    _cutPasses,
+                    _halfPasses,
+                    _centerOfMass,
+                ) = GenUtils._prepareAttributes(
+                    _face,
+                    _toolRadius,
+                    _cutOut,
+                    _isCenterSet,
+                    _useStaticCenter,
+                    _patternCenterAt,
+                    _patternCenterCustom,
+                )
+                pathGeom = _generatePathGeometry()
+                pathGeometry.extend(pathGeom)
+        else:
+            GenUtils._debugMsg(
+                MODULE_NAME, "No offset faces after cut with base shape."
+            )
+
+    # GenUtils._debugMsg(MODULE_NAME, "Path with params: {}".format(_pathParams))
+
+    return pathGeometry

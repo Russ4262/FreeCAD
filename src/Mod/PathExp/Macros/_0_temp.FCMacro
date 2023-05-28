@@ -1,0 +1,36 @@
+import FreeCAD
+import FreeCADGui
+from PySide.QtCore import QT_TRANSLATE_NOOP
+
+class PathCommandGroup:
+    def __init__(self, cmdlist, menu, tooltip=None):
+        self.cmdlist = cmdlist
+        self.menu = menu
+        if tooltip is None:
+            self.tooltip = menu
+        else:
+            self.tooltip = tooltip
+
+    def GetCommands(self):
+        return tuple(self.cmdlist)
+
+    def GetResources(self):
+        return {"MenuText": self.menu, "ToolTip": self.tooltip}
+
+    def IsActive(self):
+        return True
+
+    def Activated(self):
+        print("Activated()")
+        return
+
+engravecmdlist = ["Path_Sample",]
+FreeCADGui.addCommand(
+    "Path_SampleCommand",
+    PathCommandGroup(
+        engravecmdlist,
+        QT_TRANSLATE_NOOP("Path_Sample", "Sample Operations"),
+    ),
+)
+
+

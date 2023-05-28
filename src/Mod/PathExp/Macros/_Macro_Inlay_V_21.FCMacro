@@ -1,0 +1,2696 @@
+# -*- coding: utf-8 -*-
+# ***************************************************************************
+# *   Copyright (c) 2022 Russell Johnson (russ4262) <russ4262@gmail.com>    *
+# *                                                                         *
+# *   This file is a supplement to the FreeCAD CAx development system.      *
+# *                                                                         *
+# *   This program is free software; you can redistribute it and/or modify  *
+# *   it under the terms of the GNU Lesser General Public License (LGPL)    *
+# *   as published by the Free Software Foundation; either version 2 of     *
+# *   the License, or (at your option) any later version.                   *
+# *   for detail see the LICENCE text file.                                 *
+# *                                                                         *
+# *   This program is distributed in the hope that it will be useful,       *
+# *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+# *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+# *   GNU Library General Public License for more details.                  *
+# *                                                                         *
+# *   You should have received a copy of the GNU Library General Public     *
+# *   License along with this program; if not, write to the Free Software   *
+# *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  *
+# *   USA                                                                   *
+# *                                                                         *
+# ***************************************************************************
+
+import FreeCAD
+import Part
+import FreeCADGui
+import Path.Geom as PathGeom
+import math
+import Macro_WireUtils as WireUtils
+
+DEBUG = False
+DEBUG_SHP = False
+DEBUG_ALL = True
+SHP_CNT = 1
+MAKE_BACKGROUND = False
+EDGECNT = 2000  # Maximum edge count
+ROUND_CORNERS = True  # value changes in code
+STOP = False
+
+
+class PsuedoTool:
+    def __init__(self):
+        self.ToolAngleDegrees = 60.0
+        self.CutEdgeHeight = None
+        self.CutEdgeWidth = None
+        self.setCutEdgeHeight(20.0)
+
+    def setCutEdgeHeight(self, height):
+        self.CutEdgeHeight = height
+        self.CutEdgewidth = math.tan(math.radians(self.ToolAngleDegrees / 2.0)) * height
+
+    def setCutEdgeWidth(self, width):
+        self.CutEdgeWidth = width
+        self.CutEdgeHeight = width / math.tan(math.radians(self.ToolAngleDegrees / 2.0))
+
+    def getOffsetAtDepth(self, depth):
+        return math.tan(math.radians(self.ToolAngleDegrees / 2.0)) * depth
+
+    def getDepthAtOffset(self, offset):
+        return offset / math.tan(math.radians(self.ToolAngleDegrees / 2.0))
+
+
+class PsuedoObject:
+    def __init__(self):
+        self.tool = None
+        # self.DiscretizeValue = 0.1  # Distance
+        self.DiscretizeValue = 0.30  # 0.25  # Deflection
+        self.MakeSolid = True
+        self.WireType = "Inlay"  # ["Bottom", "Inlay", "Midline"]
+        self.MakePaths = True
+        self.MakeBottom = True
+        self.StackComponents = True
+        self.Sqr_Corners_Btm = False
+        self.Sqr_Corners_Top = True
+
+        self.InlayThickness = 3.0  # Thickness of inlay
+        self.PocketBuffer = 1.0  # Extended depth below inlay
+        # self.PocketDepth = self.InlayThickness + self.PocketBuffer
+        self.PocketDepth = self.InlayThickness
+        self.InlayPad = 1.0
+
+    def setDepths(self):
+        if self.WireType == "Inlay":
+            self.PocketDepth = self.InlayThickness + self.PocketBuffer
+        elif self.WireType == "Bottom":
+            self.PocketDepth = self.InlayThickness + self.PocketBuffer
+        elif self.WireType == "Midline":
+            self.PocketDepth = self.InlayThickness + self.PocketBuffer
+
+    def setTool(self, toolObj):
+        self.tool = toolObj
+
+
+def logText(txt, force=False):
+    if DEBUG or force:
+        print(txt)
+
+
+def show(shape, name, force=False):
+    global SHP_CNT
+    obj = None
+    if DEBUG_SHP or force:
+        obj = Part.show(shape, name + f"_{SHP_CNT}")
+        if name.startswith("PathWire"):
+            pathGroupObj.addObject(obj)
+        else:
+            groupObject.addObject(obj)
+    if not name.startswith("Connect"):
+        SHP_CNT += 1
+    return obj
+
+
+def show2(shape, name, force=False):
+    global SHP_CNT
+    if (DEBUG_SHP or force) and shape is not None:
+        obj = Part.show(shape, name + f"_{SHP_CNT}")
+        if name.startswith("PathWire"):
+            pathGroupObj.addObject(obj)
+        else:
+            groupObject.addObject(obj)
+
+
+# Face creation and support functions
+def makeBoundBoxFace(bBox, offset=0.0, zHeight=0.0):
+    """PathGeom.makeBoundBoxFace(bBox, offset=0.0, zHeight=0.0)...
+    Function to create boundbox face, with possible extra offset and custom Z-height."""
+    p1 = FreeCAD.Vector(bBox.XMin - offset, bBox.YMin - offset, zHeight)
+    p2 = FreeCAD.Vector(bBox.XMax + offset, bBox.YMin - offset, zHeight)
+    p3 = FreeCAD.Vector(bBox.XMax + offset, bBox.YMax + offset, zHeight)
+    p4 = FreeCAD.Vector(bBox.XMin - offset, bBox.YMax + offset, zHeight)
+
+    L1 = Part.makeLine(p1, p2)
+    L2 = Part.makeLine(p2, p3)
+    L3 = Part.makeLine(p3, p4)
+    L4 = Part.makeLine(p4, p1)
+
+    return Part.Face(Part.Wire([L1, L2, L3, L4]))
+
+
+def vector_to_degrees(vector):
+    ang = round(math.degrees(math.atan2(vector.y, vector.x)), 6)
+    if ang < 0.0:
+        ang += 360.0
+    return ang
+
+
+def normalizeDegrees(a):
+    if a >= 360.0:
+        a -= 360.0
+    elif a < 0.0:
+        a += 360.0
+    return a
+
+
+def makeProjection(face):
+    bfbb = face.BoundBox
+    targetFace = PathGeom.makeBoundBoxFace(
+        bfbb, offset=5.0, zHeight=math.floor(bfbb.ZMin - 5.0)
+    )
+
+    direction = FreeCAD.Vector(0.0, 0.0, -1.0)
+    #      receiver_face.makeParallelProjection(project_shape, direction)
+    proj = targetFace.makeParallelProjection(face.Wires[0], direction)
+    proj.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - proj.BoundBox.ZMin))
+    return proj
+
+
+def discretizeEdgeList(edgeList, discretizeValue):
+    """Return Part.Wire object only consisting of lines and arcs."""
+    if len(edgeList) == 1:
+        # Likely a circle
+        return Part.Wire(edgeList[0].copy())
+
+    edges = []
+    for e in edgeList:
+        if e.Curve.TypeId == "Part::GeomCircle":
+            edges.append(e.copy())
+        elif e.Curve.TypeId == "Part::GeomLine":
+            edges.append(e.copy())
+        else:
+            # logText("Discretizing '{}' edge".format(e.Curve.TypeId))
+            # pnts = e.discretize(Distance=discretizeValue)
+            pnts = e.discretize(Deflection=discretizeValue)
+            for i in range(0, len(pnts) - 1):
+                edges.append(Part.makeLine(pnts[i], pnts[i + 1]))
+    # points.append(FreeCAD.Vector(points[0].x, points[0].y, points[0].z))
+    wire = Part.Wire(Part.__sortEdges__(edges))
+    return wire
+
+
+def getLowConnectPoint(face, topPoint):
+    for e in face.Edges:
+        if len(e.Vertexes) > 1:
+            if not PathGeom.isRoughly(e.Vertexes[0].Z, e.Vertexes[1].Z):
+                vertIdx = None
+                # Find topPoint on edge
+                if PathGeom.isRoughly(e.Vertexes[0].Point.sub(topPoint).Length, 0.0):
+                    return e.Vertexes[1].Point
+                elif PathGeom.isRoughly(e.Vertexes[1].Point.sub(topPoint).Length, 0.0):
+                    return e.Vertexes[0].Point
+        else:
+            # show2(face.copy(), "ErrorFace", True)
+            # show2(e.copy(), "ErrorEdge", True)
+            # return e.Vertexes[0].Point
+            pass
+    return None
+
+
+def makeRectangularFace(edge, halfToolAngle, depthOfCut, isClockwise):
+    logText(f"makeRectangularFace() {SHP_CNT}  DOC: {depthOfCut}  CW: {isClockwise}")
+    # show2(edge.copy(), "Edge")
+
+    origin = FreeCAD.Vector(0.0, 0.0, 0.0)
+    v0x = edge.Vertexes[0].X
+    v0y = edge.Vertexes[0].Y
+    # Make simple, rectagular face
+    l = edge.Length
+    w = depthOfCut / math.cos(math.radians(halfToolAngle))
+    p1 = FreeCAD.Vector(0.0, 0.0, 0.0)
+    p2 = FreeCAD.Vector(l, 0.0, 0.0)
+    p3 = FreeCAD.Vector(l, w, 0.0)
+    p4 = FreeCAD.Vector(0.0, w, 0.0)
+    l1 = Part.makeLine(p1, p2)
+    l2 = Part.makeLine(p2, p3)
+    l3 = Part.makeLine(p3, p4)
+    l4 = Part.makeLine(p4, p1)
+    face = Part.Face(Part.Wire([l1, l2, l3, l4]))
+    refEdge = face.Edge1
+
+    # show2(face.copy(), "Face")
+    # show2(face.Edge1.copy(), "RefEdge1")
+    eP0 = edge.Vertexes[0].Point
+    eP1 = edge.Vertexes[1].Point
+    edgeDir = eP1.sub(eP0)
+    # logText(f"eP1-eP0 {eP1} - {eP0}")
+    # logText(f"edgeDir {edgeDir}")
+    rP0 = refEdge.Vertexes[0].Point
+    rP1 = refEdge.Vertexes[1].Point
+    faceDir = rP0.sub(rP1)
+    # logText(f"rP0-rP1 {rP0} - {rP1}")
+    # logText(f"faceDir {faceDir}")
+
+    # rotate face down over X axis to tool angle
+    if isClockwise:
+        tiltAngle = -90.0 + halfToolAngle
+    else:
+        tiltAngle = -90.0 - halfToolAngle
+    # logText(f"tiltAngle {tiltAngle}")
+    face.rotate(origin, FreeCAD.Vector(1.0, 0.0, 0.0), tiltAngle)
+    # show2(face.copy(), "FaceTilt")
+
+    # rotate face around Z axis to orient same as source edge
+    xyRotationAngle = vector_to_degrees(edgeDir) - vector_to_degrees(faceDir)
+    # logText(f"xyRotationAngle {xyRotationAngle}")
+    face.rotate(origin, FreeCAD.Vector(0.0, 0.0, 1.0), xyRotationAngle)
+    # show2(face.copy(), "FaceRot")
+
+    # move face into position at source edge
+    xMove = v0x - face.Edge1.Vertexes[1].X
+    yMove = v0y - face.Edge1.Vertexes[1].Y
+    # logText(f"xMove {xMove},   yMove {yMove}")
+    face.translate(FreeCAD.Vector(xMove, yMove, 0.0))
+    angle = vector_to_degrees(face.Vertexes[0].Point.sub(face.Vertexes[1].Point))
+    # logText(f"angle {angle}")
+    # show2(face.copy(), "FaceRect")
+
+    return face, angle, xyRotationAngle
+
+
+def makeConicalFace(edge, halfToolAngle, depthOfCut, isClockwise):
+    logText(f"makeConicalFace() {SHP_CNT}  DOC: {depthOfCut}  CW: {isClockwise}")
+
+    if depthOfCut <= 0.0:
+        print("ERROR: makeConicalFace() depthOfCut <= 0.0")
+        return None
+
+    # plungeRadius is based on physical tool dimensions
+    plungeRadius = math.tan(math.radians(halfToolAngle)) * depthOfCut
+    edgeRadius = edge.Curve.Radius
+    angle = (edge.Length / (2.0 * math.pi * edge.Curve.Radius)) * 360.0
+
+    # logText(f"making cone: PR{plungeRadius}, AR{edgeRadius}, DOC{depthOfCut}, A{angle}")
+    if plungeRadius >= edgeRadius:
+        # logText(f"plungeRadius: {plungeRadius} >= edgeRadius: {edgeRadius}")
+        # Set depth of cut as needed, raising cutter such that cutter only plunges to fit arc radius
+        bottomRadius = 0.0
+        depth = edgeRadius / math.tan(math.radians(halfToolAngle))
+    else:
+        # logText(f"plungeRadius: {plungeRadius} < edgeRadius: {edgeRadius}")
+        if isClockwise:
+            bottomRadius = edgeRadius + plungeRadius
+        else:
+            bottomRadius = edgeRadius - plungeRadius
+        depth = depthOfCut
+
+    # logText(f"    CF: BRad:{bottomRadius}, TRad:{edgeRadius}, Dep:{depth}, Ang:{angle}")
+    cone = Part.makeCone(
+        bottomRadius,
+        edgeRadius,
+        depth,
+        FreeCAD.Vector(0.0, 0.0, 0.0),
+        FreeCAD.Vector(0.0, 0.0, 1.0),
+        angle,
+    )
+    face = cone.Faces[0].copy()
+    face.translate(
+        FreeCAD.Vector(edge.Curve.Center.x, edge.Curve.Center.y, edge.Curve.Center.z)
+    )
+
+    edgeMidpoint = WireUtils.valueAtEdgeLength(edge, edge.Length / 2.0)
+    edgeDirRaw = edgeMidpoint.sub(edge.Curve.Center)
+    edgeDir = FreeCAD.Vector(edgeDirRaw.x, edgeDirRaw.y, 0.0)
+    # eLine = Part.makeLine(edge.Curve.Center, edgeMidpoint)
+    # show2(eLine, "ELine")
+
+    faceEdge = face.Edges[0]
+    faceMidpoint = WireUtils.valueAtEdgeLength(faceEdge, faceEdge.Length / 2.0)
+    faceDirRaw = faceMidpoint.sub(faceEdge.Curve.Center)
+    faceDir = FreeCAD.Vector(faceDirRaw.x, faceDirRaw.y, 0.0)
+    # fLine = Part.makeLine(edge.Curve.Center, faceMidpoint)
+    # show2(fLine, "FLine")
+
+    rotationAngle = vector_to_degrees(edgeDir) - vector_to_degrees(faceDir)
+    face.rotate(faceEdge.Curve.Center, FreeCAD.Vector(0.0, 0.0, 1.0), rotationAngle)
+    face.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - face.BoundBox.ZMax))
+    # logText(f"    edgeDir:{edgeDir}, faceDir:{faceDir}, RotAng:{rotationAngle}")
+
+    return face, angle, rotationAngle
+
+
+def makeConicalFace_alt(edge, halfToolAngle, depthOfCut, isClockwise):
+    logText(f"makeConicalFace_alt() {SHP_CNT}  DOC: {depthOfCut}  CW: {isClockwise}")
+
+    if depthOfCut <= 0.0:
+        print("ERROR: makeConicalFace() depthOfCut <= 0.0")
+        return None
+
+    # plungeRadius is based on physical tool dimensions
+    plungeRadius = math.tan(math.radians(halfToolAngle)) * depthOfCut
+    edgeRadius = edge.Curve.Radius
+    angle = (edge.Length / (2.0 * math.pi * edge.Curve.Radius)) * 360.0
+
+    # logText(f"making cone: PR{plungeRadius}, AR{edgeRadius}, DOC{depthOfCut}, A{angle}")
+    if plungeRadius >= edgeRadius:
+        # logText(f"plungeRadius: {plungeRadius} >= edgeRadius: {edgeRadius}")
+        # Set depth of cut as needed, raising cutter such that cutter only plunges to fit arc radius
+        if isClockwise:
+            bottomRadius = edgeRadius + plungeRadius
+            depth = depthOfCut
+        else:
+            bottomRadius = 0.0
+            depth = edgeRadius / math.tan(math.radians(halfToolAngle))
+    else:
+        # logText(f"plungeRadius: {plungeRadius} < edgeRadius: {edgeRadius}")
+        if isClockwise:
+            bottomRadius = edgeRadius + plungeRadius
+        else:
+            bottomRadius = edgeRadius - plungeRadius
+        depth = depthOfCut
+
+    # logText(f"making cone: BR{bottomRadius}, TR{edgeRadius}, D{depth}, A{angle}")
+    cone = Part.makeCone(
+        bottomRadius,
+        edgeRadius,
+        depth,
+        FreeCAD.Vector(0.0, 0.0, 0.0),
+        FreeCAD.Vector(0.0, 0.0, 1.0),
+        angle,
+    )
+    face = cone.Faces[0].copy()
+    face.translate(
+        FreeCAD.Vector(edge.Curve.Center.x, edge.Curve.Center.y, edge.Curve.Center.z)
+    )
+    edgeMidpoint = WireUtils.valueAtEdgeLength(edge, edge.Length / 2.0)
+    edgeDirRaw = edgeMidpoint.sub(edge.Curve.Center)
+    edgeDir = FreeCAD.Vector(edgeDirRaw.x, edgeDirRaw.y, 0.0)
+    # eLine = Part.makeLine(edge.Curve.Center, edgeMidpoint)
+    # show2(eLine, "ELine")
+
+    faceEdge = face.Edges[0]
+    faceMidpoint = WireUtils.valueAtEdgeLength(faceEdge, faceEdge.Length / 2.0)
+    faceDirRaw = faceMidpoint.sub(faceEdge.Curve.Center)
+    faceDir = FreeCAD.Vector(faceDirRaw.x, faceDirRaw.y, 0.0)
+    # fLine = Part.makeLine(edge.Curve.Center, faceMidpoint)
+    # show2(fLine, "FLine")
+
+    rotationAngle = vector_to_degrees(edgeDir) - vector_to_degrees(faceDir)
+    face.rotate(faceEdge.Curve.Center, FreeCAD.Vector(0.0, 0.0, 1.0), rotationAngle)
+    face.translate(FreeCAD.Vector(0.0, 0.0, 0.0 - face.BoundBox.ZMax))
+    # logText(f"    edgeDir:{edgeDir}, faceDir:{faceDir}, RotAng:{rotationAngle}")
+
+    return face, angle, rotationAngle
+
+
+def toRectangularConnection(face, sweepAngle):
+    """toRectangularConnection(face, sweepAngle)
+    Convert cone face section to fusion of two triangular faces, making rectangular corner instead of arc."""
+    fbb = face.BoundBox
+    zMin = fbb.ZMin
+    tip = face.Vertexes[0].Point
+    cent = FreeCAD.Vector(tip.x, tip.y, zMin)
+    midPnt = WireUtils.valueAtEdgeLength(face.Edges[2], face.Edges[2].Length / 2.0)
+    vect = midPnt.sub(cent).normalize()
+    rad = face.Vertexes[1].Point.sub(cent).Length
+    dist = rad / math.cos(math.radians(sweepAngle) / 2.0)
+    vect.multiply(dist)
+    midLine = cent.add(vect)
+
+    # show2(Part.makeLine(cent, midLine), "MidLine", True)
+
+    seg1 = Part.makeLine(tip, face.Vertexes[1].Point)
+    seg2 = Part.makeLine(face.Vertexes[1].Point, midLine)
+    seg3 = Part.makeLine(midLine, tip)
+    f1 = Part.Face(Part.Wire([seg1, seg2, seg3]))
+    # show2(f1, "Face1", True)
+
+    seg4 = Part.makeLine(tip, face.Vertexes[2].Point)
+    seg5 = Part.makeLine(face.Vertexes[2].Point, midLine)
+    seg6 = Part.makeLine(midLine, tip)
+    f2 = Part.Face(Part.Wire([seg4, seg5, seg6]))
+    # show2(f2, "Face2", True)
+
+    return f1.fuse(f2)
+
+
+def makeConicalConnection(
+    edge, halfToolAngle, depthOfCut, arcAngle, prevPoint, isClockwise
+):
+    """makeConicalConnection(edge, halfToolAngle, depthOfCut, arcAngle, prevPoint, isClockwise)
+    Return section of cone as arc connection face."""
+    # This function assumes counterclockwise wire direction
+    if depthOfCut <= 0.0:
+        print("ERROR: makeConicalConnection() depthOfCut <= 0.0")
+        return None
+
+    plungeRadius = math.tan(math.radians(halfToolAngle)) * depthOfCut
+    commonPoint = edge.Vertexes[0].Point
+    coneAngle = arcAngle
+    if isClockwise:
+        faceIdx = 2
+    else:
+        faceIdx = 1
+
+    cone = Part.makeCone(
+        plungeRadius,
+        0.0,
+        depthOfCut,
+        FreeCAD.Vector(0.0, 0.0, 0.0),
+        FreeCAD.Vector(0.0, 0.0, 1.0),
+        coneAngle,
+    )
+    cone.translate(
+        FreeCAD.Vector(
+            commonPoint.x - cone.Vertexes[0].X,
+            commonPoint.y - cone.Vertexes[0].Y,
+            commonPoint.z - cone.Vertexes[0].Z,
+        )
+    )
+
+    face = cone.Face1.copy()
+
+    centToPrev = prevPoint.sub(commonPoint)
+    centToConeFaceVert2 = face.Vertexes[faceIdx].Point.sub(commonPoint)
+    rotationAngle = vector_to_degrees(centToPrev) - vector_to_degrees(
+        centToConeFaceVert2
+    )
+
+    face.rotate(commonPoint, FreeCAD.Vector(0.0, 0.0, 1.0), rotationAngle)
+
+    # show2(face, "ConnectFace", True)
+    if ROUND_CORNERS:
+        return face
+
+    return toRectangularConnection(face, coneAngle)
+
+
+def computeConnectAngle(lastEdge, lastFace, edge, face):
+    c = lastEdge.Vertexes[-1].Point
+    center = FreeCAD.Vector(c.x, c.y, lastFace.BoundBox.ZMin)
+
+    if lastEdge.Curve.TypeId == "Part::GeomCircle":
+        p1 = lastFace.Vertexes[2].Point
+    elif lastEdge.Curve.TypeId == "Part::GeomLine":
+        p1 = lastFace.Vertexes[0].Point
+    if edge.Curve.TypeId == "Part::GeomCircle":
+        p2 = face.Vertexes[3].Point
+    elif edge.Curve.TypeId == "Part::GeomLine":
+        p2 = face.Vertexes[2].Point
+
+    # Part.show(Part.makeLine(center, p1))
+    # Part.show(Part.makeLine(center, p2))
+
+    v1 = p1.sub(center)
+    v2 = p2.sub(center)
+
+    ang1 = vector_to_degrees(v1)
+    ang2 = vector_to_degrees(v2)
+    print(f"ang1: {ang1},  ang2: {ang2}")
+
+    return ang2 - ang1
+
+
+def touchTwice(f1, f2):
+    """Return True if two faces share two vertexes."""
+    h = min(f1.BoundBox.ZLength, f2.BoundBox.ZLength)
+    fused = f1.fuse(f2)
+    if len(fused.Faces) > 2:
+        return True
+
+    pnts1 = [pointToText(v.Point) for v in f1.Vertexes]
+    pnts2 = [pointToText(v.Point) for v in f2.Vertexes]
+    cnt = 0
+    for p in pnts1:
+        if p in pnts2:
+            cnt += 1
+    if cnt > 1:
+        return True
+    return False
+
+
+# Main raw inlay creation functions
+def getFace_CCW(e, halfToolAngle, depthOfCut, outside=False):
+    """getFace_CCW(e, halfToolAngle, depthOfCut, outside=False)"""
+    logText(f"getFace_CCW(e, halfToolAngle, depthOfCut, outside={outside})")
+    # show2(e, "Edge_CW")
+    eType = e.Curve.TypeId
+    if eType == "Part::GeomCircle":
+        logText(f"Processing Part::GeomCircle {SHP_CNT} . . . . . . . . . .")
+        f, ang, rotAng = makeConicalFace(e, halfToolAngle, depthOfCut, outside)
+        edgeEndAng = normalizeDegrees(ang + rotAng + 90.0)
+        if edgeEndAng == 0.0:
+            edgeEndAng += 360.0
+        edgeStartAng = normalizeDegrees(rotAng + 90.0)
+        return "GC", f, ang, rotAng, edgeStartAng, edgeEndAng
+    elif eType == "Part::GeomLine":
+        logText(f"Processing Part::GeomLine {SHP_CNT} . . . . . . . . . .")
+        f, ang, rotAng = makeRectangularFace(e, halfToolAngle, depthOfCut, outside)
+        edgeStartAng = normalizeDegrees(ang)
+        if edgeStartAng == 0.0:
+            edgeStartAng += 360.0
+        edgeEndAng = edgeStartAng
+        return "GL", f, ang, rotAng, edgeStartAng, edgeEndAng
+    else:
+        print(f"makeInlay...() Ignoring '{eType}' edge")
+        return None, None, None, None, None, None
+
+
+def makeInlayCounterInside(w, isClosed, halfToolAngle, depthOfCut):
+    logText(
+        f"makeInlayCounterInside(wire, hta: {halfToolAngle}, doc: {depthOfCut})",
+        force=True,
+    )
+
+    global EDGECNT
+    faces = []
+    allAngDiffs = []
+    lastIsConnect = False
+    firstID = 0
+    # edges = [e.copy() for e in w.Edges] + [w.Edges[0].copy()]
+    edges = [e.copy() for e in w.Edges]
+
+    if isClosed:
+        # Cycle edges to find line for start, if available.
+        for __ in range(len(edges)):
+            if edges[0].Curve.TypeId != "Part::GeomLine":
+                edges.append(edges.pop(0))
+
+        # Copy first edge to end to complete loop
+        edges.append(edges[0].copy())
+
+    logText(f"Processing {len(w.Edges)} edges")
+    show2(w, "Wire_CCW")
+
+    # Process first edge
+    lastEdge = edges[0]
+    eType, f, __, __, eStAng, eEndAng = getFace_CCW(lastEdge, halfToolAngle, depthOfCut)
+    lastFace = f
+    lastEndAng = eEndAng
+    faces = [f]
+    # Verify correct direction of circular face
+    if eType == "GC":
+        firstID = 1
+        vect = lastEdge.Vertexes[1].Point.sub(lastEdge.Vertexes[0].Point)
+        tLine = Part.makeLine(
+            lastEdge.Vertexes[1].Point, lastEdge.Vertexes[1].Point.add(vect)
+        )
+        show2(tLine, "tLine")
+        tup = getFace_CCW(tLine, halfToolAngle, depthOfCut)
+        # show2(tup[1], "ArcLine")
+        aligned = touchTwice(tup[1], lastFace)
+        if not aligned:
+            firstID = 2
+            logText("First face NOT aligned.")
+            eType, f, __, __, eStAng, eEndAng = getFace_CCW(
+                lastEdge, halfToolAngle, depthOfCut, True
+            )
+            lastFace = f
+            lastEndAng = eEndAng
+            faces = [f]
+            firstSwapped = True
+    logText(f"FIRST-EDGE edgeStartAng {eStAng},  edgeEndAng {eEndAng}")
+    show(f, f"FirstFace_{eType}")
+
+    # Process remaining edges
+    for e in edges[1:]:
+        logText("  ")
+        if EDGECNT < 0:
+            break
+        EDGECNT -= 1
+        eType, f, ang, rotAng, edgeStartAng, edgeEndAng = getFace_CCW(
+            e, halfToolAngle, depthOfCut
+        )
+        logText(f"... working on {eType}_{SHP_CNT}")
+        logText(
+            f"lastEndAng: {lastEndAng} --> edgeStartAng {edgeStartAng},  edgeEndAng {edgeEndAng}"
+        )
+        aligned = touchTwice(f, lastFace)
+        logText(f"Last face aligned: {aligned}")
+        if eType == "GC":  # Circle
+            if not aligned:
+                show2(f, "Orig_GC_Face")
+                logText(f"Rechecking if face aligned...")
+                (
+                    __,
+                    f2,
+                    __,
+                    __,
+                    __,
+                    __,
+                ) = getFace_CCW(e, halfToolAngle, depthOfCut, True)
+                show2(f2, "Alt_GC_Face")
+                aligned2 = touchTwice(f2, lastFace)
+                logText(f"... aligned: {aligned2}")
+                if not aligned2:
+                    logText(f"New face NOT aligned")
+                    aligned = True
+
+            if aligned:
+                # Assumption is counterclockwise wire
+                angDiff = edgeStartAng - lastEndAng
+                logText(f"angDiff {angDiff}")
+                if angDiff < 0.0 and angDiff > -180.0:
+                    logText("Making connection face.")
+                    # make conneccting conical face
+                    coneFace = makeConicalConnection(
+                        e,
+                        halfToolAngle,
+                        depthOfCut,
+                        abs(angDiff),
+                        getLowConnectPoint(lastFace, e.Vertexes[0].Point),
+                        False,
+                    )
+                    show(coneFace, "ConnectFace_C")
+                    faces.append(coneFace)
+                else:
+                    logText("GeomCircle angle aligns with last angle. 1")
+                    pass
+                show(f, "ConeFace_C")
+                faces.append(f)
+                lastIsConnect = False
+                lastEndAng = normalizeDegrees(edgeEndAng)
+            else:
+                logText("Recalculating circular face.")
+                # show2(f, "MalAlignedFace")
+                del f
+                (
+                    eType,
+                    f,
+                    ang,
+                    rotAng,
+                    edgeStartAng,
+                    edgeEndAng,
+                ) = getFace_CCW(e, halfToolAngle, depthOfCut, True)
+                logText(
+                    f"Recalc lastEndAng: {lastEndAng} --> edgeStartAng {edgeStartAng},  edgeEndAng {edgeEndAng}"
+                )
+
+                # Assumption is counterclockwise wire
+                angDiff = edgeStartAng - lastEndAng
+                logText(f"angDiff {angDiff}")
+                if angDiff > 0.0 and angDiff < 180.0:
+                    logText("Making connection face.")
+                    # make conneccting conical face
+                    coneFace = makeConicalConnection(
+                        e,
+                        halfToolAngle,
+                        depthOfCut,
+                        abs(angDiff),
+                        getLowConnectPoint(lastFace, e.Vertexes[0].Point),
+                        False,
+                    )
+                    show(coneFace, "ConnectFace_C")
+                    faces.append(coneFace)
+                else:
+                    logText("GeomCircle angle aligns with last angle. 1")
+                    pass
+                show(f, "ConeFace_C")
+                faces.append(f)
+                lastIsConnect = False
+                lastEndAng = edgeEndAng
+        elif eType == "GL":  # Line
+            if not aligned:
+                logText("GL NOT aligned")
+                angDiff = edgeStartAng - lastEndAng
+                logText(f"angDiff {angDiff}")
+                # obtuse joint
+                logText("Making connection face.")
+                if angDiff > 180.0:
+                    angDiff = 360.0 - angDiff
+
+                # make conneccting conical face
+                coneFace = makeConicalConnection(
+                    e,
+                    halfToolAngle,
+                    depthOfCut,
+                    abs(angDiff),
+                    getLowConnectPoint(lastFace, e.Vertexes[0].Point),
+                    False,
+                )
+                if firstID > 0:
+                    tch = touchTwice(f, coneFace)
+                    if not tch and firstID > 0:
+                        if firstID == 2:
+                            __, f3, __, __, __, eEndAng3 = getFace_CCW(
+                                lastEdge, halfToolAngle, depthOfCut
+                            )
+                            lastFace = f3
+                            lastEndAng = eEndAng3
+                            faces = [f3]
+                else:
+                    show(coneFace, "ConnectFace_L")
+                    faces.append(coneFace)
+            else:
+                logText("No connection edge necessary.")
+                pass
+            lastIsConnect = False
+            lastEndAng = edgeEndAng
+            faces.append(f)
+            show(f, "RectFace_C")
+        else:
+            print("Edge type is None.")
+
+        lastFace = f
+        firstID = 0
+    # Efor
+
+    for s in allAngDiffs:
+        logText(f"AD Set: {s}")
+
+    # remove last face
+    if isClosed:
+        faces.pop()
+    if lastIsConnect:
+        faces.pop()
+
+    return fuseFaces(faces)
+
+
+def makeInlayCounterOutside(w, isClosed, halfToolAngle, depthOfCut):
+    logText(
+        f"makeInlayCounterOutside(wire, hta: {halfToolAngle}, doc: {depthOfCut})",
+        force=True,
+    )
+
+    global EDGECNT
+    # EDGECNT = 4
+    faces = []
+    allAngDiffs = []
+    lastIsConnect = False
+    firstID = 0
+    # edges = [e.copy() for e in w.Edges] + [w.Edges[0].copy()]
+    edges = [e.copy() for e in w.Edges]
+
+    if isClosed:
+        # Cycle edges to find line for start, if available.
+        for __ in range(len(edges)):
+            if edges[0].Curve.TypeId != "Part::GeomLine":
+                edges.append(edges.pop(0))
+
+        # Copy first edge to end to complete loop
+        edges.append(edges[0].copy())
+
+    logText(f"Processing {len(w.Edges)} edges")
+    show2(w, "Wire_CCW")
+    inside = False
+
+    # Process first edge
+    lastEdge = edges[0]
+    eType, f, __, __, eStAng, eEndAng = getFace_CW(
+        lastEdge, halfToolAngle, depthOfCut, inside
+    )
+    lastFace = f
+    lastEndAng = eEndAng
+    faces = [f]
+    # Verify correct direction of circular face
+    if eType == "GC":
+        firstID = 1
+        vect = lastEdge.Vertexes[1].Point.sub(lastEdge.Vertexes[0].Point)
+        tLine = Part.makeLine(
+            lastEdge.Vertexes[1].Point, lastEdge.Vertexes[1].Point.add(vect)
+        )
+        tup = getFace_CW(tLine, halfToolAngle, depthOfCut)
+        # show2(tup[1], "ArcLine")
+        aligned = touchTwice(tup[1], lastFace)
+        if not aligned:
+            firstID = 2
+            eType, f, __, __, eStAng, eEndAng = getFace_CW(
+                lastEdge, halfToolAngle, depthOfCut, not inside
+            )
+            lastFace = f
+            lastEndAng = eEndAng
+            faces = [f]
+    logText(f"FIRST-EDGE edgeStartAng {eStAng},  edgeEndAng {eEndAng}")
+    show(f, f"FirstFace_{eType}")
+
+    # Process remaining edges
+    for e in edges[1:]:
+        logText("  ")
+        if EDGECNT < 0:
+            break
+        EDGECNT -= 1
+        if lastEndAng == 360.0:
+            lastEndAng = 0.0
+        eType, f, ang, rotAng, edgeStartAng, edgeEndAng = getFace_CW(
+            e, halfToolAngle, depthOfCut, inside
+        )
+        logText(
+            f"lastEndAng: {lastEndAng} --> edgeStartAng {edgeStartAng},  edgeEndAng {edgeEndAng}"
+        )
+        logText(f"... working on {eType}_{SHP_CNT}")
+        aligned = touchTwice(f, lastFace)
+        logText(f"Last face aligned: {aligned}")
+        if eType == "GC":  # Circle
+            if not aligned:
+                logText(f"Rechecking if face aligned...")
+                (
+                    __,
+                    f2,
+                    __,
+                    __,
+                    __,
+                    __,
+                ) = getFace_CW(e, halfToolAngle, depthOfCut, not inside)
+                aligned2 = touchTwice(f2, lastFace)
+                logText(f"... aligned: {aligned2}")
+                if not aligned2:
+                    logText(f"New face NOT aligned")
+                    # aligned = True
+
+            if aligned:
+                # Assumption is counterclockwise wire
+                angDiff = edgeStartAng - lastEndAng
+                logText(f"angDiff {angDiff}")
+                if angDiff > 0.0 and angDiff < 180.0:
+                    logText("Making connection face.")
+                    # make conneccting conical face
+                    coneFace = makeConicalConnection(
+                        e,
+                        halfToolAngle,
+                        depthOfCut,
+                        abs(angDiff),
+                        getLowConnectPoint(lastFace, e.Vertexes[0].Point),
+                        False,
+                    )
+                    show(coneFace, "ConnectFace_C")
+                    faces.append(coneFace)
+                else:
+                    logText("GeomCircle angle aligns with last angle. 1")
+                    pass
+                show(f, "ConeFace_C")
+                faces.append(f)
+                lastIsConnect = False
+                lastEndAng = edgeEndAng
+            else:
+                logText("Recalculating circular face.")
+                # show2(f, "MalAlignedFace")
+                del f
+                (
+                    eType,
+                    f,
+                    ang,
+                    rotAng,
+                    edgeStartAng,
+                    edgeEndAng,
+                ) = getFace_CW(e, halfToolAngle, depthOfCut, not inside)
+                # edgeStartAng -= 180.0
+                logText(
+                    f"Recalc lastEndAng: {lastEndAng} --> edgeStartAng {edgeStartAng},  edgeEndAng {edgeEndAng}"
+                )
+
+                # Assumption is counterclockwise wire
+                angDiff = edgeStartAng - lastEndAng
+                logText(f"angDiff {angDiff}")
+                if (angDiff > 0.0 and angDiff < 180.0) or (
+                    angDiff < 0.0 and angDiff > -180.0
+                ):
+                    logText("Making connection face.")
+                    # make conneccting conical face
+                    coneFace = makeConicalConnection(
+                        e,
+                        halfToolAngle,
+                        depthOfCut,
+                        abs(angDiff),
+                        getLowConnectPoint(lastFace, e.Vertexes[0].Point),
+                        False,
+                    )
+                    show(coneFace, "ConnectFace_C")
+                    faces.append(coneFace)
+                else:
+                    logText("GeomCircle angle aligns with last angle. 1")
+                    pass
+                show(f, "ConeFace_C")
+                faces.append(f)
+                lastIsConnect = False
+                lastEndAng = edgeEndAng
+        elif eType == "GL":  # Line
+            if not aligned:
+                if edgeStartAng == 360.0:
+                    angDiff = 0.0 - lastEndAng
+                elif lastEndAng == 0.0:
+                    angDiff = edgeStartAng - 360.0
+                else:
+                    angDiff = edgeStartAng - lastEndAng
+                if (
+                    edgeStartAng > 0.0
+                    and lastEndAng > 0.0
+                    and edgeStartAng > lastEndAng
+                ):
+                    logText("-360.0 from angDiff")
+                    angDiff -= 360.0
+
+                logText(f"angDiff {angDiff}")
+                logText("Making connection face.")
+                # make conneccting conical face
+                coneFace = makeConicalConnection(
+                    e,
+                    halfToolAngle,
+                    depthOfCut,
+                    abs(angDiff),
+                    getLowConnectPoint(lastFace, e.Vertexes[0].Point),
+                    False,
+                )
+                if firstID > 0:
+                    tch = touchTwice(f, coneFace)
+                    if not tch and firstID > 0:
+                        if firstID == 2:
+                            __, f3, __, __, __, eEndAng3 = getFace_CCW(
+                                lastEdge, halfToolAngle, depthOfCut
+                            )
+                            lastFace = f3
+                            lastEndAng = eEndAng3
+                            faces = [f3]
+                else:
+                    show(coneFace, "ConnectFace_L")
+                    faces.append(coneFace)
+            else:
+                logText("No connection edge necessary.")
+                pass
+            lastIsConnect = False
+            lastEndAng = edgeEndAng
+            faces.append(f)
+            show(f, "RectFace_C")
+        else:
+            print("Edge type is None.")
+
+        lastFace = f
+        firstID = 0
+    # Efor
+
+    for s in allAngDiffs:
+        logText(f"AD Set: {s}")
+
+    # remove last face
+    if isClosed:
+        faces.pop()
+    if lastIsConnect:
+        faces.pop()
+
+    return fuseFaces(faces)
+
+
+def getFace_CW(e, halfToolAngle, depthOfCut, inside=True):
+    """getFace_CW(e, halfToolAngle, depthOfCut, inside=True)"""
+    logText(f"getFace_CW(e, halfToolAngle, depthOfCut, inside={inside})")
+    # show2(e, "Edge_CW")
+    eType = e.Curve.TypeId
+    if eType == "Part::GeomCircle":
+        logText(f"Processing Part::GeomCircle {SHP_CNT} . . . . . . . . . .")
+        if inside:
+            f, ang, rotAng = makeConicalFace(e, halfToolAngle, depthOfCut, inside)
+        else:
+            f, ang, rotAng = makeConicalFace_alt(e, halfToolAngle, depthOfCut, inside)
+
+        edgeStartAng = normalizeDegrees(ang + rotAng - 90.0)
+        if edgeStartAng == 0.0:
+            edgeStartAng += 360.0
+        edgeEndAng = normalizeDegrees(-90.0 + rotAng)
+        return "GC", f, ang, rotAng, edgeStartAng, edgeEndAng
+    elif eType == "Part::GeomLine":
+        logText(f"Processing Part::GeomLine {SHP_CNT} . . . . . . . . . .")
+        f, ang, rotAng = makeRectangularFace(e, halfToolAngle, depthOfCut, inside)
+        edgeStartAng = normalizeDegrees(ang)
+        if edgeStartAng == 0.0:
+            edgeStartAng += 360.0
+        edgeEndAng = edgeStartAng
+        return "GL", f, ang, rotAng, edgeStartAng, edgeEndAng
+    else:
+        print(f"makeInlay...() Ignoring '{eType}' edge")
+        return None, None, None, None, None, None
+
+
+def makeInlayClockwiseOutside(w, isClosed, halfToolAngle, depthOfCut):
+    logText(
+        f"makeInlayClockwiseOutside(wire, hta: {halfToolAngle}, doc: {depthOfCut})",
+        force=True,
+    )
+
+    global EDGECNT
+    faces = []
+    allAngDiffs = []
+    lastIsConnect = False
+    firstID = 0
+    # edges = [e.copy() for e in w.Edges] + [w.Edges[0].copy()]
+    edges = [e.copy() for e in w.Edges]
+
+    if isClosed:
+        # Cycle edges to find line for start, if available.
+        for __ in range(len(edges)):
+            if edges[0].Curve.TypeId != "Part::GeomLine":
+                edges.append(edges.pop(0))
+
+        # Copy first edge to end to complete loop
+        edges.append(edges[0].copy())
+
+    logText(f"Processing {len(w.Edges)} edges")
+    show2(w, "Wire_CCW")
+
+    # Process first edge
+    lastEdge = edges[0]
+    eType, f, __, __, eStAng, eEndAng = getFace_CW(
+        lastEdge, halfToolAngle, depthOfCut, False
+    )
+    lastFace = f
+    lastEndAng = eEndAng
+    faces = [f]
+    # Verify correct direction of circular face
+    if eType == "GC":
+        firstID = 1
+        vect = lastEdge.Vertexes[1].Point.sub(lastEdge.Vertexes[0].Point)
+        tLine = Part.makeLine(
+            lastEdge.Vertexes[1].Point, lastEdge.Vertexes[1].Point.add(vect)
+        )
+        tup = getFace_CW(tLine, halfToolAngle, depthOfCut, False)
+        # show2(tup[1], "ArcLine")
+        aligned = touchTwice(tup[1], lastFace)
+        if not aligned:
+            firstID = 2
+            eType, f, __, __, eStAng, eEndAng = getFace_CW(
+                lastEdge, halfToolAngle, depthOfCut, True
+            )
+            lastFace = f
+            lastEndAng = eEndAng
+            faces = [f]
+    logText(f"FIRST-EDGE edgeStartAng {eStAng},  edgeEndAng {eEndAng}")
+    show(f, f"FirstFace_{eType}")
+
+    # Process remaining edges
+    for e in edges[1:]:
+        if EDGECNT < 0:
+            break
+        EDGECNT -= 1
+        eType, f, ang, rotAng, edgeStartAng, edgeEndAng = getFace_CW(
+            e, halfToolAngle, depthOfCut, False
+        )
+        logText(f"... working on {eType}_{SHP_CNT}")
+        logText(
+            f"lastEndAng: {lastEndAng} --> edgeStartAng {edgeStartAng},  edgeEndAng {edgeEndAng}"
+        )
+        aligned = touchTwice(f, lastFace)
+        logText(f"Last face aligned: {aligned}")
+        if eType == "GC":  # Circle
+            if not aligned:
+                logText(f"Rechecking if face aligned...")
+                (
+                    __,
+                    f2,
+                    __,
+                    __,
+                    __,
+                    __,
+                ) = getFace_CW(e, halfToolAngle, depthOfCut, True)
+                aligned2 = touchTwice(f2, lastFace)
+                logText(f"... aligned: {aligned2}")
+                if not aligned2:
+                    logText(f"New face NOT aligned")
+                    # aligned = True
+            else:
+                esa = edgeStartAng
+                eea = edgeEndAng
+                edgeStartAng = normalizeDegrees(eea - 180.0)
+                edgeEndAng = normalizeDegrees(esa + 180.0)
+                # logText(
+                #    f"lastEndAng: {lastEndAng} --> edgeStartAng {edgeStartAng},  edgeEndAng {edgeEndAng}"
+                # )
+
+            if aligned:
+                # Assumption is counterclockwise wire
+                # angDiff = normalizeDegrees(edgeStartAng - lastEndAng)
+                angDiff = edgeStartAng - lastEndAng
+                logText(f"angDiff {angDiff}")
+                if angDiff < 0.0 and angDiff > -180.0:
+                    logText("Making connection face.")
+                    # make conneccting conical face
+                    coneFace = makeConicalConnection(
+                        e,
+                        halfToolAngle,
+                        depthOfCut,
+                        abs(angDiff),
+                        getLowConnectPoint(lastFace, e.Vertexes[0].Point),
+                        True,
+                    )
+                    show(coneFace, "ConnectFace_C")
+                    faces.append(coneFace)
+                else:
+                    logText("GeomCircle angle aligns with last angle. 1")
+                    pass
+                show(f, "ConeFace_C")
+                faces.append(f)
+                lastIsConnect = False
+                lastEndAng = normalizeDegrees(edgeEndAng)
+            else:
+                logText("Recalculating circular face.")
+                # show2(f, "MalAlignedFace")
+                del f
+                (
+                    eType,
+                    f,
+                    ang,
+                    rotAng,
+                    edgeStartAng,
+                    edgeEndAng,
+                ) = getFace_CW(e, halfToolAngle, depthOfCut, True)
+                # edgeStartAng -= 180.0
+                logText(
+                    f"Recalc lastEndAng: {lastEndAng} --> edgeStartAng {edgeStartAng},  edgeEndAng {edgeEndAng}"
+                )
+
+                # Assumption is counterclockwise wire
+                angDiff = edgeStartAng - lastEndAng
+                logText(f"angDiff {angDiff}")
+                if angDiff < 0.0 and angDiff > -180.0:
+                    logText("Making connection face.")
+                    # make conneccting conical face
+                    coneFace = makeConicalConnection(
+                        e,
+                        halfToolAngle,
+                        depthOfCut,
+                        abs(angDiff),
+                        getLowConnectPoint(lastFace, e.Vertexes[0].Point),
+                        False,
+                    )
+                    show(coneFace, "ConnectFace_C")
+                    faces.append(coneFace)
+                else:
+                    logText("GeomCircle angle aligns with last angle. 1")
+                    pass
+                show(f, "ConeFace_C")
+                faces.append(f)
+                lastIsConnect = False
+                lastEndAng = edgeEndAng
+        elif eType == "GL":  # Line
+            if not aligned:
+                angDiff = edgeStartAng - lastEndAng
+                logText(f"angDiff {angDiff}")
+                # obtuse joint
+                logText("Making connection face.")
+                # make conneccting conical face
+                coneFace = makeConicalConnection(
+                    e,
+                    halfToolAngle,
+                    depthOfCut,
+                    abs(angDiff),
+                    getLowConnectPoint(lastFace, e.Vertexes[0].Point),
+                    False,
+                )
+                if firstID > 0:
+                    tch = touchTwice(f, coneFace)
+                    if not tch and firstID > 0:
+                        if firstID == 2:
+                            __, f3, __, __, eStAng3, eEndAng3 = getFace_CW(
+                                lastEdge, halfToolAngle, depthOfCut, False
+                            )
+                            logText(f"eStAng3, eEndAng3: {eStAng3}, {eEndAng3}")
+                            lastFace = f3
+                            lastEndAng = eStAng3
+                            faces = [f3]
+                else:
+                    show(coneFace, "ConnectFace_L")
+                    faces.append(coneFace)
+            else:
+                logText("No connection edge necessary.")
+
+            lastIsConnect = False
+            lastEndAng = edgeEndAng
+            faces.append(f)
+            show(f, "RectFace_C")
+        else:
+            print("Edge type is None.")
+
+        lastFace = f
+        firstID = 0
+    # Efor
+
+    for s in allAngDiffs:
+        logText(f"AD Set: {s}")
+
+    # remove last face
+    if isClosed:
+        faces.pop()
+    if lastIsConnect:
+        faces.pop()
+
+    return fuseFaces(faces)
+
+
+def makeInlayClockwiseInside(w, isClosed, halfToolAngle, depthOfCut, isOutside):
+    logText(
+        f"makeInlayClockwiseInside(wire, hta: {halfToolAngle}, doc: {depthOfCut}, out: {isOutside})",
+        force=True,
+    )
+
+    global EDGECNT
+    # EDGECNT = 4
+    faces = []
+    allAngDiffs = []
+    lastIsConnect = False
+    firstID = 0
+    # edges = [e.copy() for e in w.Edges] + [w.Edges[0].copy()]
+    edges = [e.copy() for e in w.Edges]
+
+    if isClosed:
+        # Cycle edges to find line for start, if available.
+        for __ in range(len(edges)):
+            if edges[0].Curve.TypeId != "Part::GeomLine":
+                edges.append(edges.pop(0))
+
+        # Copy first edge to end to complete loop
+        edges.append(edges[0].copy())
+
+    logText(f"Processing {len(w.Edges)} edges")
+    show2(w, "Wire_CCW")
+
+    # Process first edge
+    lastEdge = edges[0]
+    eType, f, __, __, eStAng, eEndAng = getFace_CW(
+        lastEdge, halfToolAngle, depthOfCut, True
+    )
+    lastFace = f
+    lastEndAng = eEndAng
+    faces = [f]
+    # Verify correct direction of circular face
+    if eType == "GC":
+        logText(f"FIRST-EDGE is CIRCULAR")
+        firstID = 1
+        vect = lastEdge.Vertexes[1].Point.sub(lastEdge.Vertexes[0].Point)
+        tLine = Part.makeLine(
+            lastEdge.Vertexes[1].Point, lastEdge.Vertexes[1].Point.add(vect)
+        )
+        tup = getFace_CW(tLine, halfToolAngle, depthOfCut)
+        show2(tup[1], "ArcLine")
+        aligned = touchTwice(tup[1], lastFace)
+        if not aligned:
+            firstID = 2
+            eType, f, __, __, eStAng, eEndAng = getFace_CW(
+                lastEdge, halfToolAngle, depthOfCut, False
+            )
+            lastFace = f
+            lastEndAng = eEndAng
+            faces = [f]
+    logText(f"FIRST-EDGE edgeStartAng {eStAng},  edgeEndAng {eEndAng}")
+    show(f, f"FirstFace_{eType}")
+
+    # Process remaining edges
+    for e in edges[1:]:
+        logText("  ")
+        if EDGECNT < 0:
+            break
+        EDGECNT -= 1
+        if lastEndAng == 360.0:
+            lastEndAng = 0.0
+        eType, f, ang, rotAng, edgeStartAng, edgeEndAng = getFace_CW(
+            e, halfToolAngle, depthOfCut, True
+        )
+        logText(f"... working on {eType}_{SHP_CNT}")
+        logText(
+            f"lastEndAng: {lastEndAng} --> edgeStartAng {edgeStartAng},  edgeEndAng {edgeEndAng}"
+        )
+        aligned = touchTwice(f, lastFace)
+        logText(f"Last face aligned: {aligned}")
+        if eType == "GC":  # Circle
+            if not aligned:
+                logText(f"Creating alternate face...")
+                (
+                    __,
+                    f2,
+                    __,
+                    __,
+                    __,
+                    __,
+                ) = getFace_CW(e, halfToolAngle, depthOfCut, False)
+                aligned2 = touchTwice(f2, lastFace)
+                if aligned2:
+                    logText("... new face aligned")
+                    # aligned = True
+                else:
+                    logText("New face NOT aligned")
+            else:
+                if isOutside:
+                    eea = edgeStartAng - 180.0
+                    esa = edgeStartAng + 180.0
+                    edgeStartAng = esa
+                    edgeStartAng = eea
+
+            if aligned:
+                # Assumption is counterclockwise wire
+                angDiff = edgeStartAng - lastEndAng
+                logText(f"angDiff {angDiff}")
+                if angDiff < 0.0 and angDiff > -180.0:
+                    logText("Making connection face.")
+                    # make conneccting conical face
+                    coneFace = makeConicalConnection(
+                        e,
+                        halfToolAngle,
+                        depthOfCut,
+                        abs(angDiff),
+                        getLowConnectPoint(lastFace, e.Vertexes[0].Point),
+                        True,
+                    )
+                    show(coneFace, "ConnectFace_C")
+                    faces.append(coneFace)
+                else:
+                    logText("GeomCircle angle aligns with last angle. 1")
+                    pass
+                show(f, "ConeFace_C")
+                faces.append(f)
+                lastIsConnect = False
+                lastEndAng = edgeEndAng
+            else:
+                logText("Recalculating circular face.")
+                # show2(f, "MalAlignedFace")
+                del f
+                (
+                    eType,
+                    f,
+                    ang,
+                    rotAng,
+                    edgeStartAng,
+                    edgeEndAng,
+                ) = getFace_CW(e, halfToolAngle, depthOfCut, False)
+                # edgeStartAng -= 180.0
+                logText(
+                    f"Recalc lastEndAng: {lastEndAng} --> edgeStartAng {edgeStartAng},  edgeEndAng {edgeEndAng}"
+                )
+
+                # Assumption is counterclockwise wire
+                angDiff = edgeStartAng - lastEndAng
+                logText(f"angDiff {angDiff}")
+                if angDiff > 0.0 and angDiff < 180.0:
+                    logText("Making connection face.")
+                    # make conneccting conical face
+                    coneFace = makeConicalConnection(
+                        e,
+                        halfToolAngle,
+                        depthOfCut,
+                        abs(angDiff),
+                        getLowConnectPoint(lastFace, e.Vertexes[0].Point),
+                        True,
+                    )
+                    show(coneFace, "ConnectFace_C")
+                    faces.append(coneFace)
+                else:
+                    logText("GeomCircle angle aligns with last angle. 1")
+                    pass
+                show(f, "ConeFace_C")
+                faces.append(f)
+                lastIsConnect = False
+                lastEndAng = edgeEndAng
+        elif eType == "GL":  # Line
+            if not aligned:
+                angDiff = edgeStartAng - lastEndAng
+                if (
+                    edgeStartAng > 0.0
+                    and lastEndAng > 0.0
+                    and edgeStartAng < lastEndAng
+                ):
+                    angDiff += 360.0
+                logText(f"angDiff {angDiff}")
+                logText("Making connection face.")
+
+                if isClosed:
+                    default = True
+                else:
+                    default = False
+
+                # make conneccting conical face
+                coneFace = makeConicalConnection(
+                    e,
+                    halfToolAngle,
+                    depthOfCut,
+                    abs(angDiff),
+                    getLowConnectPoint(lastFace, e.Vertexes[0].Point),
+                    default,
+                )
+                makeConnection = True
+                if firstID > 0:
+                    logText(f"firstID: {firstID}")
+                    tch = touchTwice(f, coneFace)
+                    logText(f"tch: {tch}")
+                    if not tch:
+                        if firstID == 2:
+                            __, f3, __, __, eStAng3, eEndAng3 = getFace_CW(
+                                lastEdge, halfToolAngle, depthOfCut, True
+                            )
+                            lastFace = f3
+                            lastEndAng = eStAng3 - 180.0  #  - 180.0  # eEndAng3
+                            faces = [f3]
+                            logText(f"eStAng3, eEndAng3: {eStAng3}, {eEndAng3}")
+                            logText(
+                                f"lastEndAng: {lastEndAng} --> edgeStartAng {edgeStartAng},  edgeEndAng {edgeEndAng}"
+                            )
+                        else:
+                            angDiff = edgeStartAng - eStAng - 180.0
+                            coneFace = makeConicalConnection(
+                                e,
+                                halfToolAngle,
+                                depthOfCut,
+                                abs(angDiff),
+                                getLowConnectPoint(lastFace, e.Vertexes[0].Point),
+                                True,
+                            )
+
+                if makeConnection:
+                    show(coneFace, "ConnectFace_L")
+                    faces.append(coneFace)
+            else:
+                logText("No connection edge necessary.")
+                pass
+            lastIsConnect = False
+            lastEndAng = edgeEndAng
+            faces.append(f)
+            show(f, "RectFace_C")
+        else:
+            print("Edge type is None.")
+
+        lastFace = f
+        firstID = 0
+    # Efor
+
+    for s in allAngDiffs:
+        logText(f"AD Set: {s}")
+
+    # remove last face
+    if isClosed:
+        faces.pop()
+    if lastIsConnect:
+        faces.pop()
+
+    return fuseFaces(faces)
+
+
+def getClosedFace(e, halfToolAngle, depthOfCut, clockWise, outside=False):
+    """getFace_CCW(e, halfToolAngle, depthOfCut, outside=False)"""
+    logText(f"getFace_CCW(e, halfToolAngle, depthOfCut, outside={outside})")
+    # show2(e, "Edge_CW")
+    eType = e.Curve.TypeId
+    if eType == "Part::GeomCircle":
+        logText(f"Processing Part::GeomCircle {SHP_CNT} . . . . . . . . . .")
+        f, ang, rotAng = makeConicalFace(e, halfToolAngle, depthOfCut, outside)
+        if clockWise:
+            edgeEndAng = normalizeDegrees(ang + rotAng + 90.0 + 180.0)
+            edgeStartAng = normalizeDegrees(rotAng + 90.0 + 180.0)
+        else:
+            edgeEndAng = normalizeDegrees(ang + rotAng + 90.0)
+            edgeStartAng = normalizeDegrees(rotAng + 90.0)
+        return "GC", f, ang, rotAng, edgeStartAng, edgeEndAng
+    elif eType == "Part::GeomLine":
+        logText(f"Processing Part::GeomLine {SHP_CNT} . . . . . . . . . .")
+        f, ang, rotAng = makeRectangularFace(e, halfToolAngle, depthOfCut, outside)
+        if clockWise:
+            edgeStartAng = normalizeDegrees(ang + 180.0)
+            edgeEndAng = edgeStartAng
+        else:
+            edgeStartAng = normalizeDegrees(ang)
+            edgeEndAng = edgeStartAng
+        return "GL", f, ang, rotAng, edgeStartAng, edgeEndAng
+    else:
+        print(f"makeInlay...() Ignoring '{eType}' edge")
+        return None, None, None, None, None, None
+
+
+def makeClosedInlay(edges, clockWise, halfToolAngle, depthOfCut, outside):
+    logText(
+        f"makeClosedInlay(edges, CW: {clockWise}, hta: {halfToolAngle}, doc: {depthOfCut}, out: {outside})",
+        force=True,
+    )
+
+    global EDGECNT
+    global STOP
+    faces = []
+    allAngDiffs = []
+    lastIsConnect = False
+    firstID = 0
+    isOutside = outside
+
+    # Cycle edges to find line for start, if available.
+    startWithLine = False
+    if edges[0].Curve.TypeId == "Part::GeomLine":
+        startWithLine = True
+    logText(f"startWithLine: {startWithLine}")
+
+    # Process first edge
+    lastEdge = edges[0]
+    eType, f, __, __, eStAng, eEndAng = getClosedFace(
+        lastEdge, halfToolAngle, depthOfCut, clockWise, isOutside
+    )
+    lastFace = f
+    lastEndAng = eEndAng
+    faces = [f]
+    # Verify correct direction of circular face
+    if eType == "GC":
+        logText(f"FIRST-EDGE is CIRCULAR")
+        firstID = 1
+        vect = lastEdge.Vertexes[1].Point.sub(lastEdge.Vertexes[0].Point)
+        tLine = Part.makeLine(
+            lastEdge.Vertexes[1].Point, lastEdge.Vertexes[1].Point.add(vect)
+        )
+        tup = getClosedFace(tLine, halfToolAngle, depthOfCut, clockWise)
+        show2(tup[1], "ArcLine")
+        aligned = touchTwice(tup[1], lastFace)
+        if not aligned:
+            firstID = 2
+            eType, f2, __, __, eStAng, eEndAng = getClosedFace(
+                lastEdge, halfToolAngle, depthOfCut, clockWise, False
+            )
+            lastFace = f2
+            lastEndAng = eEndAng
+            faces = [f2]
+    logText(f"FIRST-EDGE edgeStartAng {eStAng},  edgeEndAng {eEndAng}")
+    show(faces[0], f"FirstFace_{eType}")
+
+    STOP = True
+    return None
+
+    # Process remaining edges
+    for e in edges[1:]:
+        logText("  ")
+        if EDGECNT < 0:
+            break
+        EDGECNT -= 1
+        if lastEndAng == 360.0:
+            lastEndAng = 0.0
+        eType, f, ang, rotAng, edgeStartAng, edgeEndAng = getClosedFace(
+            e, halfToolAngle, depthOfCut, clockWise, True
+        )
+        logText(f"... working on {eType}_{SHP_CNT}")
+        logText(
+            f"lastEndAng: {lastEndAng} --> edgeStartAng {edgeStartAng},  edgeEndAng {edgeEndAng}"
+        )
+        aligned = touchTwice(f, lastFace)
+        logText(f"Last face aligned: {aligned}")
+        if eType == "GC":  # Circle
+            if not aligned:
+                logText(f"Creating alternate face...")
+                (
+                    __,
+                    f2,
+                    __,
+                    __,
+                    __,
+                    __,
+                ) = getClosedFace(e, halfToolAngle, depthOfCut, clockWise, False)
+                aligned2 = touchTwice(f2, lastFace)
+                if aligned2:
+                    logText("... new face aligned")
+                    # aligned = True
+                else:
+                    logText("New face NOT aligned")
+            else:
+                pass
+
+            if aligned:
+                # Assumption is counterclockwise wire
+                angDiff = edgeStartAng - lastEndAng
+                logText(f"angDiff {angDiff}")
+                if angDiff < 0.0 and angDiff > -180.0:
+                    logText("Making connection face.")
+                    # make conneccting conical face
+                    coneFace = makeConicalConnection(
+                        e,
+                        halfToolAngle,
+                        depthOfCut,
+                        abs(angDiff),
+                        getLowConnectPoint(lastFace, e.Vertexes[0].Point),
+                        True,
+                    )
+                    show(coneFace, "ConnectFace_C")
+                    faces.append(coneFace)
+                else:
+                    logText("GeomCircle angle aligns with last angle. 1")
+                    pass
+                show(f, "ConeFace_C")
+                faces.append(f)
+                lastIsConnect = False
+                lastEndAng = edgeEndAng
+            else:
+                logText("Recalculating circular face.")
+                # show2(f, "MalAlignedFace")
+                del f
+                (
+                    eType,
+                    f,
+                    ang,
+                    rotAng,
+                    edgeStartAng,
+                    edgeEndAng,
+                ) = getClosedFace(e, halfToolAngle, depthOfCut, clockWise, False)
+                # edgeStartAng -= 180.0
+                logText(
+                    f"Recalc lastEndAng: {lastEndAng} --> edgeStartAng {edgeStartAng},  edgeEndAng {edgeEndAng}"
+                )
+
+                # Assumption is counterclockwise wire
+                angDiff = edgeStartAng - lastEndAng
+                logText(f"angDiff {angDiff}")
+                if angDiff > 0.0 and angDiff < 180.0:
+                    logText("Making connection face.")
+                    # make conneccting conical face
+                    coneFace = makeConicalConnection(
+                        e,
+                        halfToolAngle,
+                        depthOfCut,
+                        abs(angDiff),
+                        getLowConnectPoint(lastFace, e.Vertexes[0].Point),
+                        True,
+                    )
+                    show(coneFace, "ConnectFace_C")
+                    faces.append(coneFace)
+                else:
+                    logText("GeomCircle angle aligns with last angle. 1")
+                    pass
+                show(f, "ConeFace_C")
+                faces.append(f)
+                lastIsConnect = False
+                lastEndAng = edgeEndAng
+        elif eType == "GL":  # Line
+            if not aligned:
+                angDiff = edgeStartAng - lastEndAng
+                if (
+                    edgeStartAng > 0.0
+                    and lastEndAng > 0.0
+                    and edgeStartAng < lastEndAng
+                ):
+                    angDiff += 360.0
+                logText(f"angDiff {angDiff}")
+                logText("Making connection face.")
+
+                default = True
+
+                # make conneccting conical face
+                coneFace = makeConicalConnection(
+                    e,
+                    halfToolAngle,
+                    depthOfCut,
+                    abs(angDiff),
+                    getLowConnectPoint(lastFace, e.Vertexes[0].Point),
+                    default,
+                )
+                makeConnection = True
+                if firstID > 0:
+                    logText(f"firstID: {firstID}")
+                    tch = touchTwice(f, coneFace)
+                    logText(f"tch: {tch}")
+                    if not tch:
+                        if firstID == 2:
+                            __, f3, __, __, eStAng3, eEndAng3 = getClosedFace(
+                                lastEdge, halfToolAngle, depthOfCut, clockWise, True
+                            )
+                            lastFace = f3
+                            lastEndAng = eStAng3 - 180.0  #  - 180.0  # eEndAng3
+                            faces = [f3]
+                            logText(f"eStAng3, eEndAng3: {eStAng3}, {eEndAng3}")
+                            logText(
+                                f"lastEndAng: {lastEndAng} --> edgeStartAng {edgeStartAng},  edgeEndAng {edgeEndAng}"
+                            )
+                        else:
+                            angDiff = edgeStartAng - eStAng - 180.0
+                            coneFace = makeConicalConnection(
+                                e,
+                                halfToolAngle,
+                                depthOfCut,
+                                abs(angDiff),
+                                getLowConnectPoint(lastFace, e.Vertexes[0].Point),
+                                True,
+                            )
+
+                if makeConnection:
+                    show(coneFace, "ConnectFace_L")
+                    faces.append(coneFace)
+            else:
+                logText("No connection edge necessary.")
+                pass
+            lastIsConnect = False
+            lastEndAng = edgeEndAng
+            faces.append(f)
+            show(f, "RectFace_C")
+        else:
+            print("Edge type is None.")
+
+        lastFace = f
+        firstID = 0
+    # Efor
+
+    for s in allAngDiffs:
+        logText(f"AD Set: {s}")
+
+    # remove last face
+    faces.pop()
+    if lastIsConnect:
+        faces.pop()
+
+    return fuseFaces(faces)
+
+
+def makeOpenInlay(w, clockWise, halfToolAngle, depthOfCut, isOutside):
+    logText(
+        f"makeOpenInlay(wire, hta: {halfToolAngle}, doc: {depthOfCut}, out: {isOutside})",
+        force=True,
+    )
+
+    global EDGECNT
+    global STOP
+
+    STOP = True
+    return None
+
+
+# Face-filtering functions
+def fuseFaces(faces):
+    if len(faces) == 0:
+        return None
+    if len(faces) == 1:
+        return faces[0]
+    f = faces[0]
+    for fc in faces[1:]:
+        fused = f.fuse(fc)
+        f = fused
+    return f
+
+
+def pointToText(p):
+    """vertexToText(p) Return text reference string from point or vector object."""
+    x = round(p.x, 4)
+    y = round(p.y, 4)
+    z = round(p.z, 4)
+    txt = f"{z},{y},{x},"
+    return txt.replace("-0.0,", "0.0,")
+
+
+def filterInlay_1(inlay):
+    logText(f"filterInlay_1() ")
+    # Filter out all faces not touching top of inlay
+
+    keep = []
+    iMax = inlay.BoundBox.ZMax
+    skip = 0
+    for f in inlay.Faces:
+        if PathGeom.isRoughly(f.BoundBox.ZMax, iMax):
+            keep.append(f.copy())
+        else:
+            skip += 1
+
+    if skip == 0:
+        return inlay
+
+    return fuseFaces(keep)
+
+
+def makeFaceFilterRefTups(faces, depth=None):
+    """makeFaceFilterRefTups() return list of vertex tups that each contain:
+    - text vertex values
+    - face index
+    - vertex index
+    """
+    tups = []
+    if depth is None:
+        # Use all vertexes
+        for fi in range(0, len(faces)):
+            f = faces[fi]
+            vCnt = len(f.Vertexes)
+            for vi in range(0, vCnt):
+                v = f.Vertexes[vi]
+                txt = pointToText(v.Point)
+                tups.append((txt, fi, vi, vCnt))
+    else:
+        # Restrict vertexes to those at depth
+        for fi in range(0, len(faces)):
+            f = faces[fi]
+            vCnt = len(f.Vertexes)
+            for vi in range(0, vCnt):
+                v = f.Vertexes[vi]
+                if PathGeom.isRoughly(v.Z, depth):
+                    txt = pointToText(v.Point)
+                    tups.append((txt, fi, vi, vCnt))
+    # Sort tups by xyz text, so same vertexes find each other
+    tups.sort(key=lambda t: t[0])
+    return tups
+
+
+def filterInlay_2(inlay, isClosed):
+    logText("filterInlay_2() ")
+    # Filter out faces having lone vertex not touching any others
+
+    tups = makeFaceFilterRefTups(inlay.Faces)
+    save = [tups[0]]
+    remove = []
+    count = 1
+    for tup in tups[1:]:  # txt, fi, vi
+        if save[-1][0] == tup[0]:
+            save.append(tup)
+            count += 1
+        elif count == 1:
+            remove.append(save.pop()[1])
+            count = 1
+            save.append(tup)
+        else:
+            save.append(tup)
+            count = 1
+    remove.sort()
+    # logText(f"remove list: {remove}")
+    if isClosed:
+        faces = [inlay.Faces[t[1]].copy() for t in save if t[1] not in remove]
+    else:
+        # Only filter out triangles with lone vertex
+        faces = [
+            inlay.Faces[t[1]].copy()
+            for t in save
+            if (t[1] not in remove) or (t[1] in remove and t[3] != 3)
+        ]
+
+    return fuseFaces(faces)
+
+
+def filterInlay_3(inlay):
+    logText(f"filterInlay_3() ")
+    # Filter out all faces with edge touching top of inlay, but no other edges
+    tups = []
+    if inlay is None:
+        return None
+
+    iMax = inlay.BoundBox.ZMax
+    iFaces = inlay.Faces
+    fCnt = len(iFaces)
+    for fi in range(0, fCnt):
+        f = iFaces[fi]
+        for ei in range(0, len(f.Edges)):
+            e = f.Edges[ei]
+            ebb = e.BoundBox
+            if PathGeom.isRoughly(ebb.ZMax, iMax):
+                if not PathGeom.isRoughly(ebb.ZMin, iMax):
+                    txt = pointToText(WireUtils.valueAtEdgeLength(e, e.Length / 2.0))
+                    tups.append((txt, fi))
+    # if len(tups) == 0:
+    #    return inlay
+
+    tups.sort(key=lambda t: t[0])
+    idxs = [tups[0][1]]
+    txt = tups[0][0]
+    multi = False
+    for t in tups[1:]:
+        if t[0] == txt:
+            multi = True
+        else:
+            if multi:
+                idxs.pop()
+            idxs.append(t[1])
+            txt = t[0]
+            multi = False
+    if multi:
+        idxs.pop()
+    idxs.sort(reverse=True)
+
+    fIdxs = [True for i in range(fCnt)]
+    for i in idxs:
+        fIdxs[i] = False
+    keep = [iFaces[i] for i in range(fCnt) if fIdxs[i]]
+
+    return fuseFaces(keep)
+
+
+def makeEdgeMidpointTups(edges):
+    tups = []
+    for ei in range(0, len(edges)):
+        e = edges[ei]
+        eLen = e.Length / 2.0
+        txt = f"L{round(eLen,6)}_" + pointToText(WireUtils.valueAtEdgeLength(e, eLen))
+        tups.append((txt, ei, e))
+    # Sort tups by xyz_length text, so same edges find each other
+    tups.sort(key=lambda t: t[0])
+    return tups
+
+
+def uniqueEdges(edges):
+    # Filter out duplicate edges
+    # logText("uniqueEdges()")
+
+    tups = makeEdgeMidpointTups(edges)
+    if len(tups) == 0:
+        return tups
+
+    # Remove duplicates
+    unique = [tups[0]]
+    deleted = []
+    for t in tups[1:]:
+        if t[0] == unique[-1][0]:
+            deleted.append(t)
+        else:
+            unique.append(t)
+
+    return [u[2] for u in unique]
+
+
+def makeBottomFace(i):
+    logText("makeBottomFace()")
+    zMin = i.BoundBox.ZMin
+    screen = PathGeom.makeBoundBoxFace(i.BoundBox, offset=5.0, zHeight=zMin)
+    p = screen.Wires[0].Length
+    cut = screen.cut(i)
+    # show(cut, "BottomCut", True)
+    # logText(f"cut.Faces count: {len(cut.Faces)}")
+    bottomFaces = [
+        f.copy() for f in cut.Faces if not PathGeom.isRoughly(f.Wires[0].Length, p)
+    ]
+    if bottomFaces:
+        return fuseFaces(bottomFaces)
+
+    # Identify bottom edges of faces
+    btmEdges = []
+    for f in i.Faces:
+        for e in f.Edges:
+            if PathGeom.isRoughly(e.BoundBox.ZMax, zMin):
+                btmEdges.append(e.copy())
+
+    # Remove duplicate edges and group into connected wires
+    # show2(Part.makeCompound(btmEdges), "BottomEdgesRaw")
+    bEdges = uniqueEdges(btmEdges)
+    # show2(Part.makeCompound(bEdges), "BottomEdgesUnique")
+    btmFaces = []
+    edgeGrps = []
+
+    # Create faces from closed wires
+    edgeGrps = Part.sortEdges(bEdges)
+    for g in edgeGrps:
+        g = edgeGrps[0]
+        rawWire = Part.Wire(Part.__sortEdges__(g))
+        w = WireUtils.orientWire(rawWire, False)
+        logText(f"BtmGroup edge count: {len(w.Edges)}")
+        if w.isClosed():
+            show2(w, "BtmGroup")
+            btmFaces.append(Part.Face(w))
+        else:
+            # Add missing line segment
+            edgs = Part.__sortEdges__(g)
+            p1 = edgs[0].Vertexes[0].Point
+            p2 = edgs[-1].Vertexes[1].Point
+            dist = p2.sub(p1).Length
+            if dist > 0.00001:
+                logText(f"Gap is {dist} mm. NOT closing.")
+            else:
+                FreeCAD.Console.PrintError(
+                    f"Adding missing line segment {dist} mm long.\n"
+                )
+                g.append(Part.makeLine(p2, p1))
+                wr = Part.Wire(g)
+                show2(wr, "BtmGroup_")
+                if wr.isClosed():
+                    btmFaces.append(Part.Face(wr))
+    if len(btmFaces) > 0:
+        return fuseFaces(btmFaces)
+    return None
+
+
+# Primary macro functions
+def getFeatureNames(base, subs):
+    # Identify input
+    edgeNames = []
+    faceNames = []
+    if len(subs) > 0:
+        for s in subs:
+            if s.startswith("Face"):
+                faceNames.append(s)
+            elif s.startswith("Edge"):
+                edgeNames.append(s)
+            else:
+                FreeCAD.Console.PrintError(f"{base.Name}:{s} is unusable.\n")
+    else:
+        if isinstance(base.Shape, Part.Face):
+            faceNames.append("Face1")
+    return edgeNames, faceNames
+
+
+def makeWireHeightTups(base, edgeNames, faceNames, discretizeValue):
+    """makeWireHeightTups(base, edgeNames, faceNames, discretizeValue)"""
+    heights = []
+    wires = []
+
+    if edgeNames:
+        # Assuming selected edges form closed wire
+        edges = [base.Shape.getElement(en) for en in edgeNames]
+        edgeComp = Part.makeCompound(edges)
+        proj = makeProjection(Part.Wire(Part.__sortEdges__(edges)))
+        wires.append(discretizeEdgeList(proj.Edges, discretizeValue))
+        heights.append(edgeComp.BoundBox.ZMin)
+    elif isinstance(base.Shape, Part.Wire):
+        print("Wire object selected")
+        edges = [e for e in base.Shape.Wires[0].Edges]
+        edgeComp = Part.makeCompound(edges)
+        show2(edgeComp, "EdgeComp")
+        proj = makeProjection(Part.Wire(Part.__sortEdges__(edges)))
+        wires.append(discretizeEdgeList(proj.Edges, discretizeValue))
+        heights.append(edgeComp.BoundBox.ZMin)
+    elif base.TypeId == "PartDesign::Body":
+        print("Body object selected.")
+        sketch = base.Group[0]
+        if sketch.TypeId == "Sketcher::SketchObject":
+            print("Using first item in Group, a Sketch object.")
+            for wire in sketch.Shape.Wires:
+                edges = [e for e in wire.Edges]
+                edgeComp = Part.makeCompound(edges)
+                proj = makeProjection(Part.Wire(Part.__sortEdges__(edges)))
+                wires.append(discretizeEdgeList(proj.Edges, discretizeValue))
+                heights.append(edgeComp.BoundBox.ZMin)
+
+    if faceNames:
+        for fn in faceNames:
+            face = base.Shape.getElement(fn)
+            # Only process outside wire
+            wire = WireUtils.orientWire(face.Wires[0], True)
+            proj = makeProjection(wire)
+            wires.append(discretizeEdgeList(proj.Edges, discretizeValue))
+            heights.append(face.BoundBox.ZMin)
+
+    return (wires, heights)
+
+
+def filterInlay(rawInlay, isClockwise, outside, isClosed):
+    """filterInlay(rawInlay, isClockwise, outside)"""
+    logText(
+        f"finalFilterInlay(ri, isClockwise: {isClockwise}, out: {outside}, isClosed: {isClosed})"
+    )
+    show2(rawInlay, "RawInlayFaces")
+
+    filter_1 = filterInlay_1(rawInlay)  # Remove faces not touching rim
+    show2(filter_1, "Filter_1")
+
+    if outside:
+        logText("Filter outside")
+        # logText("filter isClockwise inside")
+        f3 = filterInlay_2(filter_1, isClosed)
+        show2(f3, "Filter_2")
+        if isClosed:
+            final = filterInlay_3(f3)
+            show2(final, "Filter_3")
+        else:
+            final = f3
+    else:
+        logText("Filter inside")
+        # logText("filter isClockwise outside")
+        final = filterInlay_2(filter_1, isClosed)
+        show2(final, "Filter_2")
+
+    return final
+
+
+def assembleInlayShape(loop, inlayFaces, zHeight, makeSolid, pocketBuffer):
+    # Make exterior inlays
+    if not loop.isClosed():
+        return inlayFaces, None, None
+
+    topFace = None
+    try:
+        topFace = Part.Face(loop)
+    except Exception as ee:
+        print(f"assembleInlayShape() error:\n{ee}")
+
+    # show(wireFace, "WireFace", True)
+    if inlayFaces:
+        botFace = makeBottomFace(inlayFaces)
+    else:
+        return None, None, None
+
+    # show(botFace, "BotFace", True)
+    botSolid = None
+    if makeSolid:
+        if botFace is None:
+            print("botFace is None")
+            if topFace:
+                faces = [f for f in inlayFaces.Faces] + [topFace]
+            else:
+                faces = [f for f in inlayFaces.Faces]
+        else:
+            if topFace:
+                faces = (
+                    [topFace]
+                    + [f for f in inlayFaces.Faces]
+                    + [fc for fc in botFace.Faces]
+                )
+            else:
+                faces = [f for f in inlayFaces.Faces] + [fc for fc in botFace.Faces]
+
+            if pocketBuffer > 0.0:
+                botSolid = botFace.extrude(
+                    FreeCAD.Vector(0.0, 0.0, -1.0 * pocketBuffer)
+                )
+        try:
+            solid = Part.Solid(Part.Shell(faces))
+        except Exception as ee:
+            logText(f"ERROR: assembleInlayShape()\n{ee}", True)
+            shape = fuseFaces(faces)
+        else:
+            solid.translate(FreeCAD.Vector(0.0, 0.0, zHeight - solid.BoundBox.ZMax))
+            if botSolid:
+                botSolid.translate(
+                    FreeCAD.Vector(
+                        0.0, 0.0, solid.BoundBox.ZMin - botSolid.BoundBox.ZMax
+                    )
+                )
+            # show(solid, "Solid", True)
+            shape = solid
+    else:
+        shape = inlayFaces
+
+    return shape, botFace, botSolid
+
+
+def makeRawInlayTups(obj, dataTups, halfToolAngle):
+    """makeRawInlayTups(wires, heights, halfToolAngle)"""
+    global ROUND_CORNERS
+    inlayTups = []
+
+    # Duplicate wires, adding rotated after each original
+    lastZMax = None
+    for w, h, cw, outside, btmOrTop in dataTups:
+        isClosed = w.isClosed()
+        if isClosed:
+            useCW = cw
+            gogOutside = outside
+        else:
+            useCW = not cw
+            goOutside = not outside
+
+        # Create raw inlay faces
+        logText(
+            f"___ building {'clockwise' if cw else 'counterclockwise'} {'outside' if outside else 'inside'}  {'bottom' if btmOrTop == 'B' else 'top'}",
+            force=True,
+        )
+
+        ROUND_CORNERS = True
+        if (btmOrTop == "B" and obj.Sqr_Corners_Btm) or (
+            btmOrTop == "T" and obj.Sqr_Corners_Top
+        ):
+            ROUND_CORNERS = False
+
+        if btmOrTop == "B":
+            depthOfCut = obj.PocketDepth
+        else:
+            depthOfCut = obj.InlayPad
+
+        isOutside = True if btmOrTop == "T" else False
+        edges = [e.copy() for e in w.Edges]
+        if isClosed:
+            show2(w, "Wire_Closed")
+            for __ in range(len(edges)):
+                if edges[0].Curve.TypeId == "Part::GeomLine":
+                    break
+                else:
+                    edges.append(edges.pop(0))
+            logText(f"Processing {len(edges)} edges")
+            # Copy first edge to end to complete loop
+            edges.append(edges[0].copy())
+            # Convert edges to inlay
+            rawInlay = makeClosedInlay(edges, cw, halfToolAngle, depthOfCut, isOutside)
+        else:
+            rawInlay = makeOpenInlay(w, cw, halfToolAngle, depthOfCut, isOutside)
+
+        if STOP:
+            continue
+
+        if rawInlay:
+            # Filter inlay faces, isolating only necessary faces
+            rawInlay = filterInlay(rawInlay, cw, outside, isClosed)
+            if not isClosed:
+                show2(rawInlay, "Raw_OpenInlay")
+            if btmOrTop == "T":
+                if lastZMax is None:
+                    lastZMax = w.BoundBox.ZMax
+                if obj.StackComponents:
+                    inlay, botFace, botSolid = assembleInlayShape(
+                        w, rawInlay, h, obj.MakeSolid, 0.0
+                    )
+                    if inlay:
+                        # flip and align outside, upper section
+                        origin = FreeCAD.Vector(0.0, 0.0, 0.0)
+                        wBB = w.BoundBox
+                        # inlay = shape.copy()
+                        inlay.rotate(origin, FreeCAD.Vector(0.0, 1.0, 0.0), 180.0)
+                        inlay.translate(
+                            FreeCAD.Vector(
+                                wBB.XMin - (-1.0 * wBB.XMax),
+                                0.0,
+                                lastZMax - inlay.BoundBox.ZMin,
+                            )
+                        )
+                else:
+                    inlay, botFace, botSolid = assembleInlayShape(
+                        w, rawInlay, h, obj.MakeSolid, 0.0
+                    )
+                    inlay.translate(
+                        FreeCAD.Vector(w.BoundBox.XMax - inlay.BoundBox.XMin, 0.0, 0.0)
+                    )
+                # show(inlay, "InlayInverse", True)
+            else:
+                inlay, botFace, botSolid = assembleInlayShape(
+                    w, rawInlay, h, obj.MakeSolid, obj.PocketBuffer
+                )
+                if inlay is not None:
+                    lastZMax = inlay.BoundBox.ZMax
+            if inlay is not None:
+                inlayTups.append((btmOrTop, w, inlay, botFace, botSolid))
+        else:
+            FreeCAD.Console.PrintError("ERROR: No raw inlay produced.\n")
+            Part.show(w, "ErrorWire")
+
+    return inlayTups
+
+
+def rotateShape180(shape, offset=FreeCAD.Vector(0.0, 0.0, 0.0)):
+    origin = FreeCAD.Vector(0.0, 0.0, 0.0)
+    rotated = shape.copy()
+    vBB = rotated.BoundBox
+    rotated.translate(FreeCAD.Vector(0.0 - vBB.XMin, 0.0 - vBB.YMin, 0.0 - vBB.ZMin))
+    rotated.rotate(origin, FreeCAD.Vector(0.0, 1.0, 0.0), 180.0)
+    vBB = rotated.BoundBox
+    sBB = shape.BoundBox
+    rotated.translate(
+        FreeCAD.Vector(
+            sBB.XMin - vBB.XMin + offset.x,
+            sBB.YMin - vBB.YMin + offset.y,
+            sBB.ZMin - vBB.ZMin + offset.z,
+        )
+    )
+    return rotated
+
+
+# Path generation functions
+def makeEdgeRefTups(edges, touchesZ=None):
+    tups = []
+    if touchesZ is None:
+        # Use all vertexes
+        for ei in range(0, len(edges)):
+            e = edges[ei]
+            for vi in range(0, len(e.Vertexes)):
+                v = e.Vertexes[vi]
+                txt = pointToText(v.Point)
+                tups.append((txt, ei, vi, e.BoundBox.ZMax))
+    else:
+        # Use all vertexes
+        for ei in range(0, len(edges)):
+            e = edges[ei]
+            for vi in range(0, len(e.Vertexes)):
+                v = e.Vertexes[vi]
+                if PathGeom.isRoughly(v.Z, touchesZ):
+                    txt = pointToText(v.Point)
+                    # tups.append((txt, ei, vi, e.BoundBox.ZMax))
+                    tups.append((txt, ei, vi))
+
+    # Sort tups by xyz text, so same vertexes find each other
+    tups.sort(key=lambda t: t[0])
+    return tups
+
+
+def faceAnalysis(f, fi, eCnt, zMin, zMax):
+    """faceAnalysis(f, fi, eCnt, zMin, zMax)
+    Return tuple of (rim, support, other, bottom, cats).
+        rim, support, other, and bottom are tuples of (edge, face_index, edge_index).
+        cats is list of lowercase edge types."""
+    rim = []
+    support = []
+    other = []
+    bottom = []
+    cats = ""
+    for ei in range(0, eCnt):
+        e = f.Edges[ei]
+        eType = e.Curve.TypeId[10]
+        # logText(f"eType: {eType}")
+        # logText(f"e.TypeId: {e.Curve.TypeId}")
+        # Entire edge at rim height
+        if PathGeom.isRoughly(e.BoundBox.ZMin, zMax):
+            rim.append((e, fi, ei))
+            cats += eType
+        # Entire edge at bottom height
+        elif PathGeom.isRoughly(e.BoundBox.ZMax, zMin):
+            bottom.append((e, fi, ei))
+            cats += eType.lower()
+        # Edge touches rim
+        elif PathGeom.isRoughly(e.BoundBox.ZMax, zMax):
+            support.append((e, fi, ei))
+            cats += eType.lower()
+        # All other edges
+        else:
+            other.append((e, fi, ei))
+            cats += eType.lower()
+
+    return rim, support, other, bottom, cats
+
+
+def commonEndPointAtRim(rim, e1, e2):
+    e1p1 = e1.Vertexes[0].Point
+    e1p2 = e1.Vertexes[1].Point
+    e2p1 = e2.Vertexes[0].Point
+    e2p2 = e2.Vertexes[1].Point
+    if PathGeom.isRoughly(e1p1.z, rim):
+        if PathGeom.isRoughly(e1p1.sub(e2p1).Length, 0.0):
+            return True
+        if PathGeom.isRoughly(e1p1.sub(e2p2).Length, 0.0):
+            return True
+    if PathGeom.isRoughly(e1p2.z, rim):
+        if PathGeom.isRoughly(e1p2.sub(e2p1).Length, 0.0):
+            return True
+        if PathGeom.isRoughly(e1p2.sub(e2p2).Length, 0.0):
+            return True
+    return False
+
+
+def removeEdges(full, ignore):
+    """Remove edges in ignore list from full list"""
+    eTups = makeEdgeMidpointTups(full)
+    rTups = makeEdgeMidpointTups(ignore)
+    rTxts = [t[0] for t in rTups]
+    edges = []
+    for t in eTups:
+        if t[0] not in rTxts:
+            edges.append(t[2])
+    return edges
+
+
+def inlayEdgesToWires(inlay, edges):
+    if len(edges) == 0:
+        # Place 10.0 mm vertical line at lowest point of inlay.
+        p = inlay.Edges[0].Vertexes[0].Point
+        pMin = p.z
+        for e in inlay.Edges:
+            for v in e.Vertexes:
+                if v.Z < pMin:
+                    pMin = v.Z
+                    p = v.Point
+        l = Part.makeLine(p, FreeCAD.Vector(p.x, p.y, p.z + 10.0))
+        return Part.Wire(l)
+    else:
+        wires = []
+        for g in Part.sortEdges(edges):
+            wires.append(Part.Wire(g))
+        return Part.makeCompound(wires)
+
+
+def identifyInsideInlayPathWires(inlay, wireType="Inlay"):
+    """identifyInsideInlayPathWires(inlay, wireType="Inlay")  Working version, but incomplete"""
+    logText("identifyInsideInlayPathWires()", force=True)
+
+    zMax = inlay.BoundBox.ZMax
+    zMin = inlay.BoundBox.ZMin
+
+    rim = []
+    support = []
+    other = []
+    bottom = []
+    remove = []
+    keep = []
+    avoid = []
+
+    # sort edges into appropriate groups
+    for fi in range(0, len(inlay.Faces)):
+        f = inlay.Faces[fi]
+        eCnt = len(f.Edges)
+        r, s, o, b, cats = faceAnalysis(f, fi, eCnt, zMin, zMax)
+        rim.extend(r)
+        bottom.extend(b)
+        # show(f, f"Face_{fi}_", True)
+        # logText(f"cats {fi}: {cats}")
+
+        if eCnt == 3:
+            # logText("___ 3 edges")
+            if "L" in cats:
+                # logText("  _ L rim")
+                # line edge at rim, use supports
+                keep.extend(s)
+            elif "c" in cats:
+                # logText("  _ c bottom")
+                remove.extend(s)
+            else:
+                # logText("  _ else")
+                support.extend(s)
+            other.extend(o)
+        else:
+            # logText("___ Multi edges")
+            if "C" in cats and "c" in cats:
+                # logText(" __ C and c")
+                # circle edge at rim and bottom
+                ri = cats.index("C")  # rim index
+                bi = cats.index("c")  # bottom index
+                re = f.Edges[ri]  # rim edge length
+                if re.Length > 0.00001:
+                    # logText(f"  _ rim circle has length, {re.Length} mm")
+                    be = f.Edges[bi]
+                    if re.Curve.Radius > be.Curve.Radius:
+                        for sTup in s:
+                            if sTup[0].Curve.TypeId[10] == "P":
+                                avoid.append(sTup)
+                            else:
+                                remove.append(sTup)
+                    else:
+                        # logText("  _ support edges")
+                        support.extend(s)  # keep.extend(s)
+                elif commonEndPointAtRim(zMax, s[0][0], s[1][0]):
+                    # logText("  _ remove - common point")
+                    remove.extend(s)
+                else:
+                    # logText("  _ support - NOT common point")
+                    support.extend(s)
+            elif len(s) == 2:
+                # logText(" __ 2 supports")
+                if commonEndPointAtRim(zMax, s[0][0], s[1][0]):
+                    # logText("  _ remove - common point")
+                    remove.extend(s)
+                else:
+                    # logText("  _ support - NOT common point")
+                    support.extend(s)
+            else:
+                # logText(" __ else")
+                if "C" in cats:
+                    # line edge at rim, use supports
+                    support.extend(s)
+                else:
+                    support.extend(s)
+            other.extend(o)
+
+    r = uniqueEdges([t[0] for t in rim])
+    b = uniqueEdges([t[0] for t in bottom])
+    o = uniqueEdges([t[0] for t in other])
+    d = uniqueEdges([t[0] for t in remove])
+    k = uniqueEdges([t[0] for t in keep])
+    sRaw = uniqueEdges([t[0] for t in support])
+    s = removeEdges(sRaw, d)
+
+    if wireType == "Inlay":
+        # show(Part.makeCompound(d), "RemoveEdges", True)
+        chains = Part.sortEdges(o + b + k + s)
+        return Part.makeCompound([Part.Wire(g) for g in chains])
+    elif wireType == "Midline":
+        return inlayEdgesToWires(inlay, b + o)
+    elif wireType == "Bottom":
+        return inlayEdgesToWires(inlay, b)
+
+    return None
+
+
+def identifyOutsideInlayPathWires(inlay, wireType="Inlay"):
+    """identifyOutsideInlayPathWires(inlay, wireType="Inlay")  Working version, but incomplete"""
+    logText("identifyOutsideInlayPathWires()", force=True)
+
+    zMax = inlay.BoundBox.ZMax
+    zMin = inlay.BoundBox.ZMin
+
+    rim = []
+    support = []
+    other = []
+    bottom = []
+    remove = []
+    keep = []
+    avoid = []
+
+    # sort edges into appropriate groups: rim, support, other, bottom
+    for fi in range(0, len(inlay.Faces)):
+        f = inlay.Faces[fi]
+        eCnt = len(f.Edges)
+        r, s, o, b, cats = faceAnalysis(f, fi, eCnt, zMin, zMax)
+        rim.extend(r)
+        bottom.extend(b)
+        # show(f, f"Face_{fi}_", True)
+        # logText(f"cats {fi}: {cats}")
+
+        if eCnt == 3:
+            # logText("___ 3 edges")
+            if "L" in cats:
+                # logText("  _ L rim")
+                # line edge at rim, use supports
+                keep.extend(s)
+            elif "c" in cats:
+                # logText("  _ c bottom")
+                remove.extend(s)
+            else:
+                # logText("  _ else")
+                support.extend(s)
+            other.extend(o)
+        else:
+            # logText("___ Multi edges")
+            if "C" in cats and "c" in cats:
+                # logText(" __ C and c")
+                # circle edge at rim and bottom
+                ri = cats.index("C")  # rim index
+                bi = cats.index("c")  # bottom index
+                re = f.Edges[ri]  # rim edge length
+                if re.Length > 0.00001:
+                    # logText(f"  _ rim circle has length, {re.Length} mm")
+                    be = f.Edges[bi]
+                    if re.Curve.Radius > be.Curve.Radius:
+                        for sTup in s:
+                            if sTup[0].Curve.TypeId[10] == "P":
+                                avoid.append(sTup)
+                            else:
+                                remove.append(sTup)
+                    else:
+                        # logText("  _ support edges")
+                        support.extend(s)  # keep.extend(s)
+                elif commonEndPointAtRim(zMax, s[0][0], s[1][0]):
+                    # logText("  _ remove - common point")
+                    remove.extend(s)
+                else:
+                    # logText("  _ support - NOT common point")
+                    support.extend(s)
+            elif len(s) == 2:
+                # logText(" __ 2 supports")
+                if commonEndPointAtRim(zMax, s[0][0], s[1][0]):
+                    # logText("  _ remove - common point")
+                    remove.extend(s)
+                else:
+                    # logText("  _ support - NOT common point")
+                    support.extend(s)
+            else:
+                # logText(" __ else")
+                if "C" in cats:
+                    # line edge at rim, use supports
+                    support.extend(s)
+                else:
+                    support.extend(s)
+            other.extend(o)
+
+    r = uniqueEdges([t[0] for t in rim])
+    b = uniqueEdges([t[0] for t in bottom])
+    o = uniqueEdges([t[0] for t in other])
+    d = uniqueEdges([t[0] for t in remove])
+    k = uniqueEdges([t[0] for t in keep])
+    sRaw = uniqueEdges([t[0] for t in support])
+    s = removeEdges(sRaw, d)
+
+    # remove line segments from supports
+    rmvIdxs = [i for i in range(len(s)) if s[i].Curve.TypeId == "Part::GeomLine"]
+    rmvIdxs.sort(reverse=True)
+    for ri in rmvIdxs:
+        s.pop(ri)
+
+    if wireType == "Inlay":
+        # show(Part.makeCompound(d), "RemoveEdges", True)
+        chains = Part.sortEdges(o + b + k + s)
+        return Part.makeCompound([Part.Wire(g) for g in chains])
+    elif wireType == "Midline":
+        return inlayEdgesToWires(inlay, b + o)
+    elif wireType == "Bottom":
+        return inlayEdgesToWires(inlay, b)
+
+    return None
+
+
+# Primary component functions
+def execute():
+    global groupObject
+    tool = PsuedoTool()
+    obj = PsuedoObject()
+    obj.setTool(tool)
+
+    # Get GUI face selection
+    # base = FreeCADGui.Selection.getSelection()[0]
+    # baseName = base.Name
+    sel = FreeCADGui.Selection.getSelectionEx()
+    base = sel[0].Object
+    # baseName = base.Name
+    groupObject.Label = f"Group_{base.Label}"
+    subs = sel[0].SubElementNames
+    edgeNames, faceNames = getFeatureNames(base, subs)
+
+    halfToolAngle = tool.ToolAngleDegrees / 2.0
+    # logText("Base Name: {}".format(baseName))
+    logText("len(subs): {}".format(len(subs)))
+    logText("subs: {}".format(subs))
+
+    wires, heights = makeWireHeightTups(base, edgeNames, faceNames, obj.DiscretizeValue)
+
+    dataTups = []
+    for i in range(len(wires)):
+        rw = wires[i]
+        ht = heights[i]
+        cw = WireUtils.isWireClockwise(rw)
+        logText(f"Original wire clockwise: {cw}")
+        if rw.isClosed():
+            outside = False if cw else True
+        else:
+            outside = True if cw else False
+        # Regular inside
+        if obj.MakeBottom:
+            dataTups.append((rw, ht, cw, False, "B"))
+        # Flipped over Y-axis for top of inlay
+        if obj.InlayPad > 0.0:  # and rw.isClosed():
+            dataTups.append((rotateShape180(rw), ht, cw, outside, "T"))
+
+    inlayTups = makeRawInlayTups(obj, dataTups, halfToolAngle)
+
+    shapes = []
+    last = None
+    for btmOrTop, loop, shp, botFace, botSolid in inlayTups:
+        if btmOrTop == "B":
+            part = "Pocket"
+        else:
+            part = "Plug"
+        show(shp, f"Inlay{part}", True)
+        if botSolid:
+            show(botSolid, f"Inlay{part}_Bottom", True)
+        # show(botFace, f"Inlay{part}_Bottom", True)
+        if last is None:
+            last = shp
+        else:
+            try:
+                shapes.append(last.fuse(shp).removeSplitter())
+            except Exception as ee:
+                logText(f"{ee}", force=True)
+                shapes.append(last.fuse(shp))
+            # shapes.append(last.fuse(shp))
+
+        if obj.MakePaths:
+            if btmOrTop == "B":
+                wire = identifyInsideInlayPathWires(shp, obj.WireType)
+            else:
+                wire = identifyOutsideInlayPathWires(shp, obj.WireType)
+
+            if wire:
+                show(wire, f"PathWire_{part}", True)
+
+        """
+        if MAKE_BACKGROUND:
+            if inOut == "in":
+                background = Part.Face(loop)
+                background.translate(
+                    FreeCAD.Vector(
+                        0.0, 0.0, shp.BoundBox.ZMin - background.BoundBox.ZMin
+                    )
+                )
+                show(background, "BackInside", True)
+            else:
+                background = botFace.cut(Part.Face(loop))
+                background.translate(
+                    FreeCAD.Vector(
+                        0.0,
+                        0.0,
+                        inlayFaces.BoundBox.ZMin - background.BoundBox.ZMin,
+                    )
+                )
+                show(background, "BackOutside", True)"""
+    # Efor
+
+    for s in shapes:
+        show2(s, f"Whole", True)
+
+
+print("\n\n\n\n\n")
+print("Begin Inlay version 20")
+
+groupObject = FreeCAD.ActiveDocument.addObject("App::DocumentObjectGroup", "Group")
+pathGroupObj = FreeCAD.ActiveDocument.addObject("App::DocumentObjectGroup", "Group")
+pathGroupObj.Label = "PathWires"
+groupObject.addObject(pathGroupObj)
+if DEBUG_ALL:
+    DEBUG = True
+    DEBUG_SHP = True
+
+execute()
+del groupObject
+del pathGroupObj
