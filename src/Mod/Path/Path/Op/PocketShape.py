@@ -153,9 +153,9 @@ class ObjectPocket(PathPocketBase.ObjectPocket):
             # Move all faces to final depth less buffer before extrusion
             # Small negative buffer is applied to compensate for internal significant digits/rounding issue
             if self.job.GeometryTolerance.Value == 0.0:
-                buffer = 0.000001
+                buffer = 0.001
             else:
-                buffer = self.job.GeometryTolerance.Value / 10.0
+                buffer = self.job.GeometryTolerance.Value / 2.0
             for h in self.horizontal:
                 h.translate(
                     FreeCAD.Vector(
