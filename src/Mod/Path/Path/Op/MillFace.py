@@ -192,7 +192,7 @@ class ObjectFace(PathPocketBase.ObjectPocket):
                             )
                         )
 
-            if obj.ExcludeRaisedAreas and len(holes) > 0:
+            if obj.ExcludeRaisedAreas or len(holes) > 0:
                 for shape, wire in holes:
                     f = Part.makeFace(wire, "Part::FaceMakerSimple")
                     env = PathUtils.getEnvelope(
@@ -293,9 +293,10 @@ class ObjectFace(PathPocketBase.ObjectPocket):
             # Calculate custom depth params for removal shape envelope, with start and final depth buffers
             custDepthparams = self._customDepthParams(
                 obj, obj.StartDepth.Value + 0.2, obj.FinalDepth.Value - 0.1
-            )  # only an envelope
+            )
             ofstShapeEnv = PathUtils.getEnvelope(
-                partshape=ofstShape, depthparams=custDepthparams
+                partshape=ofstShape,
+                depthparams=custDepthparams,
             )
             if obj.ExcludeRaisedAreas:
                 env = ofstShapeEnv.cut(baseShape)
@@ -307,8 +308,12 @@ class ObjectFace(PathPocketBase.ObjectPocket):
 
         if holeShape:
             Path.Log.debug("Processing holes and face ...")
+            # Calculate custom depth params for removal shape envelope, with start and final depth buffers
+            custDepthparams = self._customDepthParams(
+                obj, obj.StartDepth.Value + 0.2, obj.FinalDepth.Value - 0.1
+            )
             holeEnv = PathUtils.getEnvelope(
-                partshape=holeShape, depthparams=self.depthparams
+                partshape=holeShape, depthparams=custDepthparams
             )
             newEnv = env.cut(holeEnv)
             tup = newEnv, False, "pathMillFace"
