@@ -264,6 +264,22 @@ class ObjectPocket(PathPocketBase.ObjectPocket):
             else:
                 Path.Log.error("Failed to identify vertical face from {}".format(sub))
 
+        elif type(face.Surface) == Part.BSplineSurface:
+            Path.Log.debug("type() == Part.BSplineSurface")
+            if Path.Geom.isVertical(face.normalAt(0, 0)):
+                Path.Log.debug("  -isVertical()")
+                # it's a flat horizontal face
+                self.horiz.append(face)
+                return True
+
+            elif Path.Geom.isHorizontal(face.normalAt(0, 0)):
+                Path.Log.debug("  -isHorizontal()")
+                self.vert.append(face)
+                return True
+
+            else:
+                return False
+
         else:
             Path.Log.debug("  -type(face.Surface): {}".format(type(face.Surface)))
             return False
