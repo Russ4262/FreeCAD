@@ -204,15 +204,40 @@ class _CopyOperation:
         try:
             for sel in FreeCADGui.Selection.getSelectionEx():
                 if not isinstance(sel.Object.Proxy, Path.Op.Base.ObjectOp):
-                    return False
+                    if not sel.Object.Name.startswith("Dressup"):
+                        return False
             return True
         except (IndexError, AttributeError):
             return False
 
+    def _getDressupMembers(self, obj):
+        objList = []
+        o = obj
+        while hasattr(o, "Base") and not isinstance(o.Base, list):
+            objList.append(o.Name)
+            o = o.Base
+        objList.append(o.Name)
+        objList.reverse()
+        return objList
+
     def Activated(self):
         for sel in FreeCADGui.Selection.getSelectionEx():
             jobname = findParentJob(sel.Object).Name
-            addToJob(FreeCAD.ActiveDocument.copyObject(sel.Object, False), jobname)
+            if sel.Object.Name.startswith("Dressup"):
+                memberNames = self._getDressupMembers(sel.Object)
+                base = FreeCAD.ActiveDocument.copyObject(
+                    FreeCAD.ActiveDocument.getObject(memberNames[0]), False
+                )
+                for nm in memberNames[1:]:
+                    newDressup = FreeCAD.ActiveDocument.copyObject(
+                        FreeCAD.ActiveDocument.getObject(nm), False
+                    )
+                    newDressup.Base = base
+                    base = newDressup
+                addToJob(base, jobname)
+            else:
+                addToJob(FreeCAD.ActiveDocument.copyObject(sel.Object, False), jobname)
+        FreeCAD.ActiveDocument.recompute()
 
 
 if FreeCAD.GuiUp:
